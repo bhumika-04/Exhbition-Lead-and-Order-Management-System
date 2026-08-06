@@ -64,11 +64,15 @@ export default function BarcodeScanner({
   onChange,
   placeholder = 'Scan or type barcode',
   label,
+  autoStart = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   label?: string;
+  /** Opens the camera on mount — for a dedicated "scan" screen where pressing
+   *  a second button to begin would be redundant. */
+  autoStart?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -217,6 +221,14 @@ export default function BarcodeScanner({
       stop();
     }
   }, [decoder, startNative, startZxing, stop]);
+
+  // Waits for `decoder` so the correct path is chosen; runs once.
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (!autoStart || decoder === null || autoStarted.current) return;
+    autoStarted.current = true;
+    start();
+  }, [autoStart, decoder, start]);
 
   return (
     <div className="w-full">

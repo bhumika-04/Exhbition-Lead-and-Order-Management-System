@@ -1,41 +1,53 @@
 'use client';
 
+/**
+ * Place order — step 1 (items).
+ *
+ * Built for speed at a counter: one Scan button adds a row, and the only things
+ * on that row are the three that actually vary per piece — quantity, colour and
+ * size. Everything else the catalogue already knows, and lives behind Edit.
+ */
+
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
-import { ArrowLeft, Plus, Trash2, Loader2, ShoppingBag, Ticket } from 'lucide-react';
+import {
+  ArrowLeft, ScanLine, Trash2, Loader2, ShoppingBag, Pencil,
+  Plus, Minus, X, ImageIcon, PackagePlus,
+} from 'lucide-react';
 import { api } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
-import { ORDER_ITEM_TYPES, type LeadDetails, type LeadOrderSummary, type Product } from '@/lib/types';
-import BarcodeScanner from '@/components/BarcodeScanner';
+import {
+  ORDER_ITEM_TYPES, PRODUCT_CATEGORIES, takesCategory, takesSize,
+  type LeadDetails, type LeadOrderSummary, type Product,
+} from '@/lib/types';
+import { money } from '@/lib/orders';
+import { apiErrorMessage } from '@/lib/apiError';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { money } from '@/lib/orders';
+import BarcodeScanner from '@/components/BarcodeScanner';
 
-interface ItemRow {
-  item_type: string;
+interface Row {
+  key: string;
+  productId: number | null;
+  imagePath: string | null;
+  name: string;              // what the row is called
+  itemType: string;
+  category: string | null;
   barcode: string;
-  size: string;
+  fabric: string;
+  // The three the operator actually changes
+  pieces: number;
   colour: string;
-  pieces: string;
+  size: string;
+  // Behind Edit
   rate: string;
   customization: string;
-  product?: Product | null;      // resolved from the barcode
-  lookupError?: string | null;
-  looking?: boolean;
 }
 
-const emptyRow = (): ItemRow => ({
-  item_type: ORDER_ITEM_TYPES[0],
-  barcode: '',
-  size: '',
-  colour: '',
-  pieces: '1',
-  rate: '',
-  customization: '',
-  product: null,
-});
+let rowSeq = 0;
+const newKey = () => `row-${++rowSeq}-${Date.now()}`;
 
 export default function PlaceOrderPage() {
   const router = useRouter();
@@ -44,128 +56,140 @@ export default function PlaceOrderPage() {
 
   const [lead, setLead] = useState<LeadDetails | null>(null);
   const [existing, setExisting] = useState<LeadOrderSummary | null>(null);
-  const [rows, setRows] = useState<ItemRow[]>([emptyRow()]);
+  const [rows, setRows] = useState<Row[]>([]);
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanBusy, setScanBusy] = useState(false);
+  const [editKey, setEditKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated()) { router.push('/auth/login'); return; }
     (async () => {
       try {
-        const [l, s] = await Promise.all([
-          api.getLead(leadId),
-          api.getLeadOrderSummary(leadId),
-        ]);
+        const [l, s] = await Promise.all([api.getLead(leadId), api.getLeadOrderSummary(leadId)]);
         setLead(l);
         setExisting(s);
       } catch {
         toast.error('Could not load lead');
-      } finally {
-        setLoading(false);
-      }
+      } finally { setLoading(false); }
     })();
   }, [leadId, router]);
 
-  const setRow = (i: number, patch: Partial<ItemRow>) =>
-    setRows(rs => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const patch = (key: string, p: Partial<Row>) =>
+    setRows(rs => rs.map(r => (r.key === key ? { ...r, ...p } : r)));
 
-  /**
-   * Resolves a scanned barcode against the Product Master and fills the line.
-   * The rate is prefilled from the catalogue but stays editable — discounts are
-   * agreed at the counter, and the server re-reads the product anyway.
-   */
-  const lookupBarcode = async (i: number, barcode: string) => {
+  const remove = (key: string) => setRows(rs => rs.filter(r => r.key !== key));
+
+  const rowFromProduct = (p: Product): Row => ({
+    key: newKey(),
+    productId: p.product_id,
+    imagePath: p.image_path ?? null,
+    name: p.name || [p.category, p.product_type].filter(Boolean).join(' '),
+    itemType: p.product_type,
+    category: p.category ?? null,
+    barcode: p.barcode,
+    fabric: p.fabric ?? '',
+    pieces: 1,
+    colour: p.colour ?? '',
+    size: p.size ?? '',
+    rate: p.price != null ? String(p.price) : '',
+    customization: '',
+  });
+
+  const blankRow = (barcode = ''): Row => ({
+    key: newKey(),
+    productId: null,
+    imagePath: null,
+    name: ORDER_ITEM_TYPES[0],
+    itemType: ORDER_ITEM_TYPES[0],
+    category: null,
+    barcode,
+    fabric: '',
+    pieces: 1,
+    colour: '',
+    size: '',
+    rate: '',
+    customization: '',
+  });
+
+  /** A scan adds a row outright — no intermediate form to fill in. */
+  const onScanned = async (barcode: string) => {
     const code = barcode.trim();
-    setRow(i, { barcode: code, product: null, lookupError: null });
-    if (!code) return;
+    if (!code || scanBusy) return;
 
-    setRow(i, { looking: true });
+    setScanBusy(true);
     try {
-      const p = await api.getProductByBarcode(code);
-      setRow(i, {
-        product: p,
-        item_type: p.product_type,
-        size: p.size ?? '',
-        colour: p.colour ?? '',
-        rate: String(p.price ?? ''),
-        looking: false,
-        lookupError: null,
-      });
+      const product = await api.getProductByBarcode(code);
+      const row = rowFromProduct(product);
+      setRows(rs => [...rs, row]);
+      setScanOpen(false);
+      toast.success(`Added ${row.name}`);
     } catch (err: any) {
-      setRow(i, {
-        looking: false,
-        lookupError: err.response?.status === 404
-          ? 'No product with that barcode — enter the details by hand'
-          : 'Could not check that barcode',
-      });
-    }
+      if (err?.response?.status === 404) {
+        // Unknown code still becomes a row — losing the scan would be worse
+        // than an incomplete line. Edit opens so it can be completed.
+        const row = blankRow(code);
+        setRows(rs => [...rs, row]);
+        setScanOpen(false);
+        setEditKey(row.key);
+        toast(`${code} isn't in the catalogue — add the details`, { icon: 'ℹ️' });
+      } else {
+        toast.error(apiErrorMessage(err, 'Could not look that barcode up'));
+      }
+    } finally { setScanBusy(false); }
   };
 
-  const addRow = () => setRows(rs => [...rs, emptyRow()]);
-  const removeRow = (i: number) =>
-    setRows(rs => (rs.length === 1 ? rs : rs.filter((_, idx) => idx !== i)));
+  const addManual = () => {
+    const row = blankRow();
+    setRows(rs => [...rs, row]);
+    setEditKey(row.key);
+  };
 
-  const lineAmount = (r: ItemRow) => {
-    const pcs = parseInt(r.pieces);
+  const lineAmount = (r: Row) => {
     const rate = parseFloat(r.rate);
-    if (!Number.isFinite(pcs) || !Number.isFinite(rate)) return 0;
-    return Math.max(0, pcs) * Math.max(0, rate);
+    return Number.isFinite(rate) ? Math.max(0, rate) * Math.max(0, r.pieces) : 0;
   };
 
-  const orderTotal = rows.reduce((sum, r) => sum + lineAmount(r), 0);
+  const itemsTotal = rows.reduce((s, r) => s + lineAmount(r), 0);
   const anyPriced = rows.some(r => r.rate.trim() !== '');
-  const priorTotal = existing?.lead_total ?? 0;
+  const totalPieces = rows.reduce((s, r) => s + r.pieces, 0);
 
   const save = async () => {
-    const items = rows
-      .map(r => {
-        // Rate is optional — an unpriced line is valid, because the order value
-        // can come from the slab chosen on the next step instead.
-        const rateRaw = r.rate.trim();
-        const rate = rateRaw === '' ? null : parseFloat(rateRaw);
-        return {
-          item_type: r.item_type.trim(),
-          barcode: r.barcode.trim() || null,
-          size: r.size.trim() || null,
-          colour: r.colour.trim() || null,
-          pieces: parseInt(r.pieces),
-          rate,
-          customization: r.customization.trim() || null,
-          // The server re-reads the product and snapshots it onto the line.
-          product_id: r.product?.product_id ?? null,
-        };
-      })
-      .filter(i => i.item_type);
+    if (rows.length === 0) { toast.error('Scan at least one item'); return; }
 
-    if (items.length === 0) { toast.error('Add at least one item'); return; }
-    for (const [i, item] of items.entries()) {
-      if (!Number.isFinite(item.pieces) || item.pieces <= 0) {
-        toast.error(`Line ${i + 1}: pieces must be at least 1`); return;
-      }
-      if (item.rate !== null && (!Number.isFinite(item.rate) || item.rate < 0)) {
-        toast.error(`Line ${i + 1}: enter a valid rate or leave it blank`); return;
-      }
-    }
+    const items = rows.map(r => {
+      const rate = r.rate.trim() === '' ? null : parseFloat(r.rate);
+      return {
+        item_type: r.itemType,
+        barcode: r.barcode.trim() || null,
+        size: r.size.trim() || null,
+        colour: r.colour.trim() || null,
+        pieces: r.pieces,
+        rate: rate !== null && Number.isFinite(rate) ? rate : null,
+        customization: r.customization.trim() || null,
+        product_id: r.productId,
+      };
+    });
 
     setSaving(true);
     try {
       const res = await api.createOrder({ lead_id: leadId, items, notes: notes.trim() || null });
       toast.success('Order created');
       router.push(`/orders/${res.order_id}`);
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Could not create order');
-    } finally {
-      setSaving(false);
-    }
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Could not create the order'));
+    } finally { setSaving(false); }
   };
 
+  const editing = rows.find(r => r.key === editKey) ?? null;
+
   if (loading) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <Loader2 className="w-6 h-6 animate-spin text-slate-300" />
-      </div>
-    );
+    return <div className="flex-1 flex items-center justify-center">
+      <Loader2 className="w-6 h-6 animate-spin text-slate-300" />
+    </div>;
   }
 
   return (
@@ -175,174 +199,386 @@ export default function PlaceOrderPage() {
         <button onClick={() => router.back()} className="p-1.5 -ml-1.5 rounded-lg hover:bg-slate-100">
           <ArrowLeft className="w-5 h-5 text-slate-600" />
         </button>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="text-sm font-bold text-slate-900 truncate">Place Order</p>
           <p className="text-[11px] text-slate-400 truncate">
             {lead?.primary_visitor_name || 'Lead'}
             {lead?.company_name ? ` · ${lead.company_name}` : ''}
           </p>
         </div>
+        {rows.length > 0 && (
+          <span className="text-[11px] font-semibold text-slate-500 shrink-0">
+            {rows.length} item{rows.length === 1 ? '' : 's'} · {totalPieces} pc
+          </span>
+        )}
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 md:px-6 py-5 space-y-4">
-        {/* Items */}
-        {rows.map((row, i) => (
-          <Card key={i} className="border-slate-200">
-            <CardContent className="p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
-                  Item {i + 1}
-                </span>
-                {rows.length > 1 && (
-                  <button
-                    onClick={() => removeRow(i)}
-                    className="text-slate-300 hover:text-rose-500 transition-colors"
-                    aria-label={`Remove item ${i + 1}`}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+      <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4 space-y-3">
+        {/* Scan — the primary action, deliberately large */}
+        <button
+          onClick={() => setScanOpen(true)}
+          className="w-full h-16 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-semibold flex items-center justify-center gap-2.5 transition-colors shadow-sm"
+        >
+          <ScanLine className="w-6 h-6" />
+          <span className="text-base">Scan item</span>
+        </button>
+
+        {rows.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-12 text-center">
+            <PackagePlus className="w-10 h-10 text-slate-200" />
+            <p className="text-sm text-slate-400">Scan a tag to add the first item</p>
+            <button onClick={addManual} className="text-xs text-blue-600 hover:underline mt-1">
+              or add one without a barcode
+            </button>
+          </div>
+        ) : (
+          <>
+            {rows.map(r => (
+              <motion.div
+                key={r.key}
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-xl border border-slate-200 bg-white p-3"
+              >
+                <div className="flex gap-3">
+                  <div className="w-12 h-14 rounded-lg bg-slate-100 shrink-0 overflow-hidden flex items-center justify-center">
+                    {r.imagePath
+                      ? <img src={api.uploadUrl(r.imagePath)} alt="" className="w-full h-full object-cover" />
+                      : <ImageIcon className="w-4 h-4 text-slate-300" />}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-slate-900 truncate">{r.name}</p>
+                        <p className="text-[11px] font-mono text-slate-400 truncate">
+                          {r.barcode || 'no barcode'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <button onClick={() => setEditKey(r.key)} aria-label="Edit item"
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50">
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => remove(r.key)} aria-label="Remove item"
+                                className="p-1.5 rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* The only three fields that vary per piece */}
+                    <div className="flex items-end gap-2 mt-2">
+                      <div>
+                        <span className="text-[10px] text-slate-400 block mb-0.5">Qty</span>
+                        <div className="flex items-center h-9 rounded-lg border border-slate-200 bg-white">
+                          <button
+                            onClick={() => patch(r.key, { pieces: Math.max(1, r.pieces - 1) })}
+                            aria-label="Decrease quantity"
+                            className="w-8 h-full flex items-center justify-center text-slate-400 hover:text-slate-700"
+                          >
+                            <Minus className="w-3.5 h-3.5" />
+                          </button>
+                          <span className="w-7 text-center text-sm font-semibold text-slate-800">{r.pieces}</span>
+                          <button
+                            onClick={() => patch(r.key, { pieces: r.pieces + 1 })}
+                            aria-label="Increase quantity"
+                            className="w-8 h-full flex items-center justify-center text-slate-400 hover:text-slate-700"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <MiniField label="Colour" value={r.colour}
+                                 onChange={v => patch(r.key, { colour: v })} placeholder="—" />
+
+                      {/* Sarees and stitched pieces carry no size */}
+                      {takesSize(r.itemType, r.category) || r.productId === null ? (
+                        <MiniField label="Size" value={r.size}
+                                   onChange={v => patch(r.key, { size: v })} placeholder="—" />
+                      ) : (
+                        <div className="flex-1">
+                          <span className="text-[10px] text-slate-400 block mb-0.5">Size</span>
+                          <div className="h-9 flex items-center text-[11px] text-slate-400">
+                            {r.category === 'Stitched' ? 'made to measure' : 'n/a'}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="text-right shrink-0 pb-1.5">
+                        <span className="text-[10px] text-slate-400 block">Amount</span>
+                        <span className="text-sm font-bold text-slate-900">
+                          {r.rate.trim() === '' ? '—' : money(lineAmount(r))}
+                        </span>
+                      </div>
+                    </div>
+
+                    {r.customization && (
+                      <p className="text-[11px] text-slate-500 italic mt-1.5 truncate">{r.customization}</p>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+
+            <button onClick={addManual}
+                    className="w-full h-10 rounded-xl border border-dashed border-slate-300 text-xs font-medium text-slate-500 hover:bg-white transition-colors">
+              Add item without a barcode
+            </button>
+          </>
+        )}
+
+        {rows.length > 0 && (
+          <>
+            <Card className="border-slate-200">
+              <CardContent className="p-4 space-y-2">
+                {anyPriced ? (
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-slate-500">Items total</span>
+                    <span className="text-base font-bold text-slate-900">{money(itemsTotal)}</span>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-400">
+                    No prices yet — the order value comes from the slab you pick next.
+                  </p>
                 )}
-              </div>
+                {(existing?.order_count ?? 0) > 0 && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-[11px] text-slate-400">
+                      Existing orders ({existing?.order_count})
+                    </span>
+                    <span className="text-xs text-slate-500">{money(existing?.lead_total ?? 0)}</span>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
-              <div className="grid grid-cols-2 gap-3">
-                <label className="col-span-2 text-xs">
-                  <span className="text-slate-500 font-medium">Type</span>
-                  <select
-                    value={row.item_type}
-                    onChange={e => setRow(i, { item_type: e.target.value })}
-                    className="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm"
-                  >
-                    {ORDER_ITEM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                </label>
+            <label className="block text-xs">
+              <span className="text-slate-500 font-medium">Order notes (optional)</span>
+              <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
+                        className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm resize-none"
+                        placeholder="Anything to record against this order" />
+            </label>
 
-                <div className="col-span-2">
-                  <BarcodeScanner
-                    label="Barcode"
-                    value={row.barcode}
-                    onChange={v => lookupBarcode(i, v)}
-                  />
-                  {row.looking && (
-                    <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1.5">
-                      <Loader2 className="w-3 h-3 animate-spin" /> Looking that up…
-                    </p>
-                  )}
-                  {row.lookupError && (
-                    <p className="text-[11px] text-amber-700 mt-1">{row.lookupError}</p>
-                  )}
-                  {row.product && (
-                    <p className="text-[11px] text-emerald-700 mt-1">
-                      {[row.product.name || row.product.product_type, row.product.category,
-                        row.product.fabric].filter(Boolean).join(' · ')} — filled from the catalogue
-                    </p>
-                  )}
-                </div>
-                <Field label="Size"   value={row.size}   onChange={v => setRow(i, { size: v })} />
-                <Field label="Colour" value={row.colour} onChange={v => setRow(i, { colour: v })} />
-                <Field label="Pieces" value={row.pieces} onChange={v => setRow(i, { pieces: v })}
-                       type="number" inputMode="numeric" min="1" />
-                <Field label="Rate (₹) — optional" value={row.rate} onChange={v => setRow(i, { rate: v })}
-                       type="number" inputMode="decimal" min="0" placeholder="Leave blank" />
-                <Field label="Customization" value={row.customization}
-                       onChange={v => setRow(i, { customization: v })}
-                       placeholder="Alterations, notes…" className="col-span-2" />
-              </div>
+            <motion.div whileTap={{ scale: 0.99 }}>
+              <Button onClick={save} disabled={saving} className="w-full h-12 gap-2 text-sm font-semibold">
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShoppingBag className="w-4 h-4" />}
+                {saving ? 'Creating…' : 'Continue to payment'}
+              </Button>
+            </motion.div>
+          </>
+        )}
 
-              {row.rate.trim() !== '' && (
-                <div className="flex justify-between items-center pt-1 border-t border-slate-100">
-                  <span className="text-[11px] text-slate-400">Line amount</span>
-                  <span className="text-sm font-bold text-slate-800">{money(lineAmount(row))}</span>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        ))}
-
-        <Button variant="outline" onClick={addRow} className="w-full gap-2 h-11 border-dashed">
-          <Plus className="w-4 h-4" /> Add another item
-        </Button>
-
-        {/* Notes */}
-        <label className="block text-xs">
-          <span className="text-slate-500 font-medium">Order notes (optional)</span>
-          <textarea
-            value={notes}
-            onChange={e => setNotes(e.target.value)}
-            rows={2}
-            className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm resize-none"
-            placeholder="Anything to record against this order"
-          />
-        </label>
-
-        {/* Running totals. Slab, advance and coupons are chosen on the next
-            step, so this card deliberately shows no coupon figure yet. */}
-        <Card className="border-slate-200 bg-white">
-          <CardContent className="p-4 space-y-2">
-            {anyPriced ? (
-              <Row label="Items total" value={money(orderTotal)} bold />
-            ) : (
-              <p className="text-[11px] text-slate-400">
-                No rates entered — the order value comes from the slab you pick next.
-              </p>
-            )}
-            {priorTotal > 0 && (
-              <Row label={`Existing orders (${existing?.order_count})`} value={money(priorTotal)} muted />
-            )}
-            <div className="flex items-center gap-2 pt-2 mt-1 border-t border-slate-100">
-              <Ticket className="w-3.5 h-3.5 text-slate-300 shrink-0" />
-              <span className="text-[11px] text-slate-400">
-                Next: choose the value slab and record the advance — coupons follow the advance taken.
-              </span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <motion.div whileTap={{ scale: 0.99 }}>
-          <Button onClick={save} disabled={saving} className="w-full h-12 gap-2 text-sm font-semibold">
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShoppingBag className="w-4 h-4" />}
-            {saving ? 'Creating…' : 'Continue to payment'}
-          </Button>
-        </motion.div>
+        <div className="md:hidden h-20" />
       </div>
+
+      {/* Scan sheet */}
+      <AnimatePresence>
+        {scanOpen && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+            onClick={() => setScanOpen(false)}
+          >
+            <motion.div
+              initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 space-y-3"
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-bold text-slate-900">Scan the tag</p>
+                <button onClick={() => setScanOpen(false)} className="p-1 rounded-lg hover:bg-slate-100">
+                  <X className="w-4 h-4 text-slate-400" />
+                </button>
+              </div>
+
+              <BarcodeScanner
+                value=""
+                autoStart
+                onChange={onScanned}
+                placeholder="or type the barcode"
+              />
+
+              {scanBusy && (
+                <p className="text-[11px] text-slate-400 flex items-center gap-1.5">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Looking it up…
+                </p>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Full detail for one row */}
+      <AnimatePresence>
+        {editing && (
+          <EditItemSheet
+            row={editing}
+            onChange={p => patch(editing.key, p)}
+            onClose={() => setEditKey(null)}
+            onRemove={() => { remove(editing.key); setEditKey(null); }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
-function Field({
-  label, value, onChange, type = 'text', placeholder, className = '', inputMode, min,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  type?: string;
-  placeholder?: string;
-  className?: string;
-  inputMode?: 'numeric' | 'decimal';
-  min?: string;
+function MiniField({ label, value, onChange, placeholder }: {
+  label: string; value: string; onChange: (v: string) => void; placeholder?: string;
 }) {
   return (
-    <label className={`text-xs ${className}`}>
-      <span className="text-slate-500 font-medium">{label}</span>
+    <label className="flex-1 min-w-0">
+      <span className="text-[10px] text-slate-400 block mb-0.5">{label}</span>
       <input
-        type={type}
-        inputMode={inputMode}
-        min={min}
         value={value}
-        placeholder={placeholder}
         onChange={e => onChange(e.target.value)}
-        className="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm"
+        placeholder={placeholder}
+        className="w-full h-9 px-2 rounded-lg border border-slate-200 bg-white text-sm text-center"
       />
     </label>
   );
 }
 
-function Row({ label, value, bold, muted }: {
-  label: string; value: string; bold?: boolean; muted?: boolean;
+/** Everything the row hides. Opened by Edit, or automatically for an unknown barcode. */
+function EditItemSheet({ row, onChange, onClose, onRemove }: {
+  row: Row;
+  onChange: (p: Partial<Row>) => void;
+  onClose: () => void;
+  onRemove: () => void;
 }) {
+  const fromCatalogue = row.productId !== null;
+
   return (
-    <div className="flex justify-between items-center">
-      <span className={`text-xs ${muted ? 'text-slate-400' : 'text-slate-500'}`}>{label}</span>
-      <span className={bold ? 'text-base font-bold text-slate-900' : 'text-sm text-slate-700'}>{value}</span>
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      onClick={onClose}
+      className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+    >
+      <motion.div
+        initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }}
+        onClick={e => e.stopPropagation()}
+        className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[88vh] overflow-y-auto"
+      >
+        <div className="sticky top-0 bg-white flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <p className="text-sm font-bold text-slate-900">Item details</p>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100">
+            <X className="w-4 h-4 text-slate-400" />
+          </button>
+        </div>
+
+        <div className="px-5 py-4 space-y-3">
+          {fromCatalogue && (
+            <p className="text-[11px] text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
+              From the catalogue. Changes here apply to this order only — they do not
+              alter the product.
+            </p>
+          )}
+
+          <Field label="Barcode">
+            <input value={row.barcode} onChange={e => onChange({ barcode: e.target.value })}
+                   className="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm font-mono" />
+          </Field>
+
+          <Field label="Type">
+            <div className="flex gap-2">
+              {ORDER_ITEM_TYPES.map(t => (
+                <button key={t}
+                  onClick={() => onChange({
+                    itemType: t,
+                    // Sarees carry no category or size; drop them on switch.
+                    category: takesCategory(t) ? (row.category ?? 'Readymade') : null,
+                    size: takesSize(t, takesCategory(t) ? row.category : null) ? row.size : '',
+                  })}
+                  className={`flex-1 h-10 rounded-lg text-sm font-medium transition-colors ${
+                    row.itemType === t ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}>
+                  {t}
+                </button>
+              ))}
+            </div>
+          </Field>
+
+          {takesCategory(row.itemType) && (
+            <Field label="Category">
+              <div className="flex gap-2">
+                {PRODUCT_CATEGORIES.map(c => (
+                  <button key={c}
+                    onClick={() => onChange({ category: c, size: c === 'Readymade' ? row.size : '' })}
+                    className={`flex-1 h-10 rounded-lg text-sm font-medium transition-colors ${
+                      row.category === c ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}>
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </Field>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Colour">
+              <input value={row.colour} onChange={e => onChange({ colour: e.target.value })}
+                     className="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm" />
+            </Field>
+            {takesSize(row.itemType, row.category) ? (
+              <Field label="Size">
+                <input value={row.size} onChange={e => onChange({ size: e.target.value })}
+                       className="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm" />
+              </Field>
+            ) : (
+              <Field label="Size">
+                <div className="h-10 flex items-center text-[11px] text-slate-400">
+                  {row.category === 'Stitched' ? 'Made to measure' : 'Not applicable'}
+                </div>
+              </Field>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Fabric">
+              <input value={row.fabric} onChange={e => onChange({ fabric: e.target.value })}
+                     className="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm" />
+            </Field>
+            <Field label="Pieces">
+              <input type="number" inputMode="numeric" min={1} value={row.pieces}
+                     onChange={e => onChange({ pieces: Math.max(1, parseInt(e.target.value) || 1) })}
+                     className="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm" />
+            </Field>
+          </div>
+
+          <Field label="Rate (₹) — optional">
+            <input type="number" inputMode="decimal" min={0} value={row.rate}
+                   onChange={e => onChange({ rate: e.target.value })}
+                   placeholder="Leave blank to price by slab"
+                   className="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm" />
+          </Field>
+
+          <Field label="Customization">
+            <textarea value={row.customization} rows={2}
+                      onChange={e => onChange({ customization: e.target.value })}
+                      placeholder="Alterations, special instructions…"
+                      className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm resize-none" />
+          </Field>
+        </div>
+
+        <div className="sticky bottom-0 bg-white flex gap-2 px-5 py-4 border-t border-slate-100">
+          <Button variant="outline" onClick={onRemove}
+                  className="h-10 gap-1.5 text-xs text-rose-600 border-rose-200 hover:bg-rose-50">
+            <Trash2 className="w-3.5 h-3.5" /> Remove
+          </Button>
+          <Button onClick={onClose} className="flex-1 h-10 text-sm">Done</Button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <span className="text-xs text-slate-500 font-medium">{label}</span>
+      <div className="mt-1">{children}</div>
     </div>
   );
 }
