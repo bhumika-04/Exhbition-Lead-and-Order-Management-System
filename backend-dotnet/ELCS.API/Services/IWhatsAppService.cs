@@ -17,6 +17,16 @@ public interface IWhatsAppService
     /// marketing templates the other touchpoints use.
     /// </summary>
     Task<WhatsAppSendResult> SendOtpAsync(string mobile10, string code, int expiryMinutes);
+
+    /// <summary>
+    /// Touchpoint #1 — welcome, sent automatically when a lead is created.
+    /// Carries the lead's team photo when one exists, plus the social links
+    /// configured in Settings.
+    /// </summary>
+    Task<WhatsAppSendResult> SendWelcomeAsync(int leadId, string? name, string? phone, string? photoUrl);
+
+    /// <summary>Touchpoint #3 — testimonial, sent manually from the lead page.</summary>
+    Task<WhatsAppSendResult> SendTestimonialAsync(int leadId, string? name, string? phone, string testimonialUrl);
 }
 
 public static class WhatsAppTouchpoints

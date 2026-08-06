@@ -9,7 +9,8 @@ A lead management system for capturing and managing visitor information at exhib
 | Backend | ASP.NET Core 10 (C#), Dapper, SQL Server |
 | Frontend | Next.js 14 (React + TypeScript), Tailwind CSS |
 | AI — Card OCR | OpenAI GPT-4o-mini (Vision API, 4 rotations) |
-| AI — Voice | OpenAI Whisper (`whisper-1`) |
+| WhatsApp | Interakt (order confirmation, welcome, testimonial, OTP) |
+| PDF | QuestPDF (Sales Order) |
 | Logging | Serilog |
 | Hosting | Backend on AWS EC2, Frontend on Vercel |
 
@@ -19,8 +20,9 @@ Single-tenant: one deployment serves one company. All users of a deployment shar
 
 - **Visiting Card Scanning** — Upload front and/or back image; GPT-4o-mini extracts all contact fields. Preview before saving.
 - **Mandatory Services** — Services/products are required at scan time; prompted if not on the card.
-- **Voice Notes** — Record discussion summaries; Whisper transcribes, GPT analyzes (segment, priority, summary).
 - **Duplicate Detection** — Phone / email / name+company similarity scoring before a lead is saved.
+- **Team Photo** — Capture, upload, or link a photo of the lead with the team; one or many per lead.
+- **Testimonial** — Drive link against the lead, sent on WhatsApp with a custom message.
 - **Lead Segmentation** — Auto-categorized: `decision_maker`, `influencer`, `researcher`, `general`.
 - **Filters** — Leads and Report pages filter by exhibition, status, priority, source, state/city, services, date range, plus **Category** and **Vertical** (dropdowns) and **Turn-over / Team-size** (Min–Max numeric ranges parsed from the free-text values).
 - **Classification Fields** — Category, Vertical, Turn-over, Team-size are inline-editable on the Report table and the Lead Detail page, and shown as chips on lead cards.
@@ -373,8 +375,24 @@ Profile read/update is restricted to the profile's owner (matched on the `X-Empl
 POST /api/extraction/card/preview    Extract without creating lead (returns temp_id)
 POST /api/extraction/card/confirm    Confirm + save lead (moves temp images)
 POST /api/extraction/card            Direct extract + save (legacy)
-POST /api/extraction/voice           Transcribe + analyze voice note
-POST /api/extraction/voice/confirm   Persist voice analysis to lead
+```
+
+### Lead media & WhatsApp
+```
+GET    /api/leads/{id}/media              Card images, team photos, testimonial
+GET    /api/leads/{id}/photos
+POST   /api/leads/{id}/photos             Upload a team photo (multipart)
+POST   /api/leads/{id}/photos/link        Attach a Drive link instead
+DELETE /api/leads/photos/{photoId}
+PUT    /api/leads/{id}/testimonial        Body: { url }  — Drive link, or null to clear
+POST   /api/leads/{id}/whatsapp/welcome       Touchpoint #1
+POST   /api/leads/{id}/whatsapp/testimonial   Touchpoint #3
+```
+
+### Settings
+```
+GET /api/settings     Interakt template names + social links
+PUT /api/settings     Body: { key: value } — unknown keys are ignored
 ```
 
 ### Leads

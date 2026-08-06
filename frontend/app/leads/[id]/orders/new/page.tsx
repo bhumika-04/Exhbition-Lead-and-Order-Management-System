@@ -7,7 +7,8 @@ import toast from 'react-hot-toast';
 import { ArrowLeft, Plus, Trash2, Loader2, ShoppingBag, Ticket } from 'lucide-react';
 import { api } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
-import { ORDER_ITEM_TYPES, type LeadDetails, type LeadOrderSummary } from '@/lib/types';
+import { ORDER_ITEM_TYPES, type LeadDetails, type LeadOrderSummary, type Product } from '@/lib/types';
+import BarcodeScanner from '@/components/BarcodeScanner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { money } from '@/lib/orders';
@@ -20,6 +21,9 @@ interface ItemRow {
   pieces: string;
   rate: string;
   customization: string;
+  product?: Product | null;      // resolved from the barcode
+  lookupError?: string | null;
+  looking?: boolean;
 }
 
 const emptyRow = (): ItemRow => ({
@@ -30,6 +34,7 @@ const emptyRow = (): ItemRow => ({
   pieces: '1',
   rate: '',
   customization: '',
+  product: null,
 });
 
 export default function PlaceOrderPage() {
@@ -65,6 +70,38 @@ export default function PlaceOrderPage() {
   const setRow = (i: number, patch: Partial<ItemRow>) =>
     setRows(rs => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
 
+  /**
+   * Resolves a scanned barcode against the Product Master and fills the line.
+   * The rate is prefilled from the catalogue but stays editable — discounts are
+   * agreed at the counter, and the server re-reads the product anyway.
+   */
+  const lookupBarcode = async (i: number, barcode: string) => {
+    const code = barcode.trim();
+    setRow(i, { barcode: code, product: null, lookupError: null });
+    if (!code) return;
+
+    setRow(i, { looking: true });
+    try {
+      const p = await api.getProductByBarcode(code);
+      setRow(i, {
+        product: p,
+        item_type: p.product_type,
+        size: p.size ?? '',
+        colour: p.colour ?? '',
+        rate: String(p.price ?? ''),
+        looking: false,
+        lookupError: null,
+      });
+    } catch (err: any) {
+      setRow(i, {
+        looking: false,
+        lookupError: err.response?.status === 404
+          ? 'No product with that barcode — enter the details by hand'
+          : 'Could not check that barcode',
+      });
+    }
+  };
+
   const addRow = () => setRows(rs => [...rs, emptyRow()]);
   const removeRow = (i: number) =>
     setRows(rs => (rs.length === 1 ? rs : rs.filter((_, idx) => idx !== i)));
@@ -95,6 +132,8 @@ export default function PlaceOrderPage() {
           pieces: parseInt(r.pieces),
           rate,
           customization: r.customization.trim() || null,
+          // The server re-reads the product and snapshots it onto the line.
+          product_id: r.product?.product_id ?? null,
         };
       })
       .filter(i => i.item_type);
@@ -177,8 +216,27 @@ export default function PlaceOrderPage() {
                   </select>
                 </label>
 
-                <Field label="Barcode" value={row.barcode} onChange={v => setRow(i, { barcode: v })}
-                       placeholder="Scan or type" className="col-span-2" />
+                <div className="col-span-2">
+                  <BarcodeScanner
+                    label="Barcode"
+                    value={row.barcode}
+                    onChange={v => lookupBarcode(i, v)}
+                  />
+                  {row.looking && (
+                    <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1.5">
+                      <Loader2 className="w-3 h-3 animate-spin" /> Looking that up…
+                    </p>
+                  )}
+                  {row.lookupError && (
+                    <p className="text-[11px] text-amber-700 mt-1">{row.lookupError}</p>
+                  )}
+                  {row.product && (
+                    <p className="text-[11px] text-emerald-700 mt-1">
+                      {[row.product.name || row.product.product_type, row.product.category,
+                        row.product.fabric].filter(Boolean).join(' · ')} — filled from the catalogue
+                    </p>
+                  )}
+                </div>
                 <Field label="Size"   value={row.size}   onChange={v => setRow(i, { size: v })} />
                 <Field label="Colour" value={row.colour} onChange={v => setRow(i, { colour: v })} />
                 <Field label="Pieces" value={row.pieces} onChange={v => setRow(i, { pieces: v })}

@@ -17,6 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BlurFade } from '@/components/ui/blur-fade';
 import LeadOrdersCard from '@/components/LeadOrdersCard';
+import LeadMediaCard from '@/components/LeadMediaCard';
 import { cn } from '@/lib/utils';
 
 export default function LeadDetailPage() {
@@ -405,6 +406,10 @@ export default function LeadDetailPage() {
             </BlurFade>
 
             <BlurFade delay={0.08} inView>
+              <LeadMediaCard leadId={leadId} />
+            </BlurFade>
+
+            <BlurFade delay={0.11} inView>
               <LeadOrdersCard leadId={leadId} />
             </BlurFade>
 
@@ -943,6 +948,10 @@ export default function LeadDetailPage() {
             </BlurFade>
 
             <BlurFade delay={0.14} inView>
+              <LeadMediaCard leadId={leadId} />
+            </BlurFade>
+
+            <BlurFade delay={0.11} inView>
               <LeadOrdersCard leadId={leadId} />
             </BlurFade>
 

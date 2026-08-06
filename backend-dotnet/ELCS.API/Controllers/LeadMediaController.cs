@@ -1,0 +1,171 @@
+using Microsoft.AspNetCore.Mvc;
+using ELCS.API.Services;
+
+namespace ELCS.API.Controllers;
+
+/// <summary>
+/// Team photos and testimonials for a lead.
+/// Photos may be uploaded files or Drive links; testimonials are Drive links only.
+/// </summary>
+[ApiController]
+[Route("api/leads")]
+public class LeadMediaController : ControllerBase
+{
+    private readonly ILogger<LeadMediaController> _logger;
+    private readonly ILeadMediaService _media;
+    private readonly IWebHostEnvironment _env;
+    private readonly ILeadService _leads;
+    private readonly IWhatsAppService _whatsApp;
+    private readonly IConfiguration _config;
+
+    private static readonly string[] AllowedImageTypes = { ".jpg", ".jpeg", ".png", ".webp" };
+
+    public LeadMediaController(
+        ILogger<LeadMediaController> logger,
+        ILeadMediaService media,
+        IWebHostEnvironment env,
+        ILeadService leads,
+        IWhatsAppService whatsApp,
+        IConfiguration config)
+    {
+        _logger = logger;
+        _media = media;
+        _env = env;
+        _leads = leads;
+        _whatsApp = whatsApp;
+        _config = config;
+    }
+
+    /// <summary>
+    /// Absolute URL for an uploaded file. Interakt fetches media by URL, so this
+    /// must be publicly reachable when WhatsApp is in use.
+    /// </summary>
+    private string BuildPublicUrl(string relativePath)
+    {
+        var configured = _config["PublicBaseUrl"];
+        var origin = !string.IsNullOrWhiteSpace(configured)
+            ? configured.TrimEnd('/')
+            : $"{Request.Scheme}://{Request.Host}";
+        return $"{origin}/uploads/{relativePath.TrimStart('/')}";
+    }
+
+    private int? CallerEmployeeId =>
+        Request.Headers.TryGetValue("X-Employee-Id", out var raw) && int.TryParse(raw, out var id)
+            ? id : null;
+
+    /// <summary>Everything visual attached to a lead: card images, team photos, testimonial.</summary>
+    [HttpGet("{leadId:int}/media")]
+    public async Task<IActionResult> GetMedia(int leadId)
+    {
+        try { return Ok(await _media.GetMediaAsync(leadId)); }
+        catch (KeyNotFoundException) { return NotFound(new { error = "Lead not found" }); }
+    }
+
+    [HttpGet("{leadId:int}/photos")]
+    public async Task<IActionResult> GetPhotos(int leadId)
+        => Ok(new { photos = await _media.GetPhotosAsync(leadId) });
+
+    /// <summary>Uploads a team photo. Multiple photos per lead are allowed.</summary>
+    [HttpPost("{leadId:int}/photos")]
+    [RequestSizeLimit(20 * 1024 * 1024)]
+    public async Task<IActionResult> UploadPhoto(int leadId, IFormFile photo, [FromForm] string? caption)
+    {
+        if (photo == null || photo.Length == 0)
+            return BadRequest(new { error = "No photo supplied" });
+
+        var ext = Path.GetExtension(photo.FileName).ToLowerInvariant();
+        if (!AllowedImageTypes.Contains(ext))
+            return BadRequest(new { error = "Photo must be a JPG, PNG or WebP" });
+
+        // GUID filename: /uploads is public so Interakt can fetch media by URL,
+        // and a sequential name would make customers' photos enumerable.
+        var fileName = $"{Guid.NewGuid():N}{ext}";
+        var dir = Path.Combine(_env.ContentRootPath, "uploads", "leads", leadId.ToString(), "photos");
+        Directory.CreateDirectory(dir);
+
+        await using (var stream = System.IO.File.Create(Path.Combine(dir, fileName)))
+            await photo.CopyToAsync(stream);
+
+        var relative = $"leads/{leadId}/photos/{fileName}";
+
+        try
+        {
+            var id = await _media.AddPhotoFileAsync(leadId, relative, caption, CallerEmployeeId);
+            return Ok(new { success = true, lead_photo_id = id, file_path = relative });
+        }
+        catch (KeyNotFoundException) { return NotFound(new { error = "Lead not found" }); }
+    }
+
+    /// <summary>Attaches a team photo that lives on Drive rather than being uploaded.</summary>
+    [HttpPost("{leadId:int}/photos/link")]
+    public async Task<IActionResult> AddPhotoLink(int leadId, [FromBody] AddPhotoLinkRequest request)
+    {
+        try
+        {
+            var id = await _media.AddPhotoLinkAsync(leadId, request.Url, request.Caption, CallerEmployeeId);
+            return Ok(new { success = true, lead_photo_id = id });
+        }
+        catch (ArgumentException ex)  { return BadRequest(new { error = ex.Message }); }
+        catch (KeyNotFoundException)  { return NotFound(new { error = "Lead not found" }); }
+    }
+
+    [HttpDelete("photos/{leadPhotoId:int}")]
+    public async Task<IActionResult> DeletePhoto(int leadPhotoId)
+    {
+        try
+        {
+            await _media.DeletePhotoAsync(leadPhotoId);
+            return Ok(new { success = true });
+        }
+        catch (KeyNotFoundException) { return NotFound(new { error = "Photo not found" }); }
+    }
+
+    /// <summary>Sets or clears the lead's testimonial Drive link.</summary>
+    [HttpPut("{leadId:int}/testimonial")]
+    public async Task<IActionResult> SetTestimonial(int leadId, [FromBody] SetTestimonialRequest request)
+    {
+        try
+        {
+            await _media.SetTestimonialAsync(leadId, request.Url);
+            return Ok(new { success = true, testimonial_url = request.Url });
+        }
+        catch (ArgumentException ex)  { return BadRequest(new { error = ex.Message }); }
+        catch (KeyNotFoundException)  { return NotFound(new { error = "Lead not found" }); }
+    }
+
+    /// <summary>Touchpoint #1 — welcome. Also fired automatically on lead creation.</summary>
+    [HttpPost("{leadId:int}/whatsapp/welcome")]
+    public async Task<IActionResult> SendWelcome(int leadId)
+    {
+        var lead = await _leads.GetLeadByIdAsync(leadId);
+        if (lead == null) return NotFound(new { error = "Lead not found" });
+
+        // Prefer an uploaded team photo; a Drive link cannot be fetched by
+        // Interakt without the file being publicly shared, so it is skipped.
+        var photos = await _media.GetPhotosAsync(leadId);
+        var file = photos.FirstOrDefault(p => p.SourceType == "file" && p.FilePath != null);
+        var photoUrl = file?.FilePath != null ? BuildPublicUrl(file.FilePath) : null;
+
+        var result = await _whatsApp.SendWelcomeAsync(
+            leadId, lead.PrimaryVisitorName, lead.PrimaryVisitorPhone, photoUrl);
+
+        return Ok(new { sent = result.Sent, status = result.StatusCode, error = result.Error });
+    }
+
+    /// <summary>Touchpoint #3 — testimonial video with a customised message.</summary>
+    [HttpPost("{leadId:int}/whatsapp/testimonial")]
+    public async Task<IActionResult> SendTestimonial(int leadId)
+    {
+        var lead = await _leads.GetLeadByIdAsync(leadId);
+        if (lead == null) return NotFound(new { error = "Lead not found" });
+
+        var media = await _media.GetMediaAsync(leadId);
+        if (string.IsNullOrWhiteSpace(media.TestimonialUrl))
+            return BadRequest(new { error = "Add a testimonial link first" });
+
+        var result = await _whatsApp.SendTestimonialAsync(
+            leadId, lead.PrimaryVisitorName, lead.PrimaryVisitorPhone, media.TestimonialUrl);
+
+        return Ok(new { sent = result.Sent, status = result.StatusCode, error = result.Error });
+    }
+}

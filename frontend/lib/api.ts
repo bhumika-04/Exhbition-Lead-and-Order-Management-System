@@ -1,4 +1,4 @@
-// API Client for ELCS Backend
+﻿// API Client for ELCS Backend
 
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import type {
@@ -10,7 +10,6 @@ import type {
   Exhibition,
   AnalyticsSummary,
   CardExtractionResult,
-  VoiceExtractionResult,
   Role,
   UserDto,
   OrderSummary,
@@ -24,6 +23,9 @@ import type {
   CouponHolder,
   Product,
   SaveProductRequest,
+  LeadMedia,
+  AppSettings,
+  WhatsAppSendOutcome,
 } from './types';
 
 class ApiClient {
@@ -48,7 +50,7 @@ class ApiClient {
       },
     });
 
-    // Request interceptor — add auth token + employee-id so the API can identify the caller
+    // Request interceptor â€” add auth token + employee-id so the API can identify the caller
     this.client.interceptors.request.use((config) => {
       if (this.token) {
         config.headers.Authorization = `Bearer ${this.token}`;
@@ -250,7 +252,7 @@ class ApiClient {
     await this.client.delete(`/api/leads/${leadId}`);
   }
 
-  // Card Extraction (immediate — creates lead)
+  // Card Extraction (immediate â€” creates lead)
   async extractCard(
     frontImage: File,
     backImage: File | null,
@@ -270,7 +272,7 @@ class ApiClient {
     return data;
   }
 
-  // Card Extraction Preview (does NOT create lead — returns data for confirmation)
+  // Card Extraction Preview (does NOT create lead â€” returns data for confirmation)
   async extractCardPreview(
     frontImage: File,
     backImage: File | null,
@@ -304,46 +306,6 @@ class ApiClient {
         temp_id: tempId,
       },
       { timeout: 30000 }
-    );
-    return data;
-  }
-
-  // Voice Extraction
-  async extractVoice(
-    audioFile: Blob,
-    leadId: number | null,
-    employeeId?: number
-  ): Promise<VoiceExtractionResult> {
-    const formData = new FormData();
-    formData.append('audioFile', audioFile, 'voice_note.webm');
-    if (leadId !== null) formData.append('leadId', leadId.toString());
-    if (employeeId) formData.append('employeeId', employeeId.toString());
-    const { data } = await this.client.post<VoiceExtractionResult>(
-      '/api/extraction/voice',
-      formData,
-      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 60000 }
-    );
-    return data;
-  }
-
-  // Confirm Voice Analysis
-  async confirmVoiceAnalysis(params: {
-    lead_id: number;
-    summary: string;
-    segment: string;
-    priority: string;
-    interest_level?: string;
-  }): Promise<{ success: boolean; message: string }> {
-    const formData = new FormData();
-    formData.append('lead_id', params.lead_id.toString());
-    formData.append('summary', params.summary);
-    formData.append('segment', params.segment);
-    formData.append('priority', params.priority);
-    if (params.interest_level) formData.append('interest_level', params.interest_level);
-    const { data } = await this.client.post(
-      '/api/extraction/voice/confirm',
-      formData,
-      { headers: { 'Content-Type': 'multipart/form-data' } }
     );
     return data;
   }
@@ -421,7 +383,7 @@ class ApiClient {
     return data;
   }
 
-  /** Slab options for the payment step — each suggests ₹11,000 × slab. */
+  /** Slab options for the payment step â€” each suggests â‚¹11,000 Ã— slab. */
   async getOrderSlabs(count = 6): Promise<SlabOption[]> {
     const { data } = await this.client.get('/api/orders/slabs', { params: { count } });
     return data.slabs || [];
@@ -437,7 +399,7 @@ class ApiClient {
     return data;
   }
 
-  /** Orders page — filters, barcode search, and totals across the whole filter. */
+  /** Orders page â€” filters, barcode search, and totals across the whole filter. */
   async searchOrders(params?: {
     exhibition_id?: number;
     status_code?: string;
@@ -459,6 +421,58 @@ class ApiClient {
     return data.holders || [];
   }
 
+  // Lead media â€” team photos + testimonial
+  async getLeadMedia(leadId: number): Promise<LeadMedia> {
+    const { data } = await this.client.get(`/api/leads/${leadId}/media`);
+    return data;
+  }
+
+  async uploadLeadPhoto(leadId: number, file: File, caption?: string): Promise<{ success: boolean; lead_photo_id: number; file_path: string }> {
+    const form = new FormData();
+    form.append('photo', file);
+    if (caption) form.append('caption', caption);
+    const { data } = await this.client.post(`/api/leads/${leadId}/photos`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data;
+  }
+
+  async addLeadPhotoLink(leadId: number, url: string, caption?: string): Promise<{ success: boolean; lead_photo_id: number }> {
+    const { data } = await this.client.post(`/api/leads/${leadId}/photos/link`, { url, caption: caption ?? null });
+    return data;
+  }
+
+  async deleteLeadPhoto(leadPhotoId: number): Promise<{ success: boolean }> {
+    const { data } = await this.client.delete(`/api/leads/photos/${leadPhotoId}`);
+    return data;
+  }
+
+  async setTestimonial(leadId: number, url: string | null): Promise<{ success: boolean }> {
+    const { data } = await this.client.put(`/api/leads/${leadId}/testimonial`, { url });
+    return data;
+  }
+
+  async sendWelcomeWhatsApp(leadId: number): Promise<WhatsAppSendOutcome> {
+    const { data } = await this.client.post(`/api/leads/${leadId}/whatsapp/welcome`);
+    return data;
+  }
+
+  async sendTestimonialWhatsApp(leadId: number): Promise<WhatsAppSendOutcome> {
+    const { data } = await this.client.post(`/api/leads/${leadId}/whatsapp/testimonial`);
+    return data;
+  }
+
+  // Settings
+  async getSettings(): Promise<AppSettings> {
+    const { data } = await this.client.get('/api/settings');
+    return data.settings || {};
+  }
+
+  async saveSettings(values: AppSettings): Promise<AppSettings> {
+    const { data } = await this.client.put('/api/settings', values);
+    return data.settings || {};
+  }
+
   // Products
   async searchProducts(params?: {
     search?: string;
@@ -472,7 +486,7 @@ class ApiClient {
     return { products: data.products || [], count: data.count ?? 0 };
   }
 
-  /** Barcode lookup — the counter's fast path when scanning. */
+  /** Barcode lookup â€” the counter's fast path when scanning. */
   async getProductByBarcode(barcode: string): Promise<Product> {
     const { data } = await this.client.get(`/api/products/barcode/${encodeURIComponent(barcode)}`);
     return data;
@@ -488,7 +502,7 @@ class ApiClient {
     return data;
   }
 
-  /** Soft delete — order history references products and must survive. */
+  /** Soft delete â€” order history references products and must survive. */
   async deactivateProduct(productId: number): Promise<{ success: boolean }> {
     const { data } = await this.client.delete(`/api/products/${productId}`);
     return data;

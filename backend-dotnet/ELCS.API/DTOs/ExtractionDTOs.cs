@@ -1,4 +1,4 @@
-namespace ELCS.API.DTOs;
+﻿namespace ELCS.API.DTOs;
 
 // Card Extraction DTOs
 public record CardExtractionResponse(
@@ -10,7 +10,7 @@ public record CardExtractionResponse(
     DuplicateCheckResult? DuplicateCheck,
     string Message,
     string? TaskId = null,
-    string? TempId = null  // Temp image folder ID for preview → confirm flow
+    string? TempId = null  // Temp image folder ID for preview â†’ confirm flow
 );
 
 public record CardExtractionData(
@@ -63,44 +63,6 @@ public record DuplicateInfo(
     int SimilarityScore
 );
 
-// Voice Extraction DTOs
-public record VoiceExtractionRequest(
-    IFormFile AudioFile,
-    int LeadId,
-    int EmployeeId
-);
-
-public record VoiceExtractionResponse(
-    bool Success,
-    int? LeadId,
-    string? Transcript,
-    string? Summary,
-    List<string>? Topics,
-    string? Segment,
-    string? Priority,
-    string? InterestLevel,
-    double Confidence,
-    bool RequiresConfirmation,
-    string? ExtractedLeadName = null,
-    List<PossibleLead>? PossibleLeads = null,
-    string? Error = null
-);
-
-public record PossibleLead(
-    int LeadId,
-    string Name,
-    string? CompanyName,
-    string? Phone
-);
-
-public record VoiceConfirmRequest(
-    int LeadId,
-    string Summary,
-    string Segment,
-    string Priority,
-    string? InterestLevel
-);
-
 // Confirm Lead Request
 public record ConfirmLeadRequest(
     CardExtractionData Extraction,
@@ -122,3 +84,4 @@ public record TaskStatusResponse(
     object? Result,
     string? Error
 );
+

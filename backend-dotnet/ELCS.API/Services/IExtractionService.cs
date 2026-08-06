@@ -12,12 +12,6 @@ public interface IExtractionService
         int exhibitionId,
         int employeeId);
 
-    Task<VoiceExtractionResponse> ExtractVoiceAsync(
-        Stream audioStream,
-        string fileName,
-        int? leadId,
-        int employeeId);
-
     Task<CardExtractionResponse> ExtractCardPreviewAsync(
         Stream frontImage,
         Stream? backImage,

@@ -1,4 +1,4 @@
-using Dapper;
+﻿using Dapper;
 using ELCS.API.Data;
 using ELCS.API.DTOs;
 using ELCS.API.Models;
@@ -11,20 +11,17 @@ public class ExtractionService : IExtractionService
     private readonly ILogger<ExtractionService> _logger;
     private readonly IDbConnection _db;
     private readonly IOpenAIService _openAIService;
-    private readonly ISpeechService? _speechService;
     private readonly string _uploadsRoot;
 
     public ExtractionService(
         ILogger<ExtractionService> logger,
         IDbConnection db,
         IOpenAIService openAIService,
-        IWebHostEnvironment env,
-        ISpeechService? speechService = null)
+        IWebHostEnvironment env)
     {
         _logger = logger;
         _db = db;
         _openAIService = openAIService;
-        _speechService = speechService;
         _uploadsRoot = Path.Combine(env.ContentRootPath, "uploads", "cards");
         Directory.CreateDirectory(_uploadsRoot);
     }
@@ -92,193 +89,6 @@ public class ExtractionService : IExtractionService
         }
     }
 
-    public async Task<VoiceExtractionResponse> ExtractVoiceAsync(
-        Stream audioStream,
-        string fileName,
-        int? leadId,
-        int employeeId)
-    {
-        try
-        {
-            using var conn = _db.CreateConnection();
-
-            if (_speechService == null)
-            {
-                return new VoiceExtractionResponse(
-                    Success: false,
-                    LeadId: leadId,
-                    Transcript: null,
-                    Summary: null,
-                    Topics: null,
-                    Segment: null,
-                    Priority: null,
-                    InterestLevel: null,
-                    Confidence: 0,
-                    RequiresConfirmation: false,
-                    Error: "Speech service not configured."
-                );
-            }
-
-            // Transcribe directly from stream — no disk I/O
-            _logger.LogInformation("Transcribing audio (leadId={LeadId})", leadId);
-            var transcript = await _speechService.TranscribeAudioAsync(audioStream, fileName);
-
-            if (string.IsNullOrWhiteSpace(transcript))
-            {
-                return new VoiceExtractionResponse(
-                    Success: false,
-                    LeadId: leadId,
-                    Transcript: null,
-                    Summary: null,
-                    Topics: null,
-                    Segment: null,
-                    Priority: null,
-                    InterestLevel: null,
-                    Confidence: 0,
-                    RequiresConfirmation: false,
-                    Error: "No speech detected in audio."
-                );
-            }
-
-            // Analyze transcript with OpenAI
-            _logger.LogInformation("Analyzing voice transcript with OpenAI (leadId={LeadId})", leadId);
-            var analysis = await _openAIService.AnalyzeVoiceTranscriptAsync(transcript);
-
-            // If no leadId provided, extract lead name from analysis and search for matches
-            int? resolvedLeadId = leadId;
-            string? extractedLeadName = null;
-            List<PossibleLead>? possibleLeads = null;
-
-            if (!leadId.HasValue)
-            {
-                extractedLeadName = analysis.LeadName;
-
-                if (!string.IsNullOrWhiteSpace(extractedLeadName))
-                {
-                    var matchingLeads = await conn.QueryAsync<(int LeadId, string Name, string? CompanyName, string? Phone)>(@"
-                        SELECT TOP 10
-                            LeadId,
-                            PrimaryVisitorName as Name,
-                            CompanyName,
-                            PrimaryVisitorPhone as Phone
-                        FROM Leads
-                        WHERE PrimaryVisitorName LIKE '%' + @Name + '%'
-                          AND AssignedEmployeeId = @EmployeeId
-                        ORDER BY CreatedAt DESC",
-                        new { Name = extractedLeadName, EmployeeId = employeeId });
-
-                    var matchingLeadsList = matchingLeads.ToList();
-
-                    if (matchingLeadsList.Count == 1)
-                    {
-                        resolvedLeadId = matchingLeadsList[0].LeadId;
-                        _logger.LogInformation("Auto-matched lead: {LeadId} ({Name})", resolvedLeadId, matchingLeadsList[0].Name);
-                    }
-                    else if (matchingLeadsList.Count > 1)
-                    {
-                        possibleLeads = matchingLeadsList
-                            .Select(l => new PossibleLead(l.LeadId, l.Name, l.CompanyName, l.Phone))
-                            .ToList();
-                        _logger.LogInformation("Found {Count} possible matches for '{Name}'", possibleLeads.Count, extractedLeadName);
-                    }
-                    else
-                    {
-                        _logger.LogWarning("No leads found matching '{Name}'", extractedLeadName);
-                    }
-                }
-                else
-                {
-                    _logger.LogWarning("Could not extract lead name from transcript");
-                }
-            }
-
-            if (!resolvedLeadId.HasValue)
-            {
-                return new VoiceExtractionResponse(
-                    Success: true,
-                    LeadId: null,
-                    Transcript: analysis.Transcript,
-                    Summary: analysis.Summary,
-                    Topics: analysis.Topics,
-                    Segment: analysis.Segment,
-                    Priority: analysis.Priority,
-                    InterestLevel: analysis.InterestLevel,
-                    Confidence: analysis.Confidence,
-                    RequiresConfirmation: true,
-                    ExtractedLeadName: extractedLeadName,
-                    PossibleLeads: possibleLeads,
-                    Error: possibleLeads?.Count > 0
-                        ? $"Multiple leads found matching '{extractedLeadName}'. Please select one."
-                        : $"No lead found matching '{extractedLeadName}'. Please select or create a lead."
-                );
-            }
-
-            // Update lead with analysis results
-            await conn.ExecuteAsync(@"
-                UPDATE Leads SET
-                    DiscussionSummary = @Summary,
-                    Segment = @Segment,
-                    Priority = @Priority,
-                    UpdatedAt = GETUTCDATE()
-                WHERE LeadId = @LeadId",
-                new
-                {
-                    LeadId = resolvedLeadId.Value,
-                    Summary = analysis.Summary,
-                    Segment = analysis.Segment,
-                    Priority = analysis.Priority
-                });
-
-            await AddSystemMessage(conn, resolvedLeadId.Value,
-                $"🎤 Voice note analyzed:\n\n" +
-                $"Transcript: {analysis.Transcript}\n\n" +
-                $"Summary: {analysis.Summary}\n\n" +
-                $"Topics: {string.Join(", ", analysis.Topics)}\n\n" +
-                $"Segment: {analysis.Segment} | Priority: {analysis.Priority} | Interest: {analysis.InterestLevel}",
-                employeeId);
-
-            _logger.LogInformation(
-                "Voice extraction completed for lead {LeadId}. Summary: '{Summary}'",
-                resolvedLeadId.Value, analysis.Summary);
-
-            return new VoiceExtractionResponse(
-                Success: true,
-                LeadId: resolvedLeadId.Value,
-                Transcript: analysis.Transcript,
-                Summary: analysis.Summary,
-                Topics: analysis.Topics,
-                Segment: analysis.Segment,
-                Priority: analysis.Priority,
-                InterestLevel: analysis.InterestLevel,
-                Confidence: analysis.Confidence,
-                RequiresConfirmation: false,
-                ExtractedLeadName: extractedLeadName,
-                PossibleLeads: null,
-                Error: null
-            );
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Voice extraction failed (leadId={LeadId})", leadId);
-            return new VoiceExtractionResponse(
-                Success: false,
-                LeadId: leadId,
-                Transcript: null,
-                Summary: null,
-                Topics: null,
-                Segment: null,
-                Priority: null,
-                InterestLevel: null,
-                Confidence: 0,
-                RequiresConfirmation: false,
-                Error: ex.Message
-            );
-        }
-    }
-
-    /// <summary>
-    /// Extract card data WITHOUT creating a lead — returns data for user confirmation
-    /// </summary>
     public async Task<CardExtractionResponse> ExtractCardPreviewAsync(
         Stream frontImage,
         Stream? backImage,
@@ -290,7 +100,7 @@ public class ExtractionService : IExtractionService
 
         try
         {
-            // Save to temp folder so images survive the preview → confirm round-trip
+            // Save to temp folder so images survive the preview â†’ confirm round-trip
             var tempId = Guid.NewGuid().ToString("N");
             var (frontPath, backPath) = await SaveCardImagesAsync($"temp/{tempId}", frontImage, frontFileName, backImage, backFileName);
 
@@ -381,7 +191,7 @@ public class ExtractionService : IExtractionService
         }
     }
 
-    // ─── Private helpers ───────────────────────────────────────────────────────
+    // â”€â”€â”€ Private helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private async Task<DuplicateCheckResult> CheckForDuplicates(Microsoft.Data.SqlClient.SqlConnection conn, CardExtractionData data, int exhibitionId)
     {
@@ -601,7 +411,7 @@ public class ExtractionService : IExtractionService
         }
 
         Directory.Delete(tempFolder, recursive: true);
-        _logger.LogInformation("Moved temp images {TempId} → lead {LeadFolder}", tempId, leadFolder);
+        _logger.LogInformation("Moved temp images {TempId} â†’ lead {LeadFolder}", tempId, leadFolder);
         return (frontPath, backPath);
     }
 

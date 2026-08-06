@@ -29,19 +29,25 @@ public class PublicOrderController : ControllerBase
     private readonly IOtpService _otp;
     private readonly IOrderService _orders;
     private readonly IProductService _products;
+    private readonly ISettingsService _settings;
+    private readonly IWhatsAppService _whatsApp;
 
     public PublicOrderController(
         ILogger<PublicOrderController> logger,
         IDbConnection db,
         IOtpService otp,
         IOrderService orders,
-        IProductService products)
+        IProductService products,
+        ISettingsService settings,
+        IWhatsAppService whatsApp)
     {
         _logger = logger;
         _db = db;
         _otp = otp;
         _orders = orders;
         _products = products;
+        _settings = settings;
+        _whatsApp = whatsApp;
     }
 
     private const string SessionHeader = "X-Public-Session";
@@ -145,6 +151,21 @@ public class PublicOrderController : ControllerBase
         await _otp.BindLeadAsync(session.PublicSessionId, leadId);
         _logger.LogInformation("Self-registered lead {LeadId} at exhibition {ExhibitionId}",
             leadId, session.ExhibitionId);
+
+        // Welcome fires here rather than from a staff screen, because nobody is
+        // at a counter for this path. Best-effort: a messaging failure must not
+        // stop the customer getting to the order form.
+        if (await _settings.GetAsync(SettingKeys.WelcomeAutoSend) != "false")
+        {
+            try
+            {
+                await _whatsApp.SendWelcomeAsync(leadId, request.Name.Trim(), session.Mobile, null);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Welcome message failed for self-registered lead {LeadId}", leadId);
+            }
+        }
 
         return Ok(new { success = true, lead_id = leadId });
     }

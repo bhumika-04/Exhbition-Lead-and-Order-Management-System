@@ -41,7 +41,6 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IRoleService, RoleService>();
 builder.Services.AddScoped<ILeadService, LeadService>();
 builder.Services.AddScoped<IExtractionService, ExtractionService>();
-builder.Services.AddScoped<ISpeechService, WhisperSpeechService>();
 builder.Services.AddScoped<IOpenAIService, OpenAIService>();
 
 // Order management (spec B/C/D)
@@ -50,6 +49,8 @@ builder.Services.AddScoped<ISalesOrderPdfService, SalesOrderPdfService>();
 builder.Services.AddScoped<IWhatsAppService, InteraktWhatsAppService>();
 builder.Services.AddScoped<IOtpService, OtpService>();
 builder.Services.AddScoped<IProductService, ProductService>();
+builder.Services.AddScoped<ISettingsService, SettingsService>();
+builder.Services.AddScoped<ILeadMediaService, LeadMediaService>();
 builder.Services.AddHttpClient();
 
 // Rate limiting for the public self-service endpoints. These have no login in

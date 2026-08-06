@@ -24,6 +24,7 @@ public class InteraktWhatsAppService : IWhatsAppService
     private readonly IHttpClientFactory _httpFactory;
     private readonly IConfiguration _config;
     private readonly IDbConnection _db;
+    private readonly ISettingsService _settings;
 
     private static readonly CultureInfo Inr = CultureInfo.GetCultureInfo("en-IN");
 
@@ -31,19 +32,105 @@ public class InteraktWhatsAppService : IWhatsAppService
         ILogger<InteraktWhatsAppService> logger,
         IHttpClientFactory httpFactory,
         IConfiguration config,
-        IDbConnection db)
+        IDbConnection db,
+        ISettingsService settings)
     {
         _logger = logger;
         _httpFactory = httpFactory;
         _config = config;
         _db = db;
+        _settings = settings;
+    }
+
+    /// <summary>
+    /// Template names come from Settings first so an approved name can change
+    /// without a deploy, falling back to appsettings.json for a fresh install.
+    /// </summary>
+    private async Task<string?> TemplateAsync(string settingKey, string configKey)
+    {
+        var fromDb = await _settings.GetAsync(settingKey);
+        return !string.IsNullOrWhiteSpace(fromDb) ? fromDb : _config[configKey];
+    }
+
+    private async Task<string> SocialLinksAsync()
+    {
+        var all = await _settings.GetAllAsync();
+        var links = new[]
+        {
+            all.GetValueOrDefault(SettingKeys.SocialWebsite),
+            all.GetValueOrDefault(SettingKeys.SocialInstagram),
+            all.GetValueOrDefault(SettingKeys.SocialFacebook),
+            all.GetValueOrDefault(SettingKeys.SocialYoutube),
+        }.Where(v => !string.IsNullOrWhiteSpace(v));
+
+        return string.Join("  ", links);
+    }
+
+    public async Task<WhatsAppSendResult> SendWelcomeAsync(
+        int leadId, string? name, string? phone, string? photoUrl)
+    {
+        var apiKey       = _config["Interakt:ApiKey"];
+        var baseUrl      = _config["Interakt:BaseUrl"] ?? "https://api.interakt.ai/v1/public/message/";
+        var templateName = await TemplateAsync(SettingKeys.TemplateWelcome, "Interakt:Templates:Welcome");
+        var languageCode = _config["Interakt:LanguageCode"] ?? "en";
+        var countryCode  = _config["Interakt:DefaultCountryCode"] ?? "+91";
+
+        var target = NormalisePhone(phone, countryCode);
+        WhatsAppSendResult result;
+
+        if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(templateName))
+            result = WhatsAppSendResult.Skipped("Welcome template is not configured");
+        else if (target == null)
+            result = WhatsAppSendResult.Skipped("Lead has no usable phone number");
+        else
+            result = await SendTemplateAsync(
+                apiKey, baseUrl, templateName, languageCode,
+                target.Value.CountryCode, target.Value.Number,
+                headerMediaUrl: photoUrl,
+                bodyValues: new[] { name ?? "there", await SocialLinksAsync() },
+                fileName: null);
+
+        await LogAsync(leadId, null, WhatsAppTouchpoints.Welcome,
+            target?.Full, templateName, photoUrl, result);
+
+        return result;
+    }
+
+    public async Task<WhatsAppSendResult> SendTestimonialAsync(
+        int leadId, string? name, string? phone, string testimonialUrl)
+    {
+        var apiKey       = _config["Interakt:ApiKey"];
+        var baseUrl      = _config["Interakt:BaseUrl"] ?? "https://api.interakt.ai/v1/public/message/";
+        var templateName = await TemplateAsync(SettingKeys.TemplateTestimonial, "Interakt:Templates:Testimonial");
+        var languageCode = _config["Interakt:LanguageCode"] ?? "en";
+        var countryCode  = _config["Interakt:DefaultCountryCode"] ?? "+91";
+
+        var target = NormalisePhone(phone, countryCode);
+        WhatsAppSendResult result;
+
+        if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(templateName))
+            result = WhatsAppSendResult.Skipped("Testimonial template is not configured");
+        else if (target == null)
+            result = WhatsAppSendResult.Skipped("Lead has no usable phone number");
+        else
+            result = await SendTemplateAsync(
+                apiKey, baseUrl, templateName, languageCode,
+                target.Value.CountryCode, target.Value.Number,
+                headerMediaUrl: null,
+                bodyValues: new[] { name ?? "there", testimonialUrl },
+                fileName: null);
+
+        await LogAsync(leadId, null, WhatsAppTouchpoints.Testimonial,
+            target?.Full, templateName, testimonialUrl, result);
+
+        return result;
     }
 
     public async Task<WhatsAppSendResult> SendOrderConfirmationAsync(OrderDetailDto order, string? soPdfUrl)
     {
         var apiKey       = _config["Interakt:ApiKey"];
         var baseUrl      = _config["Interakt:BaseUrl"] ?? "https://api.interakt.ai/v1/public/message/";
-        var templateName = _config["Interakt:Templates:OrderConfirmation"];
+        var templateName = await TemplateAsync(SettingKeys.TemplateOrderConfirmation, "Interakt:Templates:OrderConfirmation");
         var languageCode = _config["Interakt:LanguageCode"] ?? "en";
         var countryCode  = _config["Interakt:DefaultCountryCode"] ?? "+91";
 
@@ -90,7 +177,7 @@ public class InteraktWhatsAppService : IWhatsAppService
     {
         var apiKey       = _config["Interakt:ApiKey"];
         var baseUrl      = _config["Interakt:BaseUrl"] ?? "https://api.interakt.ai/v1/public/message/";
-        var templateName = _config["Interakt:Templates:Otp"];
+        var templateName = await TemplateAsync(SettingKeys.TemplateOtp, "Interakt:Templates:Otp");
         var languageCode = _config["Interakt:LanguageCode"] ?? "en";
         var countryCode  = _config["Interakt:DefaultCountryCode"] ?? "+91";
 

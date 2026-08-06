@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using ELCS.API.DTOs;
 using ELCS.API.Services;
 
@@ -127,65 +127,4 @@ public class ExtractionController : ControllerBase
         }
     }
 
-    /// <summary>
-    /// Extract and analyze voice note
-    /// </summary>
-    [HttpPost("voice")]
-    [RequestSizeLimit(50 * 1024 * 1024)]
-    public async Task<ActionResult<VoiceExtractionResponse>> ExtractVoice(
-        IFormFile audioFile,
-        [FromForm] int? leadId,
-        [FromForm] int employeeId)
-    {
-        if (audioFile == null || audioFile.Length == 0)
-            return BadRequest(new { error = "Audio file is required" });
-
-        _logger.LogInformation("Voice extraction request: Lead={LeadId}, Employee={EmployeeId}", leadId, employeeId);
-
-        try
-        {
-            using var stream = audioFile.OpenReadStream();
-            var result = await _extractionService.ExtractVoiceAsync(
-                stream,
-                audioFile.FileName,
-                leadId,
-                employeeId);
-
-            return Ok(result);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Voice extraction failed");
-            return StatusCode(500, new { error = ex.Message });
-        }
-    }
-
-    /// <summary>
-    /// Confirm voice analysis after review — persists summary/segment/priority to lead
-    /// </summary>
-    [HttpPost("voice/confirm")]
-    public async Task<IActionResult> ConfirmVoiceAnalysis([FromForm] VoiceConfirmRequest request)
-    {
-        _logger.LogInformation("Voice confirmation for lead {LeadId}", request.LeadId);
-
-        try
-        {
-            await _leadService.UpdateLeadAsync(request.LeadId, new UpdateLeadDto(
-                DiscussionSummary: request.Summary,
-                Segment: request.Segment,
-                Priority: request.Priority
-            ));
-
-            return Ok(new { success = true, message = "Voice analysis confirmed" });
-        }
-        catch (KeyNotFoundException)
-        {
-            return NotFound(new { success = false, error = "Lead not found" });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to confirm voice analysis for lead {LeadId}", request.LeadId);
-            return StatusCode(500, new { success = false, error = ex.Message });
-        }
-    }
 }
