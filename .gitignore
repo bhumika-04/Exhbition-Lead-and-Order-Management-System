@@ -1,0 +1,35 @@
+# ---- .NET ----
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# Secrets — contains live connection strings and API keys
+appsettings.json
+appsettings.*.json
+!appsettings.example.json
+*.pem
+elcs-vision-service-*.json
+
+# ---- Node / Next.js ----
+node_modules/
+.next/
+out/
+build/
+*.tsbuildinfo
+next-env.d.ts
+.vercel
+
+# ---- Env ----
+.env
+.env*.local
+
+# ---- Uploads (user data, not source) ----
+backend-dotnet/ELCS.API/uploads/
+
+# ---- Logs / OS ----
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db

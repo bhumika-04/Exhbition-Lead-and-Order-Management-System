@@ -1,0 +1,48 @@
+'use client';
+
+import { usePathname } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import Sidebar from './Sidebar';
+import BottomNav from './BottomNav';
+
+// Pages that manage their own internal scrolling (fixed-height layout)
+const FIXED_HEIGHT_PATHS = ['/chat', '/leads', '/exhibitions'];
+
+export default function AppShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
+
+  // Auth pages get no shell (full-screen login)
+  if (pathname.startsWith('/auth')) {
+    return <>{children}</>;
+  }
+
+  // Gate isFixedHeight on mounted to avoid SSR/client mismatch.
+  // Both server and client render the scrollable <main> on first pass;
+  // after mount the fixed-height variant switches in (one silent re-render).
+  const isFixedHeight = mounted && FIXED_HEIGHT_PATHS.includes(pathname);
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-gray-50">
+      <Sidebar />
+
+      {isFixedHeight ? (
+        // Fixed-height pages: flex column so pages can use flex-1 for internal scrolling
+        <main className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          {children}
+        </main>
+      ) : (
+        // Scrollable pages: main itself scrolls, pages are plain block content
+        <main className="flex-1 overflow-y-auto">
+          {children}
+          {/* Mobile bottom nav clearance */}
+          <div className="md:hidden h-16" />
+        </main>
+      )}
+
+      <BottomNav />
+    </div>
+  );
+}
