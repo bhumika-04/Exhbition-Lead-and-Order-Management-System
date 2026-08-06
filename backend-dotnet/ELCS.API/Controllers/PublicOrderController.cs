@@ -28,17 +28,20 @@ public class PublicOrderController : ControllerBase
     private readonly IDbConnection _db;
     private readonly IOtpService _otp;
     private readonly IOrderService _orders;
+    private readonly IProductService _products;
 
     public PublicOrderController(
         ILogger<PublicOrderController> logger,
         IDbConnection db,
         IOtpService otp,
-        IOrderService orders)
+        IOrderService orders,
+        IProductService products)
     {
         _logger = logger;
         _db = db;
         _otp = otp;
         _orders = orders;
+        _products = products;
     }
 
     private const string SessionHeader = "X-Public-Session";
@@ -146,6 +149,37 @@ public class PublicOrderController : ControllerBase
         return Ok(new { success = true, lead_id = leadId });
     }
 
+    /// <summary>
+    /// Resolves a scanned barcode so the customer sees the garment they are
+    /// adding. Session-gated: without it this endpoint is an open price list
+    /// that anyone could walk the whole catalogue through.
+    /// </summary>
+    [HttpGet("product/{barcode}")]
+    public async Task<IActionResult> LookupProduct(string barcode)
+    {
+        var session = await RequireSessionAsync();
+        if (session == null) return Unauthorized(new { error = "Verify your mobile number first" });
+
+        var product = await _products.GetByBarcodeAsync(barcode);
+        if (product == null)
+            return NotFound(new { error = "We couldn't find that code — please check with our staff" });
+
+        // Only the customer-facing face of a product. No internal id or flags.
+        return Ok(new
+        {
+            product_id   = product.ProductId,
+            barcode      = product.Barcode,
+            product_type = product.ProductType,
+            category     = product.Category,
+            size         = product.Size,
+            colour       = product.Colour,
+            fabric       = product.Fabric,
+            price        = product.Price,
+            name         = product.Name,
+            image_path   = product.ImagePath,
+        });
+    }
+
     /// <summary>Submits the customer's own order as a pending draft for a CRR.</summary>
     [HttpPost("order")]
     public async Task<IActionResult> SubmitOrder([FromBody] PublicOrderRequest request)
@@ -161,8 +195,9 @@ public class PublicOrderController : ControllerBase
         try
         {
             // Rate is never accepted from the public page — pricing is not the
-            // customer's to set. Lines carry item details only; a CRR prices and
-            // records the advance at confirmation.
+            // customer's to set. Passing ProductId lets the server price the line
+            // from the catalogue itself, which is both safer and more useful than
+            // leaving it blank for the CRR to fill in.
             var items = request.Items.Select(i => new CreateOrderItemRequest(
                 ItemType:      i.ItemType,
                 Barcode:       i.Barcode,
@@ -170,7 +205,8 @@ public class PublicOrderController : ControllerBase
                 Colour:        i.Colour,
                 Pieces:        i.Pieces,
                 Rate:          null,
-                Customization: i.Customization)).ToList();
+                Customization: i.Customization,
+                ProductId:     i.ProductId)).ToList();
 
             var orderId = await _orders.CreateOrderAsync(
                 new CreateOrderRequest(session.LeadId.Value, items, request.Notes), null);
@@ -231,7 +267,8 @@ public record PublicOrderItemRequest(
     string? Size,
     string? Colour,
     int Pieces,
-    string? Customization
+    string? Customization,
+    int? ProductId = null
 );
 
 public record PublicOrderRequest(List<PublicOrderItemRequest> Items, string? Notes);

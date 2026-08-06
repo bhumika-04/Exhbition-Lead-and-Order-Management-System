@@ -40,13 +40,17 @@ public record OrderItemDto(
     int OrderItemId,
     int LineNo,
     string ItemType,
+    string? Category,     // snapshot: Stitched | Readymade (null for Saree)
     string? Barcode,
     string? Size,
     string? Colour,
+    string? Fabric,       // snapshot
     int Pieces,
     decimal? Rate,        // optional — the slab can carry the value instead
     decimal? Amount,      // Rate × Pieces when Rate is given
-    string? Customization
+    string? Customization,
+    int? ProductId,       // pointer for traceability; the snapshot above is authoritative
+    string? ProductImagePath
 );
 
 public record OrderSummaryDto(
@@ -162,6 +166,11 @@ public record CouponHolderDto(
     int OrderCount
 );
 
+/// <summary>
+/// A line as submitted. When ProductId is given the server re-reads the product
+/// and snapshots its details, so a client cannot claim a different price than
+/// the catalogue holds. Fields left null are filled from the product.
+/// </summary>
 public record CreateOrderItemRequest(
     string ItemType,
     string? Barcode,
@@ -169,7 +178,10 @@ public record CreateOrderItemRequest(
     string? Colour,
     int Pieces,
     decimal? Rate,          // optional — leave null when pricing comes from the slab
-    string? Customization
+    string? Customization,
+    int? ProductId = null,
+    string? Category = null,
+    string? Fabric = null
 );
 
 public record CreateOrderRequest(

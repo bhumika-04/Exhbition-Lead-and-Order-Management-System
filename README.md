@@ -221,6 +221,39 @@ ExhibitionVistingCard/
 Confirmation is resilient: if PDF generation or the WhatsApp send fails, the order still confirms
 and the failure is reported separately, so a messaging outage never blocks taking an order at the counter.
 
+## Product Master
+
+The catalogue behind every barcode. Scanning a code — at the counter or on a
+customer's phone — resolves it to a garment and fills in the rest.
+
+| Type | Category | Size |
+|---|---|---|
+| Saree | — | — |
+| Suit / Lehenga · Readymade | Readymade | required |
+| Suit / Lehenga · Stitched | Stitched | — (made to measure) |
+
+A **barcode identifies a design, not a physical piece**, so several garments share
+one and scanning the same code twice is legitimate. There is still no stock
+tracking — this is a catalogue, not an inventory.
+
+The shape rules above are enforced by `CK_Products_Shape` in the database, not
+only in the form, so a bad row cannot be written even by a caller that bypasses
+the UI. Barcode uniqueness is filtered on `IsActive`, so a retired design's code
+can be reissued. Deleting a product is a **soft delete** — order history points at
+products and must survive.
+
+### Order lines snapshot the product
+
+An order line stores `ProductId` *and* a copy of the barcode, category, size,
+colour, fabric and rate as they were when the order was placed. The pointer is
+for traceability; the snapshot is what protects history. Without it, editing a
+product's price would silently rewrite the value of every past order and every
+Sales Order PDF already sent to a customer.
+
+When a line carries a `ProductId` the server **re-reads the catalogue** and prices
+from it, rather than trusting figures sent by the client. That is what lets the
+public ordering page add items without ever being able to name its own price.
+
 ## Self-Service Ordering (QR)
 
 At a busy booth the CRR becomes the bottleneck. A visitor can instead scan a QR
@@ -353,11 +386,24 @@ PUT    /api/leads/{id}
 DELETE /api/leads/{id}
 ```
 
+### Products
+```
+GET    /api/products                  ?search, product_type, category, include_inactive
+GET    /api/products/rules            Type/category/size matrix, so the UI need not hard-code it
+GET    /api/products/barcode/{code}   Barcode lookup — the counter's fast path
+GET    /api/products/{id}
+POST   /api/products
+PUT    /api/products/{id}
+DELETE /api/products/{id}             Soft delete
+POST   /api/products/{id}/image       JPG / PNG / WebP, 10 MB max
+```
+
 ### Public — self-service ordering (no auth)
 ```
 GET  /api/public/exhibition/{token}   Resolve the QR token
 POST /api/public/otp/request          Body: { token, mobile }        → sends WhatsApp code
 POST /api/public/otp/verify           Body: { token, mobile, code }  → session + known lead
+GET  /api/public/product/{barcode}    Resolve a scanned code (X-Public-Session required)
 POST /api/public/lead                 Self-register        (X-Public-Session required)
 POST /api/public/order                Submit pending order (X-Public-Session required)
 

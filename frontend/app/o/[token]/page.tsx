@@ -33,6 +33,19 @@ interface KnownLead {
   company_name?: string | null;
 }
 
+interface ScannedProduct {
+  product_id: number;
+  barcode: string;
+  product_type: string;
+  category?: string | null;
+  size?: string | null;
+  colour?: string | null;
+  fabric?: string | null;
+  price: number;
+  name?: string | null;
+  image_path?: string | null;
+}
+
 interface ItemRow {
   item_type: string;
   barcode: string;
@@ -40,6 +53,9 @@ interface ItemRow {
   colour: string;
   pieces: string;
   customization: string;
+  product?: ScannedProduct | null;   // resolved from the barcode
+  lookupError?: string | null;
+  looking?: boolean;
 }
 
 const emptyRow = (): ItemRow => ({
@@ -49,6 +65,7 @@ const emptyRow = (): ItemRow => ({
   colour: '',
   pieces: '1',
   customization: '',
+  product: null,
 });
 
 // This page is public, so it cannot use the authenticated api client — that
@@ -182,6 +199,9 @@ export default function PublicOrderPage() {
         colour: r.colour.trim() || null,
         pieces: parseInt(r.pieces) || 1,
         customization: r.customization.trim() || null,
+        // The server re-reads the product and prices from the catalogue — the
+        // page never sends a price of its own.
+        product_id: r.product?.product_id ?? null,
       }));
 
     if (items.length === 0) { setError('Add at least one item'); return; }
@@ -204,6 +224,39 @@ export default function PublicOrderPage() {
 
   const setRow = (i: number, patch: Partial<ItemRow>) =>
     setRows(rs => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+
+  /**
+   * Resolves a scanned barcode against the catalogue so the customer sees the
+   * garment — image, fabric, price — instead of trusting they typed the right
+   * code. An unknown code is surfaced, not silently accepted.
+   */
+  const lookupBarcode = async (i: number, barcode: string) => {
+    const code = barcode.trim();
+    setRow(i, { barcode: code, product: null, lookupError: null });
+    if (!code) return;
+
+    setRow(i, { looking: true });
+    try {
+      const res = await fetch(`${API_BASE}/api/public/product/${encodeURIComponent(code)}`, {
+        headers: { 'X-Public-Session': session! },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setRow(i, { lookupError: data?.error || 'We could not find that code', looking: false });
+        return;
+      }
+      setRow(i, {
+        product: data,
+        item_type: data.product_type ?? ORDER_ITEM_TYPES[0],
+        size: data.size ?? '',
+        colour: data.colour ?? '',
+        looking: false,
+        lookupError: null,
+      });
+    } catch {
+      setRow(i, { lookupError: 'Could not check that code', looking: false });
+    }
+  };
 
   if (step === 'loading') {
     return <Shell><div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-slate-300" /></div></Shell>;
@@ -328,12 +381,55 @@ export default function PublicOrderPage() {
                   <BarcodeScanner
                     label="Barcode on the tag"
                     value={row.barcode}
-                    onChange={v => setRow(i, { barcode: v })}
+                    onChange={v => lookupBarcode(i, v)}
                   />
 
+                  {row.looking && (
+                    <p className="text-[11px] text-slate-400 flex items-center gap-1.5">
+                      <Loader2 className="w-3 h-3 animate-spin" /> Looking that up…
+                    </p>
+                  )}
+
+                  {row.lookupError && (
+                    <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                      {row.lookupError}
+                    </p>
+                  )}
+
+                  {/* Once resolved, show the garment rather than empty boxes —
+                      the customer confirms a picture, not a code. */}
+                  {row.product && (
+                    <div className="flex gap-3 rounded-xl bg-slate-50 border border-slate-200 p-2.5">
+                      <div className="w-14 h-18 rounded-lg bg-white overflow-hidden shrink-0 flex items-center justify-center">
+                        {row.product.image_path
+                          ? <img src={`${API_BASE}/uploads/${row.product.image_path}`}
+                                 alt="" className="w-full h-full object-cover" />
+                          : <ShoppingBag className="w-4 h-4 text-slate-300" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-slate-900 truncate">
+                          {row.product.name || row.product.product_type}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          {[row.product.category, row.product.size && `Size ${row.product.size}`,
+                            row.product.colour, row.product.fabric].filter(Boolean).join(' · ')}
+                        </p>
+                        <p className="text-sm font-bold text-slate-900 mt-1">
+                          ₹{row.product.price.toLocaleString('en-IN')}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Size and colour come from the product once scanned; ask only
+                      when the code did not resolve. */}
                   <div className="grid grid-cols-3 gap-2">
-                    <Input value={row.size}   onChange={v => setRow(i, { size: v })}   placeholder="Size" />
-                    <Input value={row.colour} onChange={v => setRow(i, { colour: v })} placeholder="Colour" />
+                    {!row.product && (
+                      <>
+                        <Input value={row.size}   onChange={v => setRow(i, { size: v })}   placeholder="Size" />
+                        <Input value={row.colour} onChange={v => setRow(i, { colour: v })} placeholder="Colour" />
+                      </>
+                    )}
                     <Input value={row.pieces} onChange={v => setRow(i, { pieces: v })} placeholder="Pcs" type="number" />
                   </div>
 

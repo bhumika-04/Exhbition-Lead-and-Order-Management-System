@@ -22,6 +22,8 @@ import type {
   OrderListItem,
   OrderListTotals,
   CouponHolder,
+  Product,
+  SaveProductRequest,
 } from './types';
 
 class ApiClient {
@@ -455,6 +457,50 @@ class ApiClient {
       params: exhibitionId ? { exhibition_id: exhibitionId } : undefined,
     });
     return data.holders || [];
+  }
+
+  // Products
+  async searchProducts(params?: {
+    search?: string;
+    product_type?: string;
+    category?: string;
+    include_inactive?: boolean;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ products: Product[]; count: number }> {
+    const { data } = await this.client.get('/api/products', { params });
+    return { products: data.products || [], count: data.count ?? 0 };
+  }
+
+  /** Barcode lookup — the counter's fast path when scanning. */
+  async getProductByBarcode(barcode: string): Promise<Product> {
+    const { data } = await this.client.get(`/api/products/barcode/${encodeURIComponent(barcode)}`);
+    return data;
+  }
+
+  async createProduct(req: SaveProductRequest): Promise<{ success: boolean; product_id: number; product: Product }> {
+    const { data } = await this.client.post('/api/products', req);
+    return data;
+  }
+
+  async updateProduct(productId: number, req: SaveProductRequest): Promise<{ success: boolean; product: Product }> {
+    const { data } = await this.client.put(`/api/products/${productId}`, req);
+    return data;
+  }
+
+  /** Soft delete — order history references products and must survive. */
+  async deactivateProduct(productId: number): Promise<{ success: boolean }> {
+    const { data } = await this.client.delete(`/api/products/${productId}`);
+    return data;
+  }
+
+  async uploadProductImage(productId: number, file: File): Promise<{ success: boolean; image_path: string }> {
+    const form = new FormData();
+    form.append('image', file);
+    const { data } = await this.client.post(`/api/products/${productId}/image`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data;
   }
 
   /** Absolute URL for a file under the backend's /uploads root. */

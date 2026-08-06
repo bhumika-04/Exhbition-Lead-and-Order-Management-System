@@ -49,6 +49,7 @@ builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<ISalesOrderPdfService, SalesOrderPdfService>();
 builder.Services.AddScoped<IWhatsAppService, InteraktWhatsAppService>();
 builder.Services.AddScoped<IOtpService, OtpService>();
+builder.Services.AddScoped<IProductService, ProductService>();
 builder.Services.AddHttpClient();
 
 // Rate limiting for the public self-service endpoints. These have no login in

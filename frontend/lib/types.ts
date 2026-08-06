@@ -256,26 +256,80 @@ export const ALL_PERMISSIONS = [
   { key: 'manage_exhibitions',  label: 'Manage Exhibitions (Create / Edit / Delete)' },
   { key: 'view_report',         label: 'View Report' },
   { key: 'manage_orders',       label: 'Place & Confirm Orders' },
+  { key: 'manage_products',     label: 'Manage Product Master' },
   { key: 'manage_users',        label: 'Manage Users' },
   { key: 'manage_roles',        label: 'Manage Roles' },
 ] as const;
 
+// ── Product Master ─────────────────────────────────────────────────────────
+
+export const PRODUCT_TYPES = ['Saree', 'Suit', 'Lehenga'] as const;
+export type ProductType = (typeof PRODUCT_TYPES)[number];
+
+export const PRODUCT_CATEGORIES = ['Stitched', 'Readymade'] as const;
+export type ProductCategory = (typeof PRODUCT_CATEGORIES)[number];
+
+/**
+ * Which fields a product may carry:
+ *   Saree          → no category, no size
+ *   Suit / Lehenga → Stitched (no size) or Readymade (size required)
+ * Mirrors ProductRules on the server and CK_Products_Shape in the database.
+ */
+export function takesCategory(type?: string | null): boolean {
+  return type === 'Suit' || type === 'Lehenga';
+}
+
+export function takesSize(type?: string | null, category?: string | null): boolean {
+  return takesCategory(type) && category === 'Readymade';
+}
+
+export interface Product {
+  product_id: number;
+  barcode: string;
+  product_type: string;
+  category?: string | null;
+  size?: string | null;
+  colour?: string | null;
+  fabric?: string | null;
+  price: number;
+  name?: string | null;
+  image_path?: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface SaveProductRequest {
+  barcode: string;
+  product_type: string;
+  category?: string | null;
+  size?: string | null;
+  colour?: string | null;
+  fabric?: string | null;
+  price: number;
+  name?: string | null;
+}
+
 // ── Orders ─────────────────────────────────────────────────────────────────
 
-export const ORDER_ITEM_TYPES = ['Suit', 'Lehenga', 'Saree'] as const;
-export type OrderItemType = (typeof ORDER_ITEM_TYPES)[number];
+// Order item types mirror product types.
+export const ORDER_ITEM_TYPES = PRODUCT_TYPES;
+export type OrderItemType = ProductType;
 
 export interface OrderItem {
   order_item_id: number;
   line_no: number;
   item_type: string;
+  category?: string | null;   // snapshot at time of order
   barcode?: string | null;
   size?: string | null;
   colour?: string | null;
+  fabric?: string | null;     // snapshot
   pieces: number;
-  rate?: number | null;     // optional — value can come from the slab instead
-  amount?: number | null;   // rate × pieces, computed server-side
+  rate?: number | null;       // optional — value can come from the slab instead
+  amount?: number | null;     // rate × pieces, computed server-side
   customization?: string | null;
+  product_id?: number | null; // pointer only; the snapshot above is authoritative
+  product_image_path?: string | null;
 }
 
 export interface OrderSummary {

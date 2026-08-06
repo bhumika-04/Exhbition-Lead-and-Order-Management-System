@@ -7,7 +7,7 @@ import { getEmployee, hasPermission } from '@/lib/auth';
 import {
   ScanLine, Building2, Users, BarChart3,
   FileSpreadsheet, LogOut, ChevronLeft, ChevronRight,
-  UserCog, Shield,
+  UserCog, Shield, Package,
 } from 'lucide-react';
 
 // permission: null = always visible
@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { name: 'Dashboard',   path: '/dashboard',   icon: BarChart3,       permission: 'view_dashboard' },
   { name: 'Exhibitions', path: '/exhibitions', icon: Building2,       permission: 'view_exhibitions' },
   { name: 'Report',      path: '/report',      icon: FileSpreadsheet, permission: 'view_report' },
+  { name: 'Products',    path: '/products',    icon: Package,         permission: 'manage_products' },
   { name: 'Users',       path: '/users',       icon: UserCog,         permission: 'manage_users' },
   { name: 'Roles',       path: '/roles',       icon: Shield,          permission: 'manage_roles' },
 ];

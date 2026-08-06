@@ -69,11 +69,14 @@ public class OrderService : IOrderService
         if (order == null) return null;
 
         var items = (await conn.QueryAsync<OrderItemDto>(@"
-            SELECT OrderItemId, LineNo, ItemType, Barcode, Size, Colour,
-                   Pieces, Rate, Amount, Customization
-            FROM OrderItems
-            WHERE OrderId = @OrderId
-            ORDER BY LineNo", new { OrderId = orderId })).ToList();
+            SELECT oi.OrderItemId, oi.LineNo, oi.ItemType, oi.Category, oi.Barcode,
+                   oi.Size, oi.Colour, oi.Fabric, oi.Pieces, oi.Rate, oi.Amount,
+                   oi.Customization, oi.ProductId,
+                   p.ImagePath AS ProductImagePath
+            FROM OrderItems oi
+            LEFT JOIN Products p ON p.ProductId = oi.ProductId
+            WHERE oi.OrderId = @OrderId
+            ORDER BY oi.LineNo", new { OrderId = orderId })).ToList();
 
         var summary = await GetLeadOrderSummaryAsync(order.LeadId);
 
@@ -444,28 +447,57 @@ public class OrderService : IOrderService
             if (item.Rate is < 0m)
                 throw new ArgumentException($"Line {lineNo}: rate cannot be negative");
 
-            decimal? amount = item.Rate.HasValue
-                ? decimal.Round(item.Rate.Value * item.Pieces, 2, MidpointRounding.AwayFromZero)
+            // When the line came from a scanned product, the catalogue is the
+            // authority: re-read it server-side rather than trusting details the
+            // client sent, and snapshot them onto the line so editing the product
+            // later cannot rewrite this order's history.
+            var line = item;
+            if (item.ProductId.HasValue)
+            {
+                var product = await conn.QueryFirstOrDefaultAsync<Models.Product>(
+                    "SELECT * FROM Products WHERE ProductId = @Id",
+                    new { Id = item.ProductId.Value }, tx);
+
+                if (product != null)
+                {
+                    line = item with
+                    {
+                        ItemType      = product.ProductType,
+                        Category      = product.Category,
+                        Barcode       = product.Barcode,
+                        Size          = product.Size ?? item.Size,
+                        Colour        = product.Colour ?? item.Colour,
+                        Fabric        = product.Fabric,
+                        Rate          = item.Rate ?? product.Price,
+                    };
+                }
+            }
+
+            decimal? amount = line.Rate.HasValue
+                ? decimal.Round(line.Rate.Value * line.Pieces, 2, MidpointRounding.AwayFromZero)
                 : null;
             total += amount ?? 0m;
 
             await conn.ExecuteAsync(@"
-                INSERT INTO OrderItems (OrderId, LineNo, ItemType, Barcode, Size, Colour,
-                                        Pieces, Rate, Amount, Customization)
-                VALUES (@OrderId, @LineNo, @ItemType, @Barcode, @Size, @Colour,
-                        @Pieces, @Rate, @Amount, @Customization)",
+                INSERT INTO OrderItems (OrderId, LineNo, ItemType, Category, Barcode, Size,
+                                        Colour, Fabric, Pieces, Rate, Amount, Customization, ProductId)
+                VALUES (@OrderId, @LineNo, @ItemType, @Category, @Barcode, @Size,
+                        @Colour, @Fabric, @Pieces, @Rate, @Amount, @Customization, @ProductId)",
                 new
                 {
                     OrderId = orderId,
                     LineNo  = lineNo,
-                    ItemType = item.ItemType.Trim(),
-                    item.Barcode,
-                    item.Size,
-                    item.Colour,
-                    item.Pieces,
-                    item.Rate,
+                    ItemType = line.ItemType.Trim(),
+                    line.Category,
+                    line.Barcode,
+                    line.Size,
+                    line.Colour,
+                    line.Fabric,
+                    line.Pieces,
+                    line.Rate,
                     Amount = amount,
-                    item.Customization
+                    line.Customization,
+                    line.ProductId
                 }, tx);
 
             lineNo++;
