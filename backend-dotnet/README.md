@@ -34,16 +34,17 @@ Copy `ELCS.API/appsettings.example.json` to `ELCS.API/appsettings.json` and fill
 
 ### 2. Database Setup
 
-```sql
-CREATE DATABASE ELCS;
--- Run SQL migration scripts in order from ELCS.API/database/
-```
+Restore a backup of the previous multi-tenant database under a new name, then run
+`ELCS.API/database/014_remove_multitenancy_and_crm.sql` against it to collapse the
+schema to single-tenant (drops `Companies`, the `TenantId` columns, `IsSuperAdmin`
+and `CrmLedgerId`).
 
-> **Note:** `database/` currently contains only `014_remove_multitenancy_and_crm.sql`.
-> Scripts `001`–`013` are not present in this repository, so the schema cannot be
-> provisioned from scratch here; `014` expects a database already created by those
-> earlier scripts. Recover them from a backup or script a fresh baseline from a
-> running database.
+`014` starts with a pre-flight `SELECT` reporting the number of distinct tenants in the
+restored data — run it before the rest. More than one means the script is about to merge
+those companies into one irreversibly.
+
+Migrations `001`–`013` are intentionally not kept here; the schema they built comes from
+the backup, so `014` expects a restored database rather than an empty one.
 
 ### 3. Build and Run
 

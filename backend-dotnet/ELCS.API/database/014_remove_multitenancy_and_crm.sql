@@ -2,7 +2,10 @@
    014_remove_multitenancy_and_crm.sql
 
    Reverses migrations 011 (multi-tenancy), 012 (per-tenant roles) and removes
-   the CRM/ERP push column. Run AFTER deploying the matching application build.
+   the CRM/ERP push column.
+
+   Intended target: a RESTORED copy of the previous multi-tenant database.
+   Run AFTER deploying the matching application build.
 
    ⚠️  DESTRUCTIVE AND IRREVERSIBLE.
        - Dropping TenantId permanently discards which company each lead,
@@ -13,8 +16,9 @@
          LedgerMaster row already created for it in the ERP database.
        - TAKE A FULL BACKUP FIRST.
 
-   Constraint names are resolved dynamically because the original DDL from
-   011/012 is not available in this repository — do not assume defaults.
+   Constraint names are resolved dynamically rather than hard-coded, so this
+   runs against a restored database whose 011/012 constraint names may differ
+   from any assumed default.
    ============================================================================ */
 
 SET NOCOUNT ON;

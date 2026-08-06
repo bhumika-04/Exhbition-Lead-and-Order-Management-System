@@ -43,18 +43,23 @@ Single-tenant: one deployment serves one company. All users of a deployment shar
 
 ### 1. Database Setup
 
+The database is provisioned by **restoring a backup of the previous multi-tenant database**,
+then running `014` against the restored copy to collapse it to single-tenant:
+
 ```sql
-CREATE DATABASE ELCS;
--- Run migrations in order from backend-dotnet/ELCS.API/database/, including:
--- 014_remove_multitenancy_and_crm.sql   Drops Companies, TenantId, IsSuperAdmin, CrmLedgerId
--- ALTER TABLE Leads ADD FrontImagePath NVARCHAR(500) NULL, BackImagePath NVARCHAR(500) NULL;
+-- 1. Restore the old ELCS backup under a new database name for this project
+-- 2. Run against the restored database:
+--    backend-dotnet/ELCS.API/database/014_remove_multitenancy_and_crm.sql
+--    (drops Companies, the TenantId columns, IsSuperAdmin and CrmLedgerId)
 ```
 
-> **Note:** the `database/` folder currently contains only `014`. Migrations `001`–`013` are
-> not present in this repository, so a database cannot be built from scratch here — `014`
-> assumes an existing schema created by the earlier (missing) scripts. Recover them from a
-> backup, or capture a fresh schema baseline from a running database, before relying on this
-> folder for provisioning.
+`014` opens with a pre-flight `SELECT` reporting how many distinct tenants the restored
+data contains. **Run that first.** If it returns more than one, the script will merge those
+companies' leads into a single pool and the split cannot be recovered afterwards.
+
+Migrations `001`–`013` are intentionally not kept in this repository — the schema they
+built lives in the backup instead, so `014` expects an already-restored database rather
+than an empty one.
 
 ### 2. Backend Setup
 
