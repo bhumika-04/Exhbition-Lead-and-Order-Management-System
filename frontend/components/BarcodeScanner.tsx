@@ -27,6 +27,38 @@ const NATIVE_FORMATS = [
   'upc_a', 'upc_e', 'itf', 'codabar',
 ];
 
+/**
+ * ZXing warns on every format that fails to match, on every frame. Its
+ * `instanceof ReaderException` check does not survive bundling, so ordinary
+ * "no barcode in this frame" results are logged as though they were errors —
+ * hundreds of lines a second, which makes the console unusable while scanning.
+ * The library exposes no log level, so filter that one message while a camera
+ * is live.
+ *
+ * Reference-counted at module scope rather than per component: the order form
+ * renders one scanner per line item, so two can be live at once, and
+ * per-instance save/restore would leave a wrapper permanently installed.
+ */
+let zxingMuteCount = 0;
+let savedConsoleWarn: typeof console.warn | null = null;
+
+function muteZxingNoise() {
+  if (zxingMuteCount++ > 0) return;
+  savedConsoleWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    if (typeof args[0] === 'string' && args[0].startsWith('MultiFormatReader')) return;
+    savedConsoleWarn?.(...args);
+  };
+}
+
+function unmuteZxingNoise() {
+  if (zxingMuteCount === 0) return;
+  if (--zxingMuteCount === 0 && savedConsoleWarn) {
+    console.warn = savedConsoleWarn;
+    savedConsoleWarn = null;
+  }
+}
+
 export default function BarcodeScanner({
   value,
   onChange,
@@ -42,6 +74,8 @@ export default function BarcodeScanner({
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number | null>(null);
   const zxingControlsRef = useRef<{ stop: () => void } | null>(null);
+  // Tracked so stop() releases exactly one mute, never a stray one.
+  const mutedRef = useRef(false);
 
   const [scanning, setScanning] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -67,6 +101,7 @@ export default function BarcodeScanner({
     streamRef.current?.getTracks().forEach(t => t.stop());
     streamRef.current = null;
 
+    if (mutedRef.current) { unmuteZxingNoise(); mutedRef.current = false; }
     setScanning(false);
     setStarting(false);
   }, []);
@@ -122,8 +157,33 @@ export default function BarcodeScanner({
 
   /** ZXing fallback. decodeFromVideoDevice opens and owns its own stream. */
   const startZxing = useCallback(async () => {
-    const { BrowserMultiFormatReader } = await import('@zxing/browser');
-    const reader = new BrowserMultiFormatReader();
+    const [{ BrowserMultiFormatReader }, { DecodeHintType, BarcodeFormat }] = await Promise.all([
+      import('@zxing/browser'),
+      import('@zxing/library'),
+    ]);
+
+    // Without this ZXing tries every format it knows — QR, Micro QR, DataMatrix,
+    // Aztec, PDF417, MaxiCode — on every frame. Garment tags are 1D, so those
+    // attempts are pure waste: slower scanning and a flood of warnings. Keep the
+    // list matching NATIVE_FORMATS so a code that scans on one decoder scans on
+    // the other.
+    const hints = new Map<number, unknown>([
+      [DecodeHintType.POSSIBLE_FORMATS, [
+        BarcodeFormat.CODE_128,
+        BarcodeFormat.CODE_39,
+        BarcodeFormat.CODE_93,
+        BarcodeFormat.EAN_13,
+        BarcodeFormat.EAN_8,
+        BarcodeFormat.UPC_A,
+        BarcodeFormat.UPC_E,
+        BarcodeFormat.ITF,
+        BarcodeFormat.CODABAR,
+      ]],
+    ]);
+
+    muteZxingNoise();
+    mutedRef.current = true;
+    const reader = new BrowserMultiFormatReader(hints as never);
 
     setScanning(true);
     setStarting(false);
