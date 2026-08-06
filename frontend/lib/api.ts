@@ -18,6 +18,10 @@ import type {
   LeadOrderSummary,
   CreateOrderItemRequest,
   ConfirmOrderResult,
+  SlabOption,
+  OrderListItem,
+  OrderListTotals,
+  CouponHolder,
 } from './types';
 
 class ApiClient {
@@ -402,10 +406,42 @@ class ApiClient {
     return data;
   }
 
-  /** Operator-agreed advance; only applies when the lead's total is below ₹1L. */
-  async setManualAdvance(leadId: number, amount: number | null): Promise<LeadOrderSummary> {
-    const { data } = await this.client.put(`/api/orders/lead/${leadId}/manual-advance`, { amount });
+  /** Slab options for the payment step — each suggests ₹11,000 × slab. */
+  async getOrderSlabs(count = 6): Promise<SlabOption[]> {
+    const { data } = await this.client.get('/api/orders/slabs', { params: { count } });
+    return data.slabs || [];
+  }
+
+  /** Records the slab, order value and the advance actually taken. */
+  async setOrderPayment(orderId: number, req: {
+    slab_band: number;
+    order_value?: number | null;
+    advance_amount: number;
+  }): Promise<{ success: boolean; order: OrderDetail }> {
+    const { data } = await this.client.put(`/api/orders/${orderId}/payment`, req);
     return data;
+  }
+
+  /** Orders page — filters, barcode search, and totals across the whole filter. */
+  async searchOrders(params?: {
+    exhibition_id?: number;
+    status_code?: string;
+    search?: string;
+    from_date?: string;
+    to_date?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ orders: OrderListItem[]; count: number; totals: OrderListTotals }> {
+    const { data } = await this.client.get('/api/orders', { params });
+    return { orders: data.orders || [], count: data.count ?? 0, totals: data.totals };
+  }
+
+  /** Leads ranked by lucky-draw coupons. */
+  async getCouponHolders(exhibitionId?: number): Promise<CouponHolder[]> {
+    const { data } = await this.client.get('/api/orders/coupons', {
+      params: exhibitionId ? { exhibition_id: exhibitionId } : undefined,
+    });
+    return data.holders || [];
   }
 
   /** Absolute URL for a file under the backend's /uploads root. */

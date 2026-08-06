@@ -74,7 +74,7 @@ public class InteraktWhatsAppService : IWhatsAppService
                     order.LeadName ?? "Customer",
                     order.OrderNumber,
                     Money(order.LeadSummary.LeadTotal),
-                    Money(order.LeadSummary.Advance),
+                    Money(order.LeadSummary.TotalAdvance),
                     Money(order.LeadSummary.Balance),
                 },
                 fileName: $"{order.OrderNumber}.pdf");

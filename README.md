@@ -223,35 +223,40 @@ and the failure is reported separately, so a messaging outage never blocks takin
 
 ## Advance & Coupons
 
-Advance and lucky-draw coupons are a function of the lead's **total across all their
-non-cancelled orders** — not of any single order. Adding a second order re-bands the lead
-automatically, which is why neither value is ever stored.
+**Coupons follow the advance actually taken, not the order value.** A lead may hold ₹2.5 L of
+orders and pay only ₹11,000 — that earns 4 coupons, not 8.
 
 ```
-band    = floor(total ÷ ₹1,00,000)
-advance = ₹11,000 × band
-coupons = 4 × band
+coupons = 4 × floor(totalAdvance ÷ ₹11,000)
 ```
 
-| Total order value | Advance | Coupons |
+The order-value **slab only suggests** an advance, which the operator then edits on the
+payment step:
+
+| Order value slab | Suggested advance | Coupons if paid in full |
 |---|---|---|
-| Below ₹1 L | operator-entered | 0 |
+| Below ₹1 L | none — entered by hand | depends on what is paid |
 | ₹1 L – ₹2 L | ₹11,000 | 4 |
 | ₹2 L – ₹3 L | ₹22,000 | 8 |
 | ₹3 L – ₹4 L | ₹33,000 | 12 |
 | ₹4 L – ₹5 L | ₹44,000 | 16 |
 
-The pattern continues without a ceiling. Exact multiples fall in the **upper** band
-(₹2,00,000 → ₹22,000 / 8 coupons), which is what `floor` gives.
+The pattern continues without a ceiling, and exact multiples fall in the **upper** slab
+(₹2,00,000 → slab 2). Because coupons key off the advance rather than the slab, a sub-₹1 L
+customer who pays ₹11,000 still earns 4.
 
-Below ₹1 L there is no band: no coupons, and the advance is whatever the operator agreed —
-entered on the order page and stored on the lead. It is clamped to the order total.
+**Advance accumulates across the lead's orders** before the coupon calculation, so two
+part-payments of ₹6,000 together earn 4 coupons rather than nothing each.
+
+An advance larger than the order value is treated as a data-entry error: the balance floors
+at zero, coupons still follow the advance, and the position is flagged as overpaid rather
+than silently corrected.
 
 Coupons are lucky-draw entries (prize: iPhone). They are shown in the app but **never appear
 on the Sales Order PDF**, which is the customer's commercial record.
 
 The rule lives in one place — [`AdvanceCalculator.cs`](backend-dotnet/ELCS.API/Services/AdvanceCalculator.cs).
-Change the constants there and every screen, total and PDF follows.
+Advance is stored per order (`Orders.AdvanceAmount`); coupons are always derived.
 
 ## Permissions
 

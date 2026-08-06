@@ -269,8 +269,8 @@ export interface OrderItem {
   size?: string | null;
   colour?: string | null;
   pieces: number;
-  rate: number;
-  amount: number;           // rate × pieces, computed server-side
+  rate?: number | null;     // optional — value can come from the slab instead
+  amount?: number | null;   // rate × pieces, computed server-side
   customization?: string | null;
 }
 
@@ -280,6 +280,10 @@ export interface OrderSummary {
   lead_id: number;
   status_code: 'draft' | 'confirmed' | 'cancelled';
   order_total: number;
+  order_value?: number | null;
+  effective_value: number;
+  slab_band: number;
+  advance_amount: number;
   item_count: number;
   total_pieces: number;
   so_pdf_path?: string | null;
@@ -288,21 +292,22 @@ export interface OrderSummary {
 }
 
 /**
- * Advance and coupons are derived from the lead's TOTAL across all
- * non-cancelled orders — never from a single order.
- *   band = floor(total / 100000), advance = 11000 × band, coupons = 4 × band
- * Below ₹1L: band 0, no coupons, advance is operator-entered.
+ * Lead-level money position across all non-cancelled orders.
+ *
+ * Coupons follow the advance ACTUALLY TAKEN, not the order value:
+ *   coupons = 4 × floor(total_advance / 11000)
+ * A ₹2.5L order with only ₹11k advance earns 4 coupons, not 8.
+ * The slab only suggests an advance (₹11,000 × slab); the operator may edit it.
  */
 export interface LeadOrderSummary {
   lead_id: number;
   order_count: number;
   lead_total: number;
-  band: number;
-  advance: number;
+  total_advance: number;
+  slab: number;
   coupons: number;
   balance: number;
-  is_manual_advance: boolean;
-  manual_advance_amount?: number | null;
+  is_overpaid: boolean;
 }
 
 export interface OrderDetail {
@@ -316,6 +321,12 @@ export interface OrderDetail {
   exhibition_name?: string | null;
   status_code: 'draft' | 'confirmed' | 'cancelled';
   order_total: number;
+  order_value?: number | null;
+  effective_value: number;
+  slab_band: number;
+  advance_amount: number;
+  suggested_advance: number;
+  order_coupons: number;
   notes?: string | null;
   so_pdf_path?: string | null;
   confirmed_at?: string | null;
@@ -330,8 +341,50 @@ export interface CreateOrderItemRequest {
   size?: string | null;
   colour?: string | null;
   pieces: number;
-  rate: number;
+  rate?: number | null;
   customization?: string | null;
+}
+
+export interface SlabOption {
+  slab: number;
+  from_value: number;
+  to_value: number;
+  suggested_advance: number;
+  coupons_if_paid: number;
+}
+
+export interface OrderListItem {
+  order_id: number;
+  order_number: string;
+  lead_id: number;
+  lead_name?: string | null;
+  lead_company_name?: string | null;
+  exhibition_name?: string | null;
+  status_code: 'draft' | 'confirmed' | 'cancelled';
+  effective_value: number;
+  advance_amount: number;
+  item_count: number;
+  total_pieces: number;
+  so_pdf_path?: string | null;
+  created_at: string;
+}
+
+export interface OrderListTotals {
+  order_count: number;
+  total_value: number;
+  total_advance: number;
+  total_coupons: number;
+}
+
+export interface CouponHolder {
+  lead_id: number;
+  lead_name?: string | null;
+  company_name?: string | null;
+  phone?: string | null;
+  total_value: number;
+  total_advance: number;
+  coupons: number;
+  order_count: number;
 }
 
 export interface ConfirmOrderResult {

@@ -11,13 +11,19 @@ public interface IOrderService
     Task DeleteOrderAsync(int orderId);
     Task ConfirmOrderAsync(int orderId);
 
-    /// <summary>Advance/coupon position for a lead, across all their non-cancelled orders.</summary>
+    /// <summary>Sets the slab, order value and the advance actually taken on an order.</summary>
+    Task SetOrderPaymentAsync(int orderId, SetOrderPaymentRequest request);
+
+    /// <summary>Value/advance/coupon position for a lead, across all non-cancelled orders.</summary>
     Task<LeadOrderSummaryDto> GetLeadOrderSummaryAsync(int leadId);
 
-    /// <summary>Sets the operator-agreed advance used when the lead's total is below ₹1L.</summary>
-    Task SetManualAdvanceAsync(int leadId, decimal? amount);
-
     Task SetSoPdfPathAsync(int orderId, string relativePath);
+
+    /// <summary>Order list for the Orders page — filters, barcode search and totals.</summary>
+    Task<OrderListResultDto> SearchOrdersAsync(OrderSearchParams p);
+
+    /// <summary>Leads ranked by lucky-draw coupons.</summary>
+    Task<List<CouponHolderDto>> GetCouponHoldersAsync(int? exhibitionId);
 }
 
 /// <summary>The three item types the client sells. Free text in the DB so more can be added.</summary>
@@ -38,8 +44,8 @@ public record OrderItemDto(
     string? Size,
     string? Colour,
     int Pieces,
-    decimal Rate,
-    decimal Amount,
+    decimal? Rate,        // optional — the slab can carry the value instead
+    decimal? Amount,      // Rate × Pieces when Rate is given
     string? Customization
 );
 
@@ -49,6 +55,10 @@ public record OrderSummaryDto(
     int LeadId,
     string StatusCode,
     decimal OrderTotal,
+    decimal? OrderValue,
+    decimal EffectiveValue,
+    int SlabBand,
+    decimal AdvanceAmount,
     int ItemCount,
     int TotalPieces,
     string? SoPdfPath,
@@ -66,7 +76,13 @@ public record OrderDetailDto(
     int? ExhibitionId,
     string? ExhibitionName,
     string StatusCode,
-    decimal OrderTotal,
+    decimal OrderTotal,        // SUM of priced lines; 0 when lines are unpriced
+    decimal? OrderValue,       // exact value when known
+    decimal EffectiveValue,    // OrderValue ?? OrderTotal — what the money runs on
+    int SlabBand,
+    decimal AdvanceAmount,     // actually taken
+    decimal SuggestedAdvance,  // ₹11,000 × SlabBand
+    int OrderCoupons,          // coupons this order's advance alone would earn
     string? Notes,
     string? SoPdfPath,
     DateTime? ConfirmedAt,
@@ -76,19 +92,74 @@ public record OrderDetailDto(
 );
 
 /// <summary>
-/// Lead-level money position. Advance and coupons are derived here, never stored,
-/// so adding an order re-bands the lead automatically.
+/// Lead-level money position across all non-cancelled orders.
+/// Coupons follow the advance actually taken, not the order value.
 /// </summary>
 public record LeadOrderSummaryDto(
     int LeadId,
     int OrderCount,
-    decimal LeadTotal,
-    int Band,
-    decimal Advance,
-    int Coupons,
+    decimal LeadTotal,       // combined order value
+    decimal TotalAdvance,    // combined advance taken
+    int Slab,                // slab the combined value falls into
+    int Coupons,             // 4 × floor(totalAdvance / 11,000)
     decimal Balance,
-    bool IsManualAdvance,
-    decimal? ManualAdvanceAmount
+    bool IsOverpaid
+);
+
+public record SetOrderPaymentRequest(
+    int SlabBand,
+    decimal? OrderValue,
+    decimal AdvanceAmount
+);
+
+public record OrderSearchParams(
+    int? ExhibitionId = null,
+    string? StatusCode = null,
+    string? Search = null,      // order number, lead name, or barcode
+    DateTime? FromDate = null,
+    DateTime? ToDate = null,
+    int Limit = 100,
+    int Offset = 0
+);
+
+public record OrderListItemDto(
+    int OrderId,
+    string OrderNumber,
+    int LeadId,
+    string? LeadName,
+    string? LeadCompanyName,
+    string? ExhibitionName,
+    string StatusCode,
+    decimal EffectiveValue,
+    decimal AdvanceAmount,
+    int ItemCount,
+    int TotalPieces,
+    string? SoPdfPath,
+    DateTime CreatedAt
+);
+
+public record OrderListTotalsDto(
+    int OrderCount,
+    decimal TotalValue,
+    decimal TotalAdvance,
+    int TotalCoupons        // summed per lead, not per order
+);
+
+public record OrderListResultDto(
+    List<OrderListItemDto> Orders,
+    int TotalCount,
+    OrderListTotalsDto Totals
+);
+
+public record CouponHolderDto(
+    int LeadId,
+    string? LeadName,
+    string? CompanyName,
+    string? Phone,
+    decimal TotalValue,
+    decimal TotalAdvance,
+    int Coupons,
+    int OrderCount
 );
 
 public record CreateOrderItemRequest(
@@ -97,7 +168,7 @@ public record CreateOrderItemRequest(
     string? Size,
     string? Colour,
     int Pieces,
-    decimal Rate,
+    decimal? Rate,          // optional — leave null when pricing comes from the slab
     string? Customization
 );
 
@@ -112,5 +183,3 @@ public record UpdateOrderRequest(
     string? Notes,
     string? StatusCode
 );
-
-public record SetManualAdvanceRequest(decimal? Amount);

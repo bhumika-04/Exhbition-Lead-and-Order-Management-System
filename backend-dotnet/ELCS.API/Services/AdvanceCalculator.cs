@@ -3,74 +3,87 @@ namespace ELCS.API.Services;
 /// <summary>
 /// Advance payment + lucky-draw coupon rules.
 ///
-/// Both are a function of the lead's TOTAL order value across all their
-/// non-cancelled orders — not of any single order. Adding a second order
-/// re-bands the lead, which is why nothing here is persisted.
+/// Coupons follow the money ACTUALLY TAKEN, not the order value. A lead may
+/// hold ₹2.5 L of orders and pay only ₹11,000 advance — that earns 4 coupons,
+/// not 8. So:
 ///
-///   band    = floor(total / 1,00,000)
-///   advance = ₹11,000 × band
-///   coupons = 4 × band
+///   coupons = 4 × floor(totalAdvance / ₹11,000)
 ///
-///   ₹1L–₹2L → ₹11,000 /  4 coupons
-///   ₹2L–₹3L → ₹22,000 /  8 coupons
-///   ₹3L–₹4L → ₹33,000 / 12 coupons
-///   and onward without a ceiling: ₹4L–₹5L → ₹44,000 / 16 coupons.
+/// The order-value slab only SUGGESTS an advance, which the operator may then
+/// edit:
 ///
-/// Below ₹1L there is no band: no coupons, and the advance is whatever the
-/// operator agreed with the customer (<paramref name="manualAdvance"/>).
+///   suggestedAdvance = ₹11,000 × slab
 ///
-/// Exact multiples fall in the UPPER band, which is what floor gives:
-/// ₹2,00,000 → band 2 → ₹22,000 / 8 coupons.
+///   slab 1 (₹1L–₹2L) → suggests ₹11,000 →  4 coupons if paid in full
+///   slab 2 (₹2L–₹3L) → suggests ₹22,000 →  8 coupons if paid in full
+///   slab 3 (₹3L–₹4L) → suggests ₹33,000 → 12 coupons if paid in full
+///
+/// and onward without a ceiling. Slab 0 (below ₹1L) suggests nothing; whatever
+/// advance is agreed is entered by hand and earns coupons on the same rule —
+/// which is why an under-₹1L lead who pays ₹11,000 still gets 4.
+///
+/// Advance is accumulated across all the lead's non-cancelled orders before
+/// the coupon calculation, so two part-payments of ₹6,000 together earn 4
+/// coupons rather than nothing.
 /// </summary>
 public static class AdvanceCalculator
 {
-    public const decimal BandSize       = 100_000m;
-    public const decimal AdvancePerBand =  11_000m;
-    public const int     CouponsPerBand =       4;
+    public const decimal SlabSize       = 100_000m;   // order-value band width
+    public const decimal AdvancePerSlab =  11_000m;   // suggested advance per slab
+    public const int     CouponsPerUnit =       4;    // coupons per AdvancePerSlab paid
 
-    public static AdvanceBreakdown Calculate(decimal leadTotal, decimal? manualAdvance = null)
+    /// <summary>Slab an order value falls into. Exact multiples land in the upper slab.</summary>
+    public static int SlabForValue(decimal orderValue) =>
+        orderValue <= 0m ? 0 : (int)decimal.Floor(orderValue / SlabSize);
+
+    /// <summary>Advance suggested by a slab. Slab 0 suggests nothing — it is agreed by hand.</summary>
+    public static decimal SuggestedAdvance(int slab) =>
+        slab <= 0 ? 0m : AdvancePerSlab * slab;
+
+    /// <summary>Coupons earned by an advance actually paid.</summary>
+    public static int CouponsForAdvance(decimal totalAdvance) =>
+        totalAdvance < AdvancePerSlab
+            ? 0
+            : (int)decimal.Floor(totalAdvance / AdvancePerSlab) * CouponsPerUnit;
+
+    /// <summary>
+    /// A lead's full position.
+    /// </summary>
+    /// <param name="totalValue">Combined value of the lead's non-cancelled orders.</param>
+    /// <param name="totalAdvance">Combined advance actually taken across those orders.</param>
+    public static LeadMoneyPosition Calculate(decimal totalValue, decimal totalAdvance)
     {
-        if (leadTotal <= 0m)
-            return new AdvanceBreakdown(0m, 0, 0m, 0, 0m, false);
+        if (totalValue < 0m)   totalValue   = 0m;
+        if (totalAdvance < 0m) totalAdvance = 0m;
 
-        var band = (int)decimal.Floor(leadTotal / BandSize);
+        var coupons = CouponsForAdvance(totalAdvance);
 
-        // Below ₹1L — operator-defined advance, no coupons.
-        if (band <= 0)
-        {
-            var manual = manualAdvance ?? 0m;
-            if (manual < 0m)        manual = 0m;
-            if (manual > leadTotal) manual = leadTotal;   // never advance more than the order
-            return new AdvanceBreakdown(leadTotal, 0, manual, 0, leadTotal - manual, true);
-        }
+        // An advance larger than the order value is a data-entry error, not a
+        // negative balance. Report the balance floored at zero and flag it so
+        // the UI can surface the overpayment rather than hide it.
+        var overpaid = totalAdvance > totalValue;
+        var balance  = overpaid ? 0m : totalValue - totalAdvance;
 
-        var advance = AdvancePerBand * band;
-
-        // Guard: the banded advance can only exceed the total through a rule
-        // change (e.g. a much larger AdvancePerBand). Clamp so balance is never
-        // negative rather than emitting a nonsensical Sales Order.
-        if (advance > leadTotal) advance = leadTotal;
-
-        return new AdvanceBreakdown(
-            Total:          leadTotal,
-            Band:           band,
-            Advance:        advance,
-            Coupons:        CouponsPerBand * band,
-            Balance:        leadTotal - advance,
-            IsManualAdvance: false);
+        return new LeadMoneyPosition(
+            TotalValue:   totalValue,
+            TotalAdvance: totalAdvance,
+            Slab:         SlabForValue(totalValue),
+            Coupons:      coupons,
+            Balance:      balance,
+            IsOverpaid:   overpaid);
     }
 }
 
-/// <param name="Total">Lead's combined value across all non-cancelled orders.</param>
-/// <param name="Band">floor(total / 1L). 0 means below the first band.</param>
-/// <param name="Advance">Advance payable.</param>
+/// <param name="TotalValue">Combined value of the lead's non-cancelled orders.</param>
+/// <param name="TotalAdvance">Combined advance actually taken.</param>
+/// <param name="Slab">Slab the combined value falls into — informational.</param>
 /// <param name="Coupons">Lucky-draw entries earned. Never shown on the Sales Order.</param>
-/// <param name="Balance">Total − advance.</param>
-/// <param name="IsManualAdvance">True when the advance came from operator entry rather than the band rule.</param>
-public record AdvanceBreakdown(
-    decimal Total,
-    int     Band,
-    decimal Advance,
+/// <param name="Balance">Total value − total advance, floored at zero.</param>
+/// <param name="IsOverpaid">Advance exceeds the order value — almost certainly a typo.</param>
+public record LeadMoneyPosition(
+    decimal TotalValue,
+    decimal TotalAdvance,
+    int     Slab,
     int     Coupons,
     decimal Balance,
-    bool    IsManualAdvance);
+    bool    IsOverpaid);

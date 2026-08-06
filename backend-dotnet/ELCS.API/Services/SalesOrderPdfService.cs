@@ -151,8 +151,10 @@ public class SalesOrderPdfService : ISalesOrderPdfService
                             Cell().Text(Dash(item.Size));
                             Cell().Text(Dash(item.Colour));
                             Cell().AlignRight().Text(item.Pieces.ToString());
-                            Cell().AlignRight().Text(Money(item.Rate));
-                            Cell().AlignRight().Text(Money(item.Amount)).Bold();
+                            // Rate is optional — an unpriced line shows a dash rather
+                            // than a misleading ₹0.00.
+                            Cell().AlignRight().Text(item.Rate.HasValue ? Money(item.Rate.Value) : "—");
+                            Cell().AlignRight().Text(item.Amount.HasValue ? Money(item.Amount.Value) : "—").Bold();
 
                             // Customization spans the full width beneath its line
                             if (!string.IsNullOrWhiteSpace(item.Customization))
@@ -182,7 +184,7 @@ public class SalesOrderPdfService : ISalesOrderPdfService
                             });
                         }
 
-                        Line("This order", Money(order.OrderTotal));
+                        Line("This order", Money(order.EffectiveValue));
 
                         // Advance and balance are positions on the customer's FULL
                         // account, not on this order alone — say so, otherwise the
@@ -197,7 +199,7 @@ public class SalesOrderPdfService : ISalesOrderPdfService
 
                         c.Item().PaddingVertical(4).LineHorizontal(1).LineColor(Colors.Grey.Lighten1);
 
-                        Line("Advance", Money(summary.Advance));
+                        Line("Advance received", Money(summary.TotalAdvance));
                         Line("Balance due", Money(summary.Balance), bold: true);
                     });
 

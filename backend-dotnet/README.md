@@ -231,16 +231,23 @@ A lead may place multiple orders; each order has any number of line items.
   same way adding an order does.
 
 ### Advance & Coupons
-Derived, never stored — see [`AdvanceCalculator.cs`](ELCS.API/Services/AdvanceCalculator.cs):
+See [`AdvanceCalculator.cs`](ELCS.API/Services/AdvanceCalculator.cs).
+
+**Coupons follow the advance actually taken, not the order value.**
 
 ```
-band    = floor(leadTotal / 100000)
-advance = 11000 * band     (band 0 → Leads.ManualAdvanceAmount, clamped to the total)
-coupons = 4 * band         (band 0 → 0)
+slab             = floor(orderValue / 100000)    -- suggestion only
+suggestedAdvance = 11000 * slab                  -- slab 0 suggests nothing
+coupons          = 4 * floor(totalAdvance / 11000)
 ```
 
-Computed on the lead's combined value across all non-cancelled orders. Exact multiples land
-in the upper band (₹2,00,000 → band 2). The pattern has no ceiling.
+`Orders.AdvanceAmount` is **stored** (operator-editable); coupons are always derived from it.
+Advance is summed across the lead's non-cancelled orders *before* the coupon calculation, so
+two ₹6,000 part-payments earn 4 coupons together rather than 0 apiece.
+
+An advance exceeding the order value floors the balance at zero and sets `IsOverpaid` —
+coupons still follow the advance, because silently reducing an entitlement would hide the
+data-entry error rather than surface it.
 
 ### Sales Order PDF
 QuestPDF, written to `uploads/orders/{leadId}/{orderNumber}-{guid}.pdf`.

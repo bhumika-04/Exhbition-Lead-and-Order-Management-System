@@ -7,7 +7,10 @@ public class Order
     public int LeadId { get; set; }
     public int? ExhibitionId { get; set; }
     public string StatusCode { get; set; } = "draft";
-    public decimal OrderTotal { get; set; }
+    public decimal OrderTotal { get; set; }      // SUM of priced lines
+    public decimal? OrderValue { get; set; }     // exact value when known
+    public int SlabBand { get; set; }            // operator-chosen order-value slab
+    public decimal AdvanceAmount { get; set; }   // advance actually taken
     public string? Notes { get; set; }
     public string? SoPdfPath { get; set; }
     public DateTime? ConfirmedAt { get; set; }
@@ -18,6 +21,7 @@ public class Order
     // Joined for display
     public string? LeadName { get; set; }
     public string? LeadCompanyName { get; set; }
+    public string? LeadPhone { get; set; }
     public string? ExhibitionName { get; set; }
 }
 
@@ -31,8 +35,8 @@ public class OrderItem
     public string? Size { get; set; }
     public string? Colour { get; set; }
     public int Pieces { get; set; } = 1;
-    public decimal Rate { get; set; }
-    public decimal Amount { get; set; }                    // Rate × Pieces
+    public decimal? Rate { get; set; }                     // optional
+    public decimal? Amount { get; set; }                   // Rate × Pieces when priced
     public string? Customization { get; set; }
 }
 

@@ -36,6 +36,52 @@ public class OrdersController : ControllerBase
     [HttpGet("item-types")]
     public IActionResult GetItemTypes() => Ok(new { item_types = OrderItemTypes.All });
 
+    /// <summary>
+    /// Slab options for the payment step. Each slab suggests ₹11,000 × slab as the
+    /// advance; the operator may then change it, and coupons follow what is taken.
+    /// </summary>
+    [HttpGet("slabs")]
+    public IActionResult GetSlabs([FromQuery] int count = 6)
+    {
+        var slabs = Enumerable.Range(1, Math.Clamp(count, 1, 20)).Select(n => new
+        {
+            slab = n,
+            from_value = AdvanceCalculator.SlabSize * n,
+            to_value = AdvanceCalculator.SlabSize * (n + 1),
+            suggested_advance = AdvanceCalculator.SuggestedAdvance(n),
+            coupons_if_paid = AdvanceCalculator.CouponsForAdvance(AdvanceCalculator.SuggestedAdvance(n)),
+        });
+        return Ok(new { slabs, slab_size = AdvanceCalculator.SlabSize, advance_per_slab = AdvanceCalculator.AdvancePerSlab });
+    }
+
+    /// <summary>Orders page — filters, barcode search and totals.</summary>
+    [HttpGet]
+    public async Task<IActionResult> SearchOrders(
+        [FromQuery] int? exhibition_id,
+        [FromQuery] string? status_code,
+        [FromQuery] string? search,
+        [FromQuery] DateTime? from_date,
+        [FromQuery] DateTime? to_date,
+        [FromQuery] int limit = 100,
+        [FromQuery] int offset = 0)
+    {
+        var result = await _orderService.SearchOrdersAsync(new OrderSearchParams(
+            ExhibitionId: exhibition_id,
+            StatusCode:   status_code,
+            Search:       search,
+            FromDate:     from_date,
+            ToDate:       to_date,
+            Limit:        Math.Clamp(limit, 1, 500),
+            Offset:       Math.Max(offset, 0)));
+
+        return Ok(new { orders = result.Orders, count = result.TotalCount, totals = result.Totals });
+    }
+
+    /// <summary>Leads ranked by lucky-draw coupons.</summary>
+    [HttpGet("coupons")]
+    public async Task<IActionResult> GetCouponHolders([FromQuery] int? exhibition_id)
+        => Ok(new { holders = await _orderService.GetCouponHoldersAsync(exhibition_id) });
+
     [HttpGet("lead/{leadId:int}")]
     public async Task<IActionResult> GetOrdersForLead(int leadId)
     {
@@ -44,19 +90,19 @@ public class OrdersController : ControllerBase
         return Ok(new { orders, summary });
     }
 
-    /// <summary>Advance / coupon position for a lead across all their orders.</summary>
+    /// <summary>Value / advance / coupon position for a lead across all their orders.</summary>
     [HttpGet("lead/{leadId:int}/summary")]
     public async Task<IActionResult> GetLeadSummary(int leadId)
         => Ok(await _orderService.GetLeadOrderSummaryAsync(leadId));
 
-    /// <summary>Operator-agreed advance, used only when the lead's total is below ₹1L.</summary>
-    [HttpPut("lead/{leadId:int}/manual-advance")]
-    public async Task<IActionResult> SetManualAdvance(int leadId, [FromBody] SetManualAdvanceRequest request)
+    /// <summary>Sets the slab, order value and the advance actually taken.</summary>
+    [HttpPut("{orderId:int}/payment")]
+    public async Task<IActionResult> SetPayment(int orderId, [FromBody] SetOrderPaymentRequest request)
     {
         try
         {
-            await _orderService.SetManualAdvanceAsync(leadId, request.Amount);
-            return Ok(await _orderService.GetLeadOrderSummaryAsync(leadId));
+            await _orderService.SetOrderPaymentAsync(orderId, request);
+            return Ok(new { success = true, order = await _orderService.GetOrderAsync(orderId) });
         }
         catch (ArgumentException ex)
         {
@@ -64,7 +110,7 @@ public class OrdersController : ControllerBase
         }
         catch (KeyNotFoundException)
         {
-            return NotFound(new { error = "Lead not found" });
+            return NotFound(new { error = "Order not found" });
         }
     }
 

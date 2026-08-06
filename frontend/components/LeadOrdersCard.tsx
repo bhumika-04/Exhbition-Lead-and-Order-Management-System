@@ -94,7 +94,7 @@ export default function LeadOrdersCard({ leadId }: { leadId: number }) {
             {summary && (
               <div className="pt-2 border-t border-slate-100 space-y-1.5">
                 <Line label="Total value" value={money(summary.lead_total)} bold />
-                <Line label="Advance" value={money(summary.advance)} />
+                <Line label="Advance received" value={money(summary.total_advance)} />
                 <Line label="Balance due" value={money(summary.balance)} />
               </div>
             )}

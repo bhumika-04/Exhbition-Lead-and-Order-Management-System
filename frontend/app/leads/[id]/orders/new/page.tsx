@@ -10,7 +10,7 @@ import { isAuthenticated } from '@/lib/auth';
 import { ORDER_ITEM_TYPES, type LeadDetails, type LeadOrderSummary } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { money, ADVANCE_BAND_SIZE } from '@/lib/orders';
+import { money } from '@/lib/orders';
 
 interface ItemRow {
   item_type: string;
@@ -77,26 +77,26 @@ export default function PlaceOrderPage() {
   };
 
   const orderTotal = rows.reduce((sum, r) => sum + lineAmount(r), 0);
-
-  // Advance/coupons run on the lead's combined total, so this order is only
-  // part of the picture when they already have orders on file.
+  const anyPriced = rows.some(r => r.rate.trim() !== '');
   const priorTotal = existing?.lead_total ?? 0;
-  const projectedTotal = priorTotal + orderTotal;
-  const projectedBand = Math.floor(projectedTotal / ADVANCE_BAND_SIZE);
-  const projectedCoupons = projectedBand * 4;
-  const projectedAdvance = projectedBand * 11000;
 
   const save = async () => {
     const items = rows
-      .map(r => ({
-        item_type: r.item_type.trim(),
-        barcode: r.barcode.trim() || null,
-        size: r.size.trim() || null,
-        colour: r.colour.trim() || null,
-        pieces: parseInt(r.pieces),
-        rate: parseFloat(r.rate),
-        customization: r.customization.trim() || null,
-      }))
+      .map(r => {
+        // Rate is optional — an unpriced line is valid, because the order value
+        // can come from the slab chosen on the next step instead.
+        const rateRaw = r.rate.trim();
+        const rate = rateRaw === '' ? null : parseFloat(rateRaw);
+        return {
+          item_type: r.item_type.trim(),
+          barcode: r.barcode.trim() || null,
+          size: r.size.trim() || null,
+          colour: r.colour.trim() || null,
+          pieces: parseInt(r.pieces),
+          rate,
+          customization: r.customization.trim() || null,
+        };
+      })
       .filter(i => i.item_type);
 
     if (items.length === 0) { toast.error('Add at least one item'); return; }
@@ -104,8 +104,8 @@ export default function PlaceOrderPage() {
       if (!Number.isFinite(item.pieces) || item.pieces <= 0) {
         toast.error(`Line ${i + 1}: pieces must be at least 1`); return;
       }
-      if (!Number.isFinite(item.rate) || item.rate < 0) {
-        toast.error(`Line ${i + 1}: enter a valid rate`); return;
+      if (item.rate !== null && (!Number.isFinite(item.rate) || item.rate < 0)) {
+        toast.error(`Line ${i + 1}: enter a valid rate or leave it blank`); return;
       }
     }
 
@@ -183,17 +183,19 @@ export default function PlaceOrderPage() {
                 <Field label="Colour" value={row.colour} onChange={v => setRow(i, { colour: v })} />
                 <Field label="Pieces" value={row.pieces} onChange={v => setRow(i, { pieces: v })}
                        type="number" inputMode="numeric" min="1" />
-                <Field label="Rate (₹)" value={row.rate} onChange={v => setRow(i, { rate: v })}
-                       type="number" inputMode="decimal" min="0" placeholder="0" />
+                <Field label="Rate (₹) — optional" value={row.rate} onChange={v => setRow(i, { rate: v })}
+                       type="number" inputMode="decimal" min="0" placeholder="Leave blank" />
                 <Field label="Customization" value={row.customization}
                        onChange={v => setRow(i, { customization: v })}
                        placeholder="Alterations, notes…" className="col-span-2" />
               </div>
 
-              <div className="flex justify-between items-center pt-1 border-t border-slate-100">
-                <span className="text-[11px] text-slate-400">Line amount</span>
-                <span className="text-sm font-bold text-slate-800">{money(lineAmount(row))}</span>
-              </div>
+              {row.rate.trim() !== '' && (
+                <div className="flex justify-between items-center pt-1 border-t border-slate-100">
+                  <span className="text-[11px] text-slate-400">Line amount</span>
+                  <span className="text-sm font-bold text-slate-800">{money(lineAmount(row))}</span>
+                </div>
+              )}
             </CardContent>
           </Card>
         ))}
@@ -214,42 +216,33 @@ export default function PlaceOrderPage() {
           />
         </label>
 
-        {/* Live totals */}
+        {/* Running totals. Slab, advance and coupons are chosen on the next
+            step, so this card deliberately shows no coupon figure yet. */}
         <Card className="border-slate-200 bg-white">
           <CardContent className="p-4 space-y-2">
-            <Row label="This order" value={money(orderTotal)} />
-            {priorTotal > 0 && (
-              <>
-                <Row label={`Existing orders (${existing?.order_count})`} value={money(priorTotal)} muted />
-                <div className="border-t border-slate-100 pt-2">
-                  <Row label="Total order value" value={money(projectedTotal)} bold />
-                </div>
-              </>
-            )}
-
-            {projectedBand > 0 ? (
-              <div className="pt-2 mt-1 border-t border-slate-100 space-y-2">
-                <Row label="Advance payable" value={money(projectedAdvance)} bold />
-                <Row label="Balance" value={money(projectedTotal - projectedAdvance)} />
-                <div className="flex items-center gap-2 pt-1">
-                  <Ticket className="w-4 h-4 text-amber-500 shrink-0" />
-                  <span className="text-xs font-semibold text-amber-700">
-                    {projectedCoupons} lucky-draw coupon{projectedCoupons === 1 ? '' : 's'}
-                  </span>
-                </div>
-              </div>
+            {anyPriced ? (
+              <Row label="Items total" value={money(orderTotal)} bold />
             ) : (
-              <p className="text-[11px] text-slate-400 pt-2 mt-1 border-t border-slate-100">
-                Below {money(ADVANCE_BAND_SIZE)} — no coupons. Advance is set manually on the order once created.
+              <p className="text-[11px] text-slate-400">
+                No rates entered — the order value comes from the slab you pick next.
               </p>
             )}
+            {priorTotal > 0 && (
+              <Row label={`Existing orders (${existing?.order_count})`} value={money(priorTotal)} muted />
+            )}
+            <div className="flex items-center gap-2 pt-2 mt-1 border-t border-slate-100">
+              <Ticket className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+              <span className="text-[11px] text-slate-400">
+                Next: choose the value slab and record the advance — coupons follow the advance taken.
+              </span>
+            </div>
           </CardContent>
         </Card>
 
         <motion.div whileTap={{ scale: 0.99 }}>
-          <Button onClick={save} disabled={saving || orderTotal <= 0} className="w-full h-12 gap-2 text-sm font-semibold">
+          <Button onClick={save} disabled={saving} className="w-full h-12 gap-2 text-sm font-semibold">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShoppingBag className="w-4 h-4" />}
-            {saving ? 'Creating…' : 'Create Order'}
+            {saving ? 'Creating…' : 'Continue to payment'}
           </Button>
         </motion.div>
       </div>

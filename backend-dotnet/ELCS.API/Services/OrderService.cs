@@ -15,22 +15,30 @@ public class OrderService : IOrderService
         _db = db;
     }
 
-    // Cancelled orders are excluded from the lead's total, so cancelling an
-    // order re-bands the lead the same way adding one does.
-    private const string ActiveOrderFilter = "StatusCode <> 'cancelled'";
+    // Cancelled orders are excluded everywhere money is totalled, so cancelling
+    // an order withdraws its value and its advance from the lead's position.
+    private const string ActiveOnly = "StatusCode <> 'cancelled'";
 
-    private sealed class LeadOrderAggregate
+    // The value the money runs on: the exact figure when the operator gave one,
+    // otherwise the sum of priced lines.
+    private const string EffectiveValueSql = "COALESCE(OrderValue, OrderTotal)";
+
+    private sealed class LeadAggregate
     {
         public int OrderCount { get; set; }
-        public decimal? Total { get; set; }
+        public decimal? TotalValue { get; set; }
+        public decimal? TotalAdvance { get; set; }
     }
 
     public async Task<List<OrderSummaryDto>> GetOrdersForLeadAsync(int leadId)
     {
         using var conn = _db.CreateConnection();
-        var rows = await conn.QueryAsync<OrderSummaryDto>(@"
-            SELECT o.OrderId, o.OrderNumber, o.LeadId, o.StatusCode, o.OrderTotal,
-                   ISNULL(i.ItemCount, 0)  AS ItemCount,
+        var rows = await conn.QueryAsync<OrderSummaryDto>($@"
+            SELECT o.OrderId, o.OrderNumber, o.LeadId, o.StatusCode,
+                   o.OrderTotal, o.OrderValue,
+                   {EffectiveValueSql} AS EffectiveValue,
+                   o.SlabBand, o.AdvanceAmount,
+                   ISNULL(i.ItemCount, 0)   AS ItemCount,
                    ISNULL(i.TotalPieces, 0) AS TotalPieces,
                    o.SoPdfPath, o.ConfirmedAt, o.CreatedAt
             FROM Orders o
@@ -49,19 +57,16 @@ public class OrderService : IOrderService
 
         var order = await conn.QueryFirstOrDefaultAsync<Order>(@"
             SELECT o.*,
-                   l.PrimaryVisitorName AS LeadName,
-                   l.CompanyName        AS LeadCompanyName,
-                   e.Name               AS ExhibitionName
+                   l.PrimaryVisitorName  AS LeadName,
+                   l.CompanyName         AS LeadCompanyName,
+                   l.PrimaryVisitorPhone AS LeadPhone,
+                   e.Name                AS ExhibitionName
             FROM Orders o
             JOIN Leads l            ON l.LeadId = o.LeadId
             LEFT JOIN Exhibitions e ON e.ExhibitionId = o.ExhibitionId
             WHERE o.OrderId = @OrderId", new { OrderId = orderId });
 
         if (order == null) return null;
-
-        var leadPhone = await conn.ExecuteScalarAsync<string?>(
-            "SELECT PrimaryVisitorPhone FROM Leads WHERE LeadId = @LeadId",
-            new { order.LeadId });
 
         var items = (await conn.QueryAsync<OrderItemDto>(@"
             SELECT OrderItemId, LineNo, ItemType, Barcode, Size, Colour,
@@ -73,22 +78,28 @@ public class OrderService : IOrderService
         var summary = await GetLeadOrderSummaryAsync(order.LeadId);
 
         return new OrderDetailDto(
-            OrderId:         order.OrderId,
-            OrderNumber:     order.OrderNumber,
-            LeadId:          order.LeadId,
-            LeadName:        order.LeadName,
-            LeadCompanyName: order.LeadCompanyName,
-            LeadPhone:       leadPhone,
-            ExhibitionId:    order.ExhibitionId,
-            ExhibitionName:  order.ExhibitionName,
-            StatusCode:      order.StatusCode,
-            OrderTotal:      order.OrderTotal,
-            Notes:           order.Notes,
-            SoPdfPath:       order.SoPdfPath,
-            ConfirmedAt:     order.ConfirmedAt,
-            CreatedAt:       order.CreatedAt,
-            Items:           items,
-            LeadSummary:     summary);
+            OrderId:          order.OrderId,
+            OrderNumber:      order.OrderNumber,
+            LeadId:           order.LeadId,
+            LeadName:         order.LeadName,
+            LeadCompanyName:  order.LeadCompanyName,
+            LeadPhone:        order.LeadPhone,
+            ExhibitionId:     order.ExhibitionId,
+            ExhibitionName:   order.ExhibitionName,
+            StatusCode:       order.StatusCode,
+            OrderTotal:       order.OrderTotal,
+            OrderValue:       order.OrderValue,
+            EffectiveValue:   order.OrderValue ?? order.OrderTotal,
+            SlabBand:         order.SlabBand,
+            AdvanceAmount:    order.AdvanceAmount,
+            SuggestedAdvance: AdvanceCalculator.SuggestedAdvance(order.SlabBand),
+            OrderCoupons:     AdvanceCalculator.CouponsForAdvance(order.AdvanceAmount),
+            Notes:            order.Notes,
+            SoPdfPath:        order.SoPdfPath,
+            ConfirmedAt:      order.ConfirmedAt,
+            CreatedAt:        order.CreatedAt,
+            Items:            items,
+            LeadSummary:      summary);
     }
 
     public async Task<int> CreateOrderAsync(CreateOrderRequest request, int? employeeId)
@@ -100,8 +111,7 @@ public class OrderService : IOrderService
         await conn.OpenAsync();
 
         var exhibitionId = await conn.ExecuteScalarAsync<int?>(
-            "SELECT ExhibitionId FROM Leads WHERE LeadId = @LeadId",
-            new { request.LeadId });
+            "SELECT ExhibitionId FROM Leads WHERE LeadId = @LeadId", new { request.LeadId });
 
         using var tx = conn.BeginTransaction();
         try
@@ -112,10 +122,11 @@ public class OrderService : IOrderService
 
             var orderId = await conn.ExecuteScalarAsync<int>(@"
                 INSERT INTO Orders (OrderNumber, LeadId, ExhibitionId, StatusCode,
-                                    OrderTotal, Notes, CreatedByEmployeeId, CreatedAt)
+                                    OrderTotal, SlabBand, AdvanceAmount, Notes,
+                                    CreatedByEmployeeId, CreatedAt)
                 OUTPUT INSERTED.OrderId
                 VALUES (@OrderNumber, @LeadId, @ExhibitionId, 'draft',
-                        0, @Notes, @EmployeeId, GETUTCDATE())",
+                        0, 0, 0, @Notes, @EmployeeId, GETUTCDATE())",
                 new
                 {
                     OrderNumber = orderNumber,
@@ -125,12 +136,11 @@ public class OrderService : IOrderService
                     EmployeeId = employeeId
                 }, tx);
 
-            var total = await ReplaceItemsAsync(conn, tx, orderId, request.Items);
+            await ReplaceItemsAsync(conn, tx, orderId, request.Items);
 
             tx.Commit();
-            _logger.LogInformation(
-                "Created order {OrderNumber} ({OrderId}) for lead {LeadId}, total {Total}",
-                orderNumber, orderId, request.LeadId, total);
+            _logger.LogInformation("Created order {OrderNumber} ({OrderId}) for lead {LeadId}",
+                orderNumber, orderId, request.LeadId);
             return orderId;
         }
         catch
@@ -145,9 +155,9 @@ public class OrderService : IOrderService
         using var conn = _db.CreateConnection();
         await conn.OpenAsync();
 
-        var existing = await conn.QueryFirstOrDefaultAsync<Order>(
-            "SELECT * FROM Orders WHERE OrderId = @OrderId", new { OrderId = orderId });
-        if (existing == null)
+        var exists = await conn.ExecuteScalarAsync<int?>(
+            "SELECT OrderId FROM Orders WHERE OrderId = @OrderId", new { OrderId = orderId });
+        if (exists == null)
             throw new KeyNotFoundException($"Order {orderId} not found");
 
         using var tx = conn.BeginTransaction();
@@ -165,13 +175,45 @@ public class OrderService : IOrderService
                 new { request.Notes, request.StatusCode, OrderId = orderId }, tx);
 
             tx.Commit();
-            _logger.LogInformation("Updated order {OrderId}", orderId);
         }
         catch
         {
             tx.Rollback();
             throw;
         }
+    }
+
+    public async Task SetOrderPaymentAsync(int orderId, SetOrderPaymentRequest request)
+    {
+        if (request.SlabBand < 0)
+            throw new ArgumentException("Slab cannot be negative");
+        if (request.AdvanceAmount < 0m)
+            throw new ArgumentException("Advance cannot be negative");
+        if (request.OrderValue is < 0m)
+            throw new ArgumentException("Order value cannot be negative");
+
+        using var conn = _db.CreateConnection();
+        var rows = await conn.ExecuteAsync(@"
+            UPDATE Orders
+            SET SlabBand      = @SlabBand,
+                OrderValue    = @OrderValue,
+                AdvanceAmount = @AdvanceAmount,
+                UpdatedAt     = GETUTCDATE()
+            WHERE OrderId = @OrderId",
+            new
+            {
+                request.SlabBand,
+                request.OrderValue,
+                request.AdvanceAmount,
+                OrderId = orderId
+            });
+
+        if (rows == 0)
+            throw new KeyNotFoundException($"Order {orderId} not found");
+
+        _logger.LogInformation(
+            "Order {OrderId} payment set: slab {Slab}, value {Value}, advance {Advance}",
+            orderId, request.SlabBand, request.OrderValue, request.AdvanceAmount);
     }
 
     public async Task DeleteOrderAsync(int orderId)
@@ -181,7 +223,6 @@ public class OrderService : IOrderService
             "DELETE FROM Orders WHERE OrderId = @OrderId", new { OrderId = orderId });
         if (rows == 0)
             throw new KeyNotFoundException($"Order {orderId} not found");
-        _logger.LogInformation("Deleted order {OrderId}", orderId);
     }
 
     public async Task ConfirmOrderAsync(int orderId)
@@ -197,49 +238,30 @@ public class OrderService : IOrderService
 
         if (rows == 0)
             throw new KeyNotFoundException($"Order {orderId} not found or is cancelled");
-
-        _logger.LogInformation("Confirmed order {OrderId}", orderId);
     }
 
     public async Task<LeadOrderSummaryDto> GetLeadOrderSummaryAsync(int leadId)
     {
         using var conn = _db.CreateConnection();
 
-        var agg = await conn.QueryFirstOrDefaultAsync<LeadOrderAggregate>($@"
-            SELECT COUNT(*) AS OrderCount, SUM(OrderTotal) AS Total
+        var agg = await conn.QueryFirstOrDefaultAsync<LeadAggregate>($@"
+            SELECT COUNT(*)                    AS OrderCount,
+                   SUM({EffectiveValueSql})    AS TotalValue,
+                   SUM(AdvanceAmount)          AS TotalAdvance
             FROM Orders
-            WHERE LeadId = @LeadId AND {ActiveOrderFilter}", new { LeadId = leadId });
+            WHERE LeadId = @LeadId AND {ActiveOnly}", new { LeadId = leadId });
 
-        var manual = await conn.ExecuteScalarAsync<decimal?>(
-            "SELECT ManualAdvanceAmount FROM Leads WHERE LeadId = @LeadId",
-            new { LeadId = leadId });
-
-        var leadTotal = agg?.Total ?? 0m;
-        var breakdown = AdvanceCalculator.Calculate(leadTotal, manual);
+        var pos = AdvanceCalculator.Calculate(agg?.TotalValue ?? 0m, agg?.TotalAdvance ?? 0m);
 
         return new LeadOrderSummaryDto(
-            LeadId:              leadId,
-            OrderCount:          agg?.OrderCount ?? 0,
-            LeadTotal:           breakdown.Total,
-            Band:                breakdown.Band,
-            Advance:             breakdown.Advance,
-            Coupons:             breakdown.Coupons,
-            Balance:             breakdown.Balance,
-            IsManualAdvance:     breakdown.IsManualAdvance,
-            ManualAdvanceAmount: manual);
-    }
-
-    public async Task SetManualAdvanceAsync(int leadId, decimal? amount)
-    {
-        if (amount is < 0m)
-            throw new ArgumentException("Advance cannot be negative");
-
-        using var conn = _db.CreateConnection();
-        var rows = await conn.ExecuteAsync(
-            "UPDATE Leads SET ManualAdvanceAmount = @Amount, UpdatedAt = GETUTCDATE() WHERE LeadId = @LeadId",
-            new { Amount = amount, LeadId = leadId });
-        if (rows == 0)
-            throw new KeyNotFoundException($"Lead {leadId} not found");
+            LeadId:       leadId,
+            OrderCount:   agg?.OrderCount ?? 0,
+            LeadTotal:    pos.TotalValue,
+            TotalAdvance: pos.TotalAdvance,
+            Slab:         pos.Slab,
+            Coupons:      pos.Coupons,
+            Balance:      pos.Balance,
+            IsOverpaid:   pos.IsOverpaid);
     }
 
     public async Task SetSoPdfPathAsync(int orderId, string relativePath)
@@ -250,11 +272,158 @@ public class OrderService : IOrderService
             new { Path = relativePath, OrderId = orderId });
     }
 
+    public async Task<OrderListResultDto> SearchOrdersAsync(OrderSearchParams p)
+    {
+        using var conn = _db.CreateConnection();
+
+        var where = "WHERE 1=1";
+        var args = new DynamicParameters();
+
+        if (p.ExhibitionId.HasValue)
+        {
+            where += " AND o.ExhibitionId = @ExhibitionId";
+            args.Add("ExhibitionId", p.ExhibitionId.Value);
+        }
+        if (!string.IsNullOrWhiteSpace(p.StatusCode))
+        {
+            where += " AND o.StatusCode = @StatusCode";
+            args.Add("StatusCode", p.StatusCode);
+        }
+        if (p.FromDate.HasValue)
+        {
+            where += " AND o.CreatedAt >= @FromDate";
+            args.Add("FromDate", p.FromDate.Value);
+        }
+        if (p.ToDate.HasValue)
+        {
+            where += " AND o.CreatedAt < @ToDate";
+            args.Add("ToDate", p.ToDate.Value);
+        }
+
+        // One search box covers order number, lead name/company and barcode.
+        // Barcode matters most: the ERP holds the catalogue and the cross-check
+        // is manual, so "which order has SU-8842" has to be answerable here.
+        if (!string.IsNullOrWhiteSpace(p.Search))
+        {
+            where += @" AND (
+                o.OrderNumber LIKE @Search
+                OR l.PrimaryVisitorName LIKE @Search
+                OR l.CompanyName LIKE @Search
+                OR EXISTS (SELECT 1 FROM OrderItems oi
+                           WHERE oi.OrderId = o.OrderId AND oi.Barcode LIKE @Search)
+            )";
+            args.Add("Search", $"%{p.Search.Trim()}%");
+        }
+
+        var totalCount = await conn.ExecuteScalarAsync<int>($@"
+            SELECT COUNT(*) FROM Orders o JOIN Leads l ON l.LeadId = o.LeadId {where}", args);
+
+        args.Add("Offset", p.Offset);
+        args.Add("Limit", p.Limit);
+
+        var orders = (await conn.QueryAsync<OrderListItemDto>($@"
+            SELECT o.OrderId, o.OrderNumber, o.LeadId,
+                   l.PrimaryVisitorName AS LeadName,
+                   l.CompanyName        AS LeadCompanyName,
+                   e.Name               AS ExhibitionName,
+                   o.StatusCode,
+                   {EffectiveValueSql}  AS EffectiveValue,
+                   o.AdvanceAmount,
+                   ISNULL(i.ItemCount, 0)   AS ItemCount,
+                   ISNULL(i.TotalPieces, 0) AS TotalPieces,
+                   o.SoPdfPath, o.CreatedAt
+            FROM Orders o
+            JOIN Leads l            ON l.LeadId = o.LeadId
+            LEFT JOIN Exhibitions e ON e.ExhibitionId = o.ExhibitionId
+            OUTER APPLY (
+                SELECT COUNT(*) AS ItemCount, SUM(Pieces) AS TotalPieces
+                FROM OrderItems WHERE OrderId = o.OrderId
+            ) i
+            {where}
+            ORDER BY o.CreatedAt DESC
+            OFFSET @Offset ROWS FETCH NEXT @Limit ROWS ONLY", args)).ToList();
+
+        // Totals cover every row the filter matches, not just the current page.
+        var totals = await conn.QueryFirstOrDefaultAsync<LeadAggregate>($@"
+            SELECT COUNT(*)                 AS OrderCount,
+                   SUM({EffectiveValueSql}) AS TotalValue,
+                   SUM(o.AdvanceAmount)     AS TotalAdvance
+            FROM Orders o JOIN Leads l ON l.LeadId = o.LeadId
+            {where} AND o.{ActiveOnly}", args);
+
+        // Coupons are a lead-level figure — summing per order would over-count,
+        // because two ₹6k advances earn 4 coupons together and 0 apiece.
+        var perLead = await conn.QueryAsync<decimal>($@"
+            SELECT SUM(o.AdvanceAmount)
+            FROM Orders o JOIN Leads l ON l.LeadId = o.LeadId
+            {where} AND o.{ActiveOnly}
+            GROUP BY o.LeadId", args);
+
+        var couponTotal = perLead.Sum(AdvanceCalculator.CouponsForAdvance);
+
+        return new OrderListResultDto(
+            Orders: orders,
+            TotalCount: totalCount,
+            Totals: new OrderListTotalsDto(
+                OrderCount:   totals?.OrderCount ?? 0,
+                TotalValue:   totals?.TotalValue ?? 0m,
+                TotalAdvance: totals?.TotalAdvance ?? 0m,
+                TotalCoupons: couponTotal));
+    }
+
+    public async Task<List<CouponHolderDto>> GetCouponHoldersAsync(int? exhibitionId)
+    {
+        using var conn = _db.CreateConnection();
+
+        var filter = exhibitionId.HasValue ? " AND o.ExhibitionId = @ExhibitionId" : "";
+
+        var rows = (await conn.QueryAsync<CouponHolderRow>($@"
+            SELECT o.LeadId,
+                   l.PrimaryVisitorName  AS LeadName,
+                   l.CompanyName         AS CompanyName,
+                   l.PrimaryVisitorPhone AS Phone,
+                   SUM({EffectiveValueSql}) AS TotalValue,
+                   SUM(o.AdvanceAmount)     AS TotalAdvance,
+                   COUNT(*)                 AS OrderCount
+            FROM Orders o
+            JOIN Leads l ON l.LeadId = o.LeadId
+            WHERE o.{ActiveOnly}{filter}
+            GROUP BY o.LeadId, l.PrimaryVisitorName, l.CompanyName, l.PrimaryVisitorPhone",
+            new { ExhibitionId = exhibitionId })).ToList();
+
+        return rows
+            .Select(r => new CouponHolderDto(
+                LeadId:       r.LeadId,
+                LeadName:     r.LeadName,
+                CompanyName:  r.CompanyName,
+                Phone:        r.Phone,
+                TotalValue:   r.TotalValue,
+                TotalAdvance: r.TotalAdvance,
+                Coupons:      AdvanceCalculator.CouponsForAdvance(r.TotalAdvance),
+                OrderCount:   r.OrderCount))
+            .Where(c => c.Coupons > 0)
+            .OrderByDescending(c => c.Coupons)
+            .ThenByDescending(c => c.TotalAdvance)
+            .ToList();
+    }
+
+    private sealed class CouponHolderRow
+    {
+        public int LeadId { get; set; }
+        public string? LeadName { get; set; }
+        public string? CompanyName { get; set; }
+        public string? Phone { get; set; }
+        public decimal TotalValue { get; set; }
+        public decimal TotalAdvance { get; set; }
+        public int OrderCount { get; set; }
+    }
+
     /// <summary>
-    /// Replaces an order's lines and re-derives the order total.
-    /// Amount is always Rate × Pieces — never taken from the client.
+    /// Replaces an order's lines and re-derives OrderTotal.
+    /// Amount is always Rate × Pieces server-side — never taken from the client —
+    /// and stays NULL when the line carries no rate.
     /// </summary>
-    private static async Task<decimal> ReplaceItemsAsync(
+    private static async Task ReplaceItemsAsync(
         System.Data.Common.DbConnection conn,
         System.Data.Common.DbTransaction tx,
         int orderId,
@@ -268,15 +437,17 @@ public class OrderService : IOrderService
 
         foreach (var item in items)
         {
-            if (item.Pieces <= 0)
-                throw new ArgumentException($"Line {lineNo}: pieces must be greater than zero");
-            if (item.Rate < 0m)
-                throw new ArgumentException($"Line {lineNo}: rate cannot be negative");
             if (string.IsNullOrWhiteSpace(item.ItemType))
                 throw new ArgumentException($"Line {lineNo}: item type is required");
+            if (item.Pieces <= 0)
+                throw new ArgumentException($"Line {lineNo}: pieces must be greater than zero");
+            if (item.Rate is < 0m)
+                throw new ArgumentException($"Line {lineNo}: rate cannot be negative");
 
-            var amount = decimal.Round(item.Rate * item.Pieces, 2, MidpointRounding.AwayFromZero);
-            total += amount;
+            decimal? amount = item.Rate.HasValue
+                ? decimal.Round(item.Rate.Value * item.Pieces, 2, MidpointRounding.AwayFromZero)
+                : null;
+            total += amount ?? 0m;
 
             await conn.ExecuteAsync(@"
                 INSERT INTO OrderItems (OrderId, LineNo, ItemType, Barcode, Size, Colour,
@@ -303,7 +474,5 @@ public class OrderService : IOrderService
         await conn.ExecuteAsync(
             "UPDATE Orders SET OrderTotal = @Total, UpdatedAt = GETUTCDATE() WHERE OrderId = @OrderId",
             new { Total = total, OrderId = orderId }, tx);
-
-        return total;
     }
 }
