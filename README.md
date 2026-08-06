@@ -350,10 +350,16 @@ before an order becomes real.
 
 ### Browser support
 
-Camera barcode scanning uses the native `BarcodeDetector`, available on Android Chrome/Edge.
-**iOS Safari has no `BarcodeDetector`**, so iPhone visitors get a typed field instead — a
-meaningful share of traffic, so the fallback is not cosmetic. A USB scanner at the counter types
-into the same field.
+Camera barcode scanning works on **every** browser, via two decoders chosen at runtime:
+
+1. The native `BarcodeDetector` where it exists (Chrome/Edge, Android and desktop) — fast,
+   hardware-accelerated, nothing to download.
+2. **ZXing**, lazily imported only when the native API is absent — Safari, Firefox, older
+   Chrome. It is a few hundred KB, so it is code-split into its own chunk and never lands in
+   the main bundle for the majority who never need it.
+
+A USB scanner at the counter simply types into the same field, so one component covers all
+three ways a barcode gets entered. Typing is always available as a fallback.
 
 ---
 
@@ -785,7 +791,8 @@ frontend origin, so it needs no extra CORS entry.
 | WhatsApp fails with a media error | `PublicBaseUrl` is not internet-reachable; Interakt cannot fetch the file |
 | OTP not received | The OTP template must be an **authentication** template in Interakt |
 | Barcode does not resolve | Product missing or inactive in Product Master |
-| Camera scan button missing | Browser has no `BarcodeDetector` (iOS Safari) — type the code |
+| Barcode scan won't start | Camera permission denied, or no camera — the field still accepts typing |
+| Barcode scan slow to start on Safari/Firefox | First use downloads the ZXing decoder chunk; subsequent scans are instant |
 | Coupons look wrong | They follow **advance**, not order value — check `Orders.AdvanceAmount` |
 | Order value shows ₹0 | No rates entered and no slab chosen — set the slab on the order page |
 | `__webpack_modules__[moduleId] is not a function` | A production build clobbered the dev server's `.next/`. Delete `.next/`, restart `npm run dev` |
