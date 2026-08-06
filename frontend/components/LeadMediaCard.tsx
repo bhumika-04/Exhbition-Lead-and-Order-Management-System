@@ -12,6 +12,8 @@ import { hasPermission } from '@/lib/auth';
 import type { LeadMedia, LeadPhoto } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import CameraDialog from '@/components/CameraDialog';
+import { useIsMobile } from '@/lib/useIsMobile';
 
 /**
  * The three lead actions — Create Order, Team Photo, Testimonial — plus a strip
@@ -25,8 +27,12 @@ export default function LeadMediaCard({ leadId }: { leadId: number }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
+  const [showPhotoChoice, setShowPhotoChoice] = useState(false);
   const [showPhotoLink, setShowPhotoLink] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
   const [photoLink, setPhotoLink] = useState('');
+  const isMobile = useIsMobile();
+  const camRef = useRef<HTMLInputElement>(null);
   const [showTestimonial, setShowTestimonial] = useState(false);
   const [testimonialUrl, setTestimonialUrl] = useState('');
   const [lightbox, setLightbox] = useState<string | null>(null);
@@ -128,8 +134,7 @@ export default function LeadMediaCard({ leadId }: { leadId: number }) {
             <ActionButton
               icon={Camera} label="Team Photo" tone="violet"
               badge={media?.photos.length || undefined}
-              onClick={() => fileRef.current?.click()}
-              onLongPress={() => setShowPhotoLink(true)}
+              onClick={() => setShowPhotoChoice(true)}
             />
             <ActionButton
               icon={Video} label="Testimonial" tone={media?.testimonial_url ? 'emerald' : 'slate'}
@@ -137,13 +142,13 @@ export default function LeadMediaCard({ leadId }: { leadId: number }) {
             />
           </div>
 
-          <button
-            onClick={() => setShowPhotoLink(true)}
-            className="w-full text-[11px] text-slate-400 hover:text-slate-600 flex items-center justify-center gap-1"
-          >
-            <Link2 className="w-3 h-3" /> or paste a Drive link for the team photo
-          </button>
-
+          {/* Camera input hands off to the phone's camera app; the plain one
+              reaches the gallery. Sharing a single input would force the camera
+              on mobile and leave no way to pick an existing photo. */}
+          <input
+            ref={camRef} type="file" accept="image/*" capture="environment" className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) uploadPhoto(f); e.target.value = ''; }}
+          />
           <input
             ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
             onChange={e => { const f = e.target.files?.[0]; if (f) uploadPhoto(f); e.target.value = ''; }}
@@ -221,6 +226,37 @@ export default function LeadMediaCard({ leadId }: { leadId: number }) {
         </CardContent>
       </Card>
 
+      {/* How to add the team photo — click, upload, or Drive link */}
+      {showPhotoChoice && (
+        <Modal title="Add team photo" onClose={() => setShowPhotoChoice(false)}>
+          <div className="flex flex-col gap-2">
+            <ChoiceRow
+              icon={Camera} label="Take photo"
+              hint={isMobile ? 'Opens your camera' : 'Opens your webcam'}
+              onClick={() => {
+                setShowPhotoChoice(false);
+                if (isMobile) camRef.current?.click(); else setShowCamera(true);
+              }}
+            />
+            <ChoiceRow
+              icon={Upload} label="Upload image" hint="Choose an existing photo"
+              onClick={() => { setShowPhotoChoice(false); fileRef.current?.click(); }}
+            />
+            <ChoiceRow
+              icon={Link2} label="Drive link" hint="Paste a Google Drive URL"
+              onClick={() => { setShowPhotoChoice(false); setShowPhotoLink(true); }}
+            />
+          </div>
+        </Modal>
+      )}
+
+      <CameraDialog
+        open={showCamera}
+        title="Photo with the team"
+        onCapture={uploadPhoto}
+        onClose={() => setShowCamera(false)}
+      />
+
       {/* Drive link for a team photo */}
       {showPhotoLink && (
         <Modal title="Team photo link" onClose={() => setShowPhotoLink(false)}>
@@ -277,9 +313,28 @@ export default function LeadMediaCard({ leadId }: { leadId: number }) {
   );
 }
 
-function ActionButton({ icon: Icon, label, tone, badge, onClick, onLongPress }: {
+function ChoiceRow({ icon: Icon, label, hint, onClick }: {
+  icon: any; label: string; hint: string; onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center gap-3 px-3 py-3 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors text-left"
+    >
+      <span className="w-9 h-9 rounded-lg bg-white flex items-center justify-center shrink-0">
+        <Icon className="w-4 h-4 text-slate-600" />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold text-slate-800">{label}</span>
+        <span className="block text-[11px] text-slate-400">{hint}</span>
+      </span>
+    </button>
+  );
+}
+
+function ActionButton({ icon: Icon, label, tone, badge, onClick }: {
   icon: any; label: string; tone: 'blue' | 'violet' | 'emerald' | 'slate';
-  badge?: number; onClick: () => void; onLongPress?: () => void;
+  badge?: number; onClick: () => void;
 }) {
   const tones = {
     blue: 'bg-blue-50 text-blue-700 hover:bg-blue-100',
@@ -290,7 +345,6 @@ function ActionButton({ icon: Icon, label, tone, badge, onClick, onLongPress }: 
   return (
     <button
       onClick={onClick}
-      onContextMenu={onLongPress ? e => { e.preventDefault(); onLongPress(); } : undefined}
       className={`relative flex flex-col items-center justify-center gap-1 py-3 rounded-xl font-semibold text-[11px] transition-colors ${tones[tone]}`}
     >
       <Icon className="w-4 h-4" />

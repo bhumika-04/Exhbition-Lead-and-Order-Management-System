@@ -22,6 +22,8 @@ import { isAuthenticated, getEmployee, hasPermission } from '@/lib/auth';
 import type { Exhibition, CardExtractionResult } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import CameraDialog from '@/components/CameraDialog';
+import { useIsMobile } from '@/lib/useIsMobile';
 
 interface FormState {
   company_name: string;
@@ -93,9 +95,35 @@ export default function ScanPage() {
   const [teamPhoto, setTeamPhoto] = useState<File | null>(null);
   const [teamPreview, setTeamPreview] = useState<string | null>(null);
 
-  const frontRef = useRef<HTMLInputElement>(null);
-  const backRef = useRef<HTMLInputElement>(null);
-  const teamRef = useRef<HTMLInputElement>(null);
+  // Two inputs per slot: one carries `capture` so a phone opens its camera app,
+  // the other omits it so Upload can reach the gallery. Sharing one input made
+  // Upload force the camera on mobile.
+  const frontCamRef  = useRef<HTMLInputElement>(null);
+  const frontFileRef = useRef<HTMLInputElement>(null);
+  const backCamRef   = useRef<HTMLInputElement>(null);
+  const backFileRef  = useRef<HTMLInputElement>(null);
+  const teamCamRef   = useRef<HTMLInputElement>(null);
+  const teamFileRef  = useRef<HTMLInputElement>(null);
+
+  // Desktop has no camera app to hand off to, so it gets the in-page webcam.
+  const isMobile = useIsMobile();
+  const [cameraFor, setCameraFor] = useState<'front' | 'back' | 'team' | null>(null);
+
+  /** Take photo: native camera on mobile, webcam dialog on desktop. */
+  const takePhoto = (slot: 'front' | 'back' | 'team') => {
+    if (isMobile) {
+      const ref = slot === 'front' ? frontCamRef : slot === 'back' ? backCamRef : teamCamRef;
+      ref.current?.click();
+    } else {
+      setCameraFor(slot);
+    }
+  };
+
+  const onCameraCapture = (file: File) => {
+    if (cameraFor === 'front') pickFront(file);
+    else if (cameraFor === 'back') pickBack(file);
+    else if (cameraFor === 'team') { setTeamPhoto(file); setTeamPreview(URL.createObjectURL(file)); }
+  };
 
   useEffect(() => {
     if (!isAuthenticated()) { router.push('/auth/login'); return; }
@@ -317,11 +345,11 @@ export default function ScanPage() {
 
             {!frontPreview ? (
               <div className="grid grid-cols-2 gap-2">
-                <Button variant="outline" onClick={() => frontRef.current?.click()}
+                <Button variant="outline" onClick={() => takePhoto('front')}
                         disabled={extracting} className="h-11 gap-1.5 text-xs">
                   <Camera className="w-3.5 h-3.5" /> Take photo
                 </Button>
-                <Button variant="outline" onClick={() => frontRef.current?.click()}
+                <Button variant="outline" onClick={() => frontFileRef.current?.click()}
                         disabled={extracting} className="h-11 gap-1.5 text-xs">
                   <Upload className="w-3.5 h-3.5" /> Upload
                 </Button>
@@ -333,7 +361,7 @@ export default function ScanPage() {
                   ? <Thumb src={backPreview} label="Back"
                            onRemove={() => { setBackFile(null); setBackPreview(null); }} />
                   : (
-                    <button onClick={() => backRef.current?.click()} disabled={extracting}
+                    <button onClick={() => takePhoto('back')} disabled={extracting}
                             className="w-20 h-24 rounded-lg border border-dashed border-slate-300 flex flex-col items-center justify-center gap-1 text-slate-400 hover:bg-slate-50">
                       <Plus className="w-4 h-4" />
                       <span className="text-[9px]">Back</span>
@@ -349,9 +377,13 @@ export default function ScanPage() {
               </div>
             )}
 
-            <input ref={frontRef} type="file" accept="image/*" capture="environment" className="hidden"
+            <input ref={frontCamRef} type="file" accept="image/*" capture="environment" className="hidden"
                    onChange={e => { const f = e.target.files?.[0]; if (f) pickFront(f); e.target.value = ''; }} />
-            <input ref={backRef} type="file" accept="image/*" capture="environment" className="hidden"
+            <input ref={frontFileRef} type="file" accept="image/*" className="hidden"
+                   onChange={e => { const f = e.target.files?.[0]; if (f) pickFront(f); e.target.value = ''; }} />
+            <input ref={backCamRef} type="file" accept="image/*" capture="environment" className="hidden"
+                   onChange={e => { const f = e.target.files?.[0]; if (f) pickBack(f); e.target.value = ''; }} />
+            <input ref={backFileRef} type="file" accept="image/*" className="hidden"
                    onChange={e => { const f = e.target.files?.[0]; if (f) pickBack(f); e.target.value = ''; }} />
           </CardContent>
         </Card>
@@ -477,11 +509,11 @@ export default function ScanPage() {
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 gap-2 pt-1">
-                      <Button variant="outline" onClick={() => teamRef.current?.click()}
+                      <Button variant="outline" onClick={() => takePhoto('team')}
                               className="h-11 gap-1.5 text-xs">
                         <Camera className="w-3.5 h-3.5" /> Take photo
                       </Button>
-                      <Button variant="outline" onClick={() => teamRef.current?.click()}
+                      <Button variant="outline" onClick={() => teamFileRef.current?.click()}
                               className="h-11 gap-1.5 text-xs">
                         <Upload className="w-3.5 h-3.5" /> Upload
                       </Button>
@@ -494,7 +526,13 @@ export default function ScanPage() {
               )}
             </AnimatePresence>
 
-            <input ref={teamRef} type="file" accept="image/*" capture="environment" className="hidden"
+            <input ref={teamCamRef} type="file" accept="image/*" capture="environment" className="hidden"
+                   onChange={e => {
+                     const f = e.target.files?.[0];
+                     if (f) { setTeamPhoto(f); setTeamPreview(URL.createObjectURL(f)); }
+                     e.target.value = '';
+                   }} />
+            <input ref={teamFileRef} type="file" accept="image/*" className="hidden"
                    onChange={e => {
                      const f = e.target.files?.[0];
                      if (f) { setTeamPhoto(f); setTeamPreview(URL.createObjectURL(f)); }
@@ -513,6 +551,18 @@ export default function ScanPage() {
 
         <div className="md:hidden h-20" />
       </div>
+
+      {/* Desktop webcam capture */}
+      <CameraDialog
+        open={cameraFor !== null}
+        title={
+          cameraFor === 'front' ? 'Visiting card — front'
+          : cameraFor === 'back' ? 'Visiting card — back'
+          : 'Photo with the team'
+        }
+        onCapture={onCameraCapture}
+        onClose={() => setCameraFor(null)}
+      />
 
       {/* Exhibition picker */}
       <AnimatePresence>
