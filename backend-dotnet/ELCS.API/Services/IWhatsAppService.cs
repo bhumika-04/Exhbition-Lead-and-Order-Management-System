@@ -10,6 +10,13 @@ public interface IWhatsAppService
 {
     /// <summary>Touchpoint #2 — order confirmation with the Sales Order PDF attached.</summary>
     Task<WhatsAppSendResult> SendOrderConfirmationAsync(OrderDetailDto order, string? soPdfUrl);
+
+    /// <summary>
+    /// Verification code for the public self-service ordering page. Uses an
+    /// Interakt authentication template, which is a separate approval from the
+    /// marketing templates the other touchpoints use.
+    /// </summary>
+    Task<WhatsAppSendResult> SendOtpAsync(string mobile10, string code, int expiryMinutes);
 }
 
 public static class WhatsAppTouchpoints
@@ -17,6 +24,7 @@ public static class WhatsAppTouchpoints
     public const string Welcome           = "welcome";
     public const string OrderConfirmation = "order_confirmation";
     public const string Testimonial       = "testimonial";
+    public const string Otp               = "otp";
 }
 
 public record WhatsAppSendResult(

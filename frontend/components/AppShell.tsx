@@ -14,8 +14,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => { setMounted(true); }, []);
 
-  // Auth pages get no shell (full-screen login)
-  if (pathname.startsWith('/auth')) {
+  // Auth pages get no shell (full-screen login).
+  // /o/* is the public self-service ordering page — it renders for visitors on
+  // their own phones, so it must never show staff navigation.
+  if (pathname.startsWith('/auth') || pathname.startsWith('/o/')) {
     return <>{children}</>;
   }
 

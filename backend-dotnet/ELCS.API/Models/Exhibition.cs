@@ -2,6 +2,9 @@ namespace ELCS.API.Models;
 
 public class Exhibition
 {
+    public string? PublicToken { get; set; }        // QR payload for self-service ordering
+    public bool SelfServiceEnabled { get; set; }
+
     public int ExhibitionId { get; set; }
     public string Name { get; set; } = string.Empty;
     public string? Location { get; set; }

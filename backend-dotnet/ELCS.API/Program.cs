@@ -48,7 +48,26 @@ builder.Services.AddScoped<IOpenAIService, OpenAIService>();
 builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<ISalesOrderPdfService, SalesOrderPdfService>();
 builder.Services.AddScoped<IWhatsAppService, InteraktWhatsAppService>();
+builder.Services.AddScoped<IOtpService, OtpService>();
 builder.Services.AddHttpClient();
+
+// Rate limiting for the public self-service endpoints. These have no login in
+// front of them, so without a cap the OTP endpoint is a free WhatsApp cannon
+// and the order endpoint is an open write to the database.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    options.AddPolicy("public", context =>
+        System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 30,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            }));
+});
 
 // QuestPDF Community licence — free for organisations under USD 1M annual revenue.
 // Review https://www.questpdf.com/license/ before shipping to a larger client.
@@ -116,6 +135,10 @@ app.UseResponseCompression();
 
 // Apply CORS before routing
 app.UseCors("AllowFrontend");
+
+// Must sit after CORS so a throttled response still carries CORS headers,
+// otherwise the browser reports an opaque network error instead of the 429.
+app.UseRateLimiter();
 
 // Serve uploaded card images as static files
 var uploadsPath = Path.Combine(app.Environment.ContentRootPath, "uploads");

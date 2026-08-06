@@ -97,6 +97,52 @@ public class ExhibitionsController : ControllerBase
         return Ok(new { success = true, message = "Exhibition updated" });
     }
 
+    /// <summary>
+    /// Turns self-service ordering on or off for an exhibition. Enabling mints an
+    /// opaque public token — the payload behind the printed QR code. The token is
+    /// random rather than the ExhibitionId so a visitor cannot reach another
+    /// exhibition's ordering page by editing the URL.
+    /// </summary>
+    [HttpPost("{exhibitionId:int}/self-service")]
+    public async Task<IActionResult> SetSelfService(
+        int exhibitionId,
+        [FromBody] SetSelfServiceRequest request)
+    {
+        using var conn = _db.CreateConnection();
+
+        var exhibition = await conn.QueryFirstOrDefaultAsync<Exhibition>(
+            "SELECT * FROM Exhibitions WHERE ExhibitionId = @Id AND IsActive = 1",
+            new { Id = exhibitionId });
+
+        if (exhibition == null)
+            return NotFound(new { error = "Exhibition not found" });
+
+        string? token = await conn.ExecuteScalarAsync<string?>(
+            "SELECT PublicToken FROM Exhibitions WHERE ExhibitionId = @Id", new { Id = exhibitionId });
+
+        // Rotate on request — if a printed QR leaks or a batch is reprinted, the
+        // old link must stop working.
+        if (request.Enabled && (string.IsNullOrWhiteSpace(token) || request.RotateToken))
+            token = Guid.NewGuid().ToString("N");
+
+        await conn.ExecuteAsync(@"
+            UPDATE Exhibitions
+            SET SelfServiceEnabled = @Enabled,
+                PublicToken        = @Token
+            WHERE ExhibitionId = @Id",
+            new { Enabled = request.Enabled, Token = token, Id = exhibitionId });
+
+        _logger.LogInformation("Self-service {State} for exhibition {ExhibitionId}",
+            request.Enabled ? "enabled" : "disabled", exhibitionId);
+
+        return Ok(new
+        {
+            success              = true,
+            self_service_enabled = request.Enabled,
+            public_token         = request.Enabled ? token : null,
+        });
+    }
+
     [HttpDelete("{exhibitionId:int}")]
     public async Task<IActionResult> DeleteExhibition(int exhibitionId)
     {
@@ -150,3 +196,5 @@ public record UpdateExhibitionRequest(
     DateTime? EndDate,
     string? Description
 );
+
+public record SetSelfServiceRequest(bool Enabled, bool RotateToken = false);

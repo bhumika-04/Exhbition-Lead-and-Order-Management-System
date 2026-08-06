@@ -221,6 +221,51 @@ ExhibitionVistingCard/
 Confirmation is resilient: if PDF generation or the WhatsApp send fails, the order still confirms
 and the failure is reported separately, so a messaging outage never blocks taking an order at the counter.
 
+## Self-Service Ordering (QR)
+
+At a busy booth the CRR becomes the bottleneck. A visitor can instead scan a QR
+at the stall, open a public page on their own phone, and enter their own order.
+
+```
+QR  →  /o/{token}  →  mobile  →  WhatsApp OTP  →  identify  →  items  →  pending order
+```
+
+1. **QR per exhibition.** Enable self-service on an exhibition to mint an opaque
+   `PublicToken`; the QR encodes `/o/{token}`. The token is random rather than the
+   exhibition id, so a visitor cannot reach another exhibition by editing the URL.
+   It can be rotated if a printed batch leaks.
+2. **Mobile + OTP.** The visitor enters their number and Interakt sends a 6-digit
+   code over WhatsApp. **Nothing about a lead is returned until that code is
+   verified** — see below.
+3. **Identify or self-register.** A verified number matches an existing lead
+   (newest wins, since phone numbers are not unique in this schema) and greets them
+   by name. An unknown number self-registers with just a name, which makes the QR a
+   lead-capture channel as well as an order channel.
+4. **Items.** Item type, barcode, size, colour, pieces, customization. Barcodes are
+   scanned with the phone camera where the browser supports it, typed otherwise.
+5. **Pending order.** The submission becomes a `draft` flagged `Source = 'self_service'`.
+
+### Why the OTP is not optional
+
+The page is public: no login, no employee header. A mobile number is a *claim*, not
+a credential, and phone numbers are guessable. Without verification, anyone who
+scans the QR could type numbers and read back names, companies, emails and order
+history — the customer list, one number at a time. The OTP makes the visitor prove
+the number is theirs before any lead data is returned, and the endpoint's response
+is identical whether or not the number is on file, so it cannot be used to test
+which numbers are customers.
+
+Supporting limits, all server-side: codes stored hashed with a per-row salt, 5-minute
+expiry, 5 attempts per code, 60-second resend cooldown, 5 sends per number per hour,
+and a 30 requests/minute per-IP cap on the whole public surface.
+
+### What the customer cannot do
+
+Set their own price, advance, or coupon count. Self-service captures *what they want*;
+a CRR confirms the order and records what was actually collected, which is what drives
+the advance and coupons. That keeps the money path under staff control and gives the
+counter a review checkpoint before an order becomes real.
+
 ## Advance & Coupons
 
 **Coupons follow the advance actually taken, not the order value.** A lead may hold ₹2.5 L of
@@ -306,6 +351,17 @@ GET    /api/leads/{id}
 POST   /api/leads
 PUT    /api/leads/{id}
 DELETE /api/leads/{id}
+```
+
+### Public — self-service ordering (no auth)
+```
+GET  /api/public/exhibition/{token}   Resolve the QR token
+POST /api/public/otp/request          Body: { token, mobile }        → sends WhatsApp code
+POST /api/public/otp/verify           Body: { token, mobile, code }  → session + known lead
+POST /api/public/lead                 Self-register        (X-Public-Session required)
+POST /api/public/order                Submit pending order (X-Public-Session required)
+
+POST /api/exhibitions/{id}/self-service   Body: { enabled, rotate_token }  → mints the QR token
 ```
 
 ### Orders

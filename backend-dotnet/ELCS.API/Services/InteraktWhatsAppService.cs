@@ -86,10 +86,36 @@ public class InteraktWhatsAppService : IWhatsAppService
         return result;
     }
 
+    public async Task<WhatsAppSendResult> SendOtpAsync(string mobile10, string code, int expiryMinutes)
+    {
+        var apiKey       = _config["Interakt:ApiKey"];
+        var baseUrl      = _config["Interakt:BaseUrl"] ?? "https://api.interakt.ai/v1/public/message/";
+        var templateName = _config["Interakt:Templates:Otp"];
+        var languageCode = _config["Interakt:LanguageCode"] ?? "en";
+        var countryCode  = _config["Interakt:DefaultCountryCode"] ?? "+91";
+
+        if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(templateName))
+            return WhatsAppSendResult.Skipped("Interakt OTP template is not configured");
+
+        var cc = countryCode.StartsWith('+') ? countryCode : "+" + countryCode;
+
+        // Deliberately NOT written to WhatsAppMessages: that table is keyed to a
+        // lead by foreign key and an OTP is sent before any lead is known. The
+        // attempt is already recorded in OtpChallenges, and logging it twice
+        // would mean storing the customer's number in a second place.
+        return await SendTemplateAsync(
+            apiKey, baseUrl, templateName, languageCode, cc, mobile10,
+            headerMediaUrl: null,
+            bodyValues: new[] { code, expiryMinutes.ToString() },
+            fileName: null,
+            buttonValues: new[] { code });   // WhatsApp copy-code button, when the template has one
+    }
+
     private async Task<WhatsAppSendResult> SendTemplateAsync(
         string apiKey, string baseUrl, string templateName, string languageCode,
         string countryCode, string number,
-        string? headerMediaUrl, string[] bodyValues, string? fileName)
+        string? headerMediaUrl, string[] bodyValues, string? fileName,
+        string[]? buttonValues = null)
     {
         try
         {
@@ -106,6 +132,9 @@ public class InteraktWhatsAppService : IWhatsAppService
                 if (!string.IsNullOrWhiteSpace(fileName))
                     template["fileName"] = fileName;
             }
+
+            if (buttonValues is { Length: > 0 })
+                template["buttonValues"] = new Dictionary<string, object?> { ["0"] = buttonValues };
 
             var payload = new Dictionary<string, object?>
             {
