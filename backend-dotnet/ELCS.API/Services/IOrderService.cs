@@ -38,7 +38,7 @@ public static class OrderItemTypes
 
 public record OrderItemDto(
     int OrderItemId,
-    int LineNo,
+    int LineNumber,
     string ItemType,
     string? Category,     // snapshot: Stitched | Readymade (null for Saree)
     string? Barcode,

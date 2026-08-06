@@ -302,7 +302,7 @@ export type OrderItemType = ProductType;
 
 export interface OrderItem {
   order_item_id: number;
-  line_no: number;
+  line_number: number;
   item_type: string;
   category?: string | null;   // snapshot at time of order
   barcode?: string | null;

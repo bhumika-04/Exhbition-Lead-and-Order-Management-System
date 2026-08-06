@@ -83,9 +83,9 @@ manual entry rather than dead-ending, and the operator always looks at the same 
    get an **amber left rule** so your eye lands on the two risky values instead of re-reading
    all fifteen.
 4. **Verify and correct.** Name, designation, company; phones and emails as add/remove chips;
-   address, city, state; websites. **Services are required** — Save is blocked while empty.
-   Category / Vertical / Turn-over / Team-size are collapsed by default, being rarely known at a
-   counter.
+   address, city, state; websites; services / products. All optional — the only requirement is a
+   name or a company, so a rushed counter capture is never blocked. Category / Vertical /
+   Turn-over / Team-size are collapsed by default, being rarely known at a counter.
 5. **Duplicates.** If the card matches existing leads, a banner lists them with match scores and
    links. It is a warning to overrule, not a blocker.
 6. **"Lead has a photo with the team"** — ticking this expands an inline capture block and

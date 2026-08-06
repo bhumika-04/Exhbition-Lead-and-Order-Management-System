@@ -69,14 +69,14 @@ public class OrderService : IOrderService
         if (order == null) return null;
 
         var items = (await conn.QueryAsync<OrderItemDto>(@"
-            SELECT oi.OrderItemId, oi.LineNo, oi.ItemType, oi.Category, oi.Barcode,
+            SELECT oi.OrderItemId, oi.LineNumber, oi.ItemType, oi.Category, oi.Barcode,
                    oi.Size, oi.Colour, oi.Fabric, oi.Pieces, oi.Rate, oi.Amount,
                    oi.Customization, oi.ProductId,
                    p.ImagePath AS ProductImagePath
             FROM OrderItems oi
             LEFT JOIN Products p ON p.ProductId = oi.ProductId
             WHERE oi.OrderId = @OrderId
-            ORDER BY oi.LineNo", new { OrderId = orderId })).ToList();
+            ORDER BY oi.LineNumber", new { OrderId = orderId })).ToList();
 
         var summary = await GetLeadOrderSummaryAsync(order.LeadId);
 
@@ -479,14 +479,14 @@ public class OrderService : IOrderService
             total += amount ?? 0m;
 
             await conn.ExecuteAsync(@"
-                INSERT INTO OrderItems (OrderId, LineNo, ItemType, Category, Barcode, Size,
+                INSERT INTO OrderItems (OrderId, LineNumber, ItemType, Category, Barcode, Size,
                                         Colour, Fabric, Pieces, Rate, Amount, Customization, ProductId)
-                VALUES (@OrderId, @LineNo, @ItemType, @Category, @Barcode, @Size,
+                VALUES (@OrderId, @LineNumber, @ItemType, @Category, @Barcode, @Size,
                         @Colour, @Fabric, @Pieces, @Rate, @Amount, @Customization, @ProductId)",
                 new
                 {
                     OrderId = orderId,
-                    LineNo  = lineNo,
+                    LineNumber = lineNo,
                     ItemType = line.ItemType.Trim(),
                     line.Category,
                     line.Barcode,

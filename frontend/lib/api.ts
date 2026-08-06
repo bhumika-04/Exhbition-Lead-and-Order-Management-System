@@ -517,9 +517,19 @@ class ApiClient {
     return data;
   }
 
-  /** Absolute URL for a file under the backend's /uploads root. */
-  uploadUrl(relativePath: string): string {
-    return `${this.client.defaults.baseURL}/uploads/${relativePath.replace(/^\/+/, '')}`;
+  /**
+   * Absolute URL for a file under the backend's /uploads root.
+   *
+   * Legacy rows hold a full Windows path from whichever machine wrote them
+   * (`C:\Projects\...\uploads\cards\42\front.jpg`), so take everything after the
+   * last `uploads/` rather than assuming the value is already relative.
+   */
+  uploadUrl(path: string): string {
+    const normalised = path.replace(/\\/g, '/');
+    const relative = normalised.includes('uploads/')
+      ? normalised.split('uploads/').pop()!
+      : normalised;
+    return `${this.client.defaults.baseURL}/uploads/${relative.replace(/^\/+/, '')}`;
   }
 
   // Health Check

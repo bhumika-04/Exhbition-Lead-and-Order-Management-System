@@ -29,7 +29,7 @@ public class OrderItem
 {
     public int OrderItemId { get; set; }
     public int OrderId { get; set; }
-    public int LineNo { get; set; }
+    public int LineNumber { get; set; }   // "LineNo" is a reserved T-SQL keyword
     public string ItemType { get; set; } = string.Empty;   // Suit / Lehenga / Saree
     public string? Barcode { get; set; }
     public string? Size { get; set; }

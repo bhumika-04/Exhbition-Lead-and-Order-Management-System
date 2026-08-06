@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
@@ -185,7 +185,7 @@ export default function LeadDetailPage() {
     a.href = url; a.download = filename;
     document.body.appendChild(a); a.click();
     document.body.removeChild(a); URL.revokeObjectURL(url);
-    toast.success('Contact saved — open to import');
+    toast.success('Contact saved â€” open to import');
   };
 
   const buildShareText = () => {
@@ -248,7 +248,7 @@ export default function LeadDetailPage() {
     }
   };
 
-  // ── Loading / not found ──
+  // â”€â”€ Loading / not found â”€â”€
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -278,7 +278,7 @@ export default function LeadDetailPage() {
   return (
     <div className="bg-slate-50 min-h-full">
 
-      {/* ── Sticky Header ── */}
+      {/* â”€â”€ Sticky Header â”€â”€ */}
       <div className="sticky top-0 z-20 bg-white/90 backdrop-blur-sm border-b border-slate-200">
         <div className="px-4 md:px-6 py-3.5 flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={() => router.back()} className="h-8 w-8 shrink-0">
@@ -311,11 +311,11 @@ export default function LeadDetailPage() {
         </div>
       </div>
 
-      {/* ── Content ── */}
+      {/* â”€â”€ Content â”€â”€ */}
       <div className="px-4 md:px-6 py-5 pb-24 md:pb-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
 
-          {/* ── RIGHT COLUMN (shown first on mobile) ── */}
+          {/* â”€â”€ RIGHT COLUMN (shown first on mobile) â”€â”€ */}
           <div className="space-y-4 lg:hidden">
             {((lead.services?.length ?? 0) > 0 || lead.priority) && (
               <BlurFade delay={0.05} inView>
@@ -351,6 +351,14 @@ export default function LeadDetailPage() {
                 </Card>
               </BlurFade>
             )}
+
+            <BlurFade delay={0.08} inView>
+              <LeadMediaCard leadId={leadId} />
+            </BlurFade>
+
+            <BlurFade delay={0.11} inView>
+              <LeadOrdersCard leadId={leadId} />
+            </BlurFade>
 
             <BlurFade delay={0.08} inView>
               <Card className="shadow-sm border-slate-100">
@@ -405,14 +413,6 @@ export default function LeadDetailPage() {
               </Card>
             </BlurFade>
 
-            <BlurFade delay={0.08} inView>
-              <LeadMediaCard leadId={leadId} />
-            </BlurFade>
-
-            <BlurFade delay={0.11} inView>
-              <LeadOrdersCard leadId={leadId} />
-            </BlurFade>
-
             <BlurFade delay={0.1} inView>
               <Card className="shadow-sm border-slate-100">
                 <CardContent className="px-5 py-3">
@@ -435,7 +435,7 @@ export default function LeadDetailPage() {
               </Card>
             </BlurFade>
 
-            {/* Visiting Card Images — mobile */}
+            {/* Visiting Card Images â€” mobile */}
             {(lead.front_image_path || lead.back_image_path) && (
               <BlurFade delay={0.12} inView>
                 <Card className="shadow-sm border-slate-100">
@@ -478,7 +478,7 @@ export default function LeadDetailPage() {
             )}
           </div>
 
-          {/* ── LEFT COLUMN ── */}
+          {/* â”€â”€ LEFT COLUMN â”€â”€ */}
           <div className="lg:col-span-2 space-y-4">
 
             {/* Contact Information */}
@@ -521,7 +521,7 @@ export default function LeadDetailPage() {
                           {initials}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-bold text-slate-900 text-base">{lead.primary_visitor_name || '—'}</p>
+                          <p className="font-bold text-slate-900 text-base">{lead.primary_visitor_name || 'â€”'}</p>
                           {lead.primary_visitor_designation && (
                             <p className="text-sm text-slate-500">{lead.primary_visitor_designation}</p>
                           )}
@@ -559,7 +559,7 @@ export default function LeadDetailPage() {
                               <Mail className="w-4 h-4 text-violet-600" />
                             </div>
                             <div className="min-w-0 flex-1">
-                              <p className="text-[11px] text-slate-400">Email · tap to compose</p>
+                              <p className="text-[11px] text-slate-400">Email Â· tap to compose</p>
                               <p className="text-sm font-semibold text-violet-700 truncate">{lead.primary_visitor_email}</p>
                             </div>
                           </button>
@@ -583,7 +583,7 @@ export default function LeadDetailPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="px-5 pb-5 space-y-3">
-                  <p className="font-semibold text-slate-800">{lead.company_name || '—'}</p>
+                  <p className="font-semibold text-slate-800">{lead.company_name || 'â€”'}</p>
                   {lead.websites?.map(w => w.website_url && (
                     <a key={w.lead_website_id}
                       href={w.website_url.startsWith('http') ? w.website_url : `https://${w.website_url}`}
@@ -602,7 +602,7 @@ export default function LeadDetailPage() {
                     </div>
                   ))}
 
-                  {/* Services — editable */}
+                  {/* Services â€” editable */}
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Products / Services</p>
@@ -642,7 +642,7 @@ export default function LeadDetailPage() {
                           ? lead.services.map(s => (
                               <Badge key={s.lead_service_id} variant="secondary" className="text-xs">{s.service_text}</Badge>
                             ))
-                          : <span className="text-xs text-slate-400">—</span>
+                          : <span className="text-xs text-slate-400">â€”</span>
                         }
                       </div>
                     )}
@@ -686,7 +686,7 @@ export default function LeadDetailPage() {
                           onChange={e => setEditForm({ ...editForm, vertical: e.target.value })}
                           className={inputCls}
                         >
-                          <option value="">— Select —</option>
+                          <option value="">â€” Select â€”</option>
                           {VERTICAL_OPTIONS.map(v => <option key={v} value={v}>{v}</option>)}
                         </select>
                       </div>
@@ -721,7 +721,7 @@ export default function LeadDetailPage() {
                       ].map(({ label, value }) => (
                         <div key={label} className="p-3 bg-slate-50 rounded-xl">
                           <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">{label}</p>
-                          <p className="text-sm font-medium text-slate-700">{value || <span className="text-slate-300">—</span>}</p>
+                          <p className="text-sm font-medium text-slate-700">{value || <span className="text-slate-300">â€”</span>}</p>
                         </div>
                       ))}
                     </div>
@@ -853,7 +853,7 @@ export default function LeadDetailPage() {
             )}
           </div>
 
-          {/* ── RIGHT COLUMN (desktop only) ── */}
+          {/* â”€â”€ RIGHT COLUMN (desktop only) â”€â”€ */}
           <div className="space-y-4 hidden lg:block">
 
             {/* Lead Intelligence */}
@@ -889,6 +889,14 @@ export default function LeadDetailPage() {
                 </Card>
               </BlurFade>
             )}
+
+            <BlurFade delay={0.14} inView>
+              <LeadMediaCard leadId={leadId} />
+            </BlurFade>
+
+            <BlurFade delay={0.11} inView>
+              <LeadOrdersCard leadId={leadId} />
+            </BlurFade>
 
             {/* Quick Actions */}
             <BlurFade delay={0.12} inView>
@@ -945,14 +953,6 @@ export default function LeadDetailPage() {
                   </motion.button>
                 </CardContent>
               </Card>
-            </BlurFade>
-
-            <BlurFade delay={0.14} inView>
-              <LeadMediaCard leadId={leadId} />
-            </BlurFade>
-
-            <BlurFade delay={0.11} inView>
-              <LeadOrdersCard leadId={leadId} />
             </BlurFade>
 
             {/* Status info */}
@@ -1031,7 +1031,7 @@ export default function LeadDetailPage() {
         </div>
       </div>
 
-      {/* ── Image Lightbox ── */}
+      {/* â”€â”€ Image Lightbox â”€â”€ */}
       {lightboxImage && (
         <div
           className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
@@ -1052,7 +1052,7 @@ export default function LeadDetailPage() {
         </div>
       )}
 
-      {/* ── Share Options Modal ── */}
+      {/* â”€â”€ Share Options Modal â”€â”€ */}
       <AnimatePresence>
         {showShareModal && (
           <motion.div
@@ -1085,7 +1085,7 @@ export default function LeadDetailPage() {
                   >
                     <ExternalLink className="w-4 h-4 shrink-0" />
                     Share via...
-                    <span className="ml-auto text-xs font-normal text-violet-400">WhatsApp, Mail…</span>
+                    <span className="ml-auto text-xs font-normal text-violet-400">WhatsApp, Mailâ€¦</span>
                   </button>
                 )}
                 <button

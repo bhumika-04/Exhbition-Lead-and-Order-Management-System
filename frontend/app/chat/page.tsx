@@ -201,9 +201,6 @@ export default function ScanPage() {
     if (!form.primary_visitor_name.trim() && !form.company_name.trim()) {
       toast.error('Enter at least a name or a company'); return;
     }
-    if (form.services.length === 0) {
-      toast.error('Add at least one service or product'); return;
-    }
     // The checkbox is a promise the operator made — hold Save until it's kept.
     if (hasTeamPhoto && !teamPhoto) {
       toast.error('Add the team photo, or untick the box to add it later'); return;
@@ -413,10 +410,9 @@ export default function ScanPage() {
             <ChipInput label="Websites" values={form.websites}
                        onChange={v => set('websites', v)} placeholder="Add a website" />
 
-            {/* Services are mandatory at scan time */}
-            <ChipInput label="Services / products *" values={form.services}
-                       onChange={v => set('services', v)} placeholder="Add a service"
-                       required={form.services.length === 0} />
+            <ChipInput label="Services / products" values={form.services}
+                       onChange={v => set('services', v)}
+                       placeholder="Add a service or product" />
 
             <Input label="Discussion notes" value={form.discussion_summary}
                    onChange={v => set('discussion_summary', v)} />
@@ -588,9 +584,9 @@ function Input({ label, value, onChange, className = '' }: {
 }
 
 /** Repeatable values as chips — phones, emails, websites and services. */
-function ChipInput({ label, values, onChange, placeholder, required, inputMode }: {
+function ChipInput({ label, values, onChange, placeholder, inputMode }: {
   label: string; values: string[]; onChange: (v: string[]) => void;
-  placeholder: string; required?: boolean; inputMode?: 'tel';
+  placeholder: string; inputMode?: 'tel';
 }) {
   const [draft, setDraft] = useState('');
 
@@ -621,8 +617,7 @@ function ChipInput({ label, values, onChange, placeholder, required, inputMode }
           onChange={e => setDraft(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
           placeholder={placeholder}
-          className={`flex-1 h-9 px-3 rounded-lg border bg-white text-sm ${
-            required ? 'border-amber-300 bg-amber-50/40' : 'border-slate-200'}`}
+          className="flex-1 h-9 px-3 rounded-lg border border-slate-200 bg-white text-sm"
         />
         <button onClick={add}
                 className="h-9 w-9 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center shrink-0">

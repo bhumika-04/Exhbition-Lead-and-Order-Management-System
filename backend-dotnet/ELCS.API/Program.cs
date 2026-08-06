@@ -142,6 +142,39 @@ app.UseCors("AllowFrontend");
 // otherwise the browser reports an opaque network error instead of the 429.
 app.UseRateLimiter();
 
+// An unhandled exception resets the response and drops the CORS headers with
+// it, so the browser reports "No 'Access-Control-Allow-Origin' header" for what
+// is actually a server crash — which sends everyone hunting the wrong problem.
+// Sitting inside UseCors keeps those headers on the error response, and the
+// JSON body makes the real cause visible in the network tab.
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next();
+    }
+    catch (Exception ex)
+    {
+        Log.Error(ex, "Unhandled exception on {Method} {Path}",
+            context.Request.Method, context.Request.Path);
+
+        // Once the response has started the headers are already on the wire and
+        // there is nothing safe to write — let it bubble.
+        if (context.Response.HasStarted) throw;
+
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        context.Response.ContentType = "application/json";
+
+        await context.Response.WriteAsJsonAsync(new
+        {
+            error = "The server hit an unexpected error.",
+            // The message is the whole point of this handler while developing;
+            // in production it stays in the log rather than going to the client.
+            detail = app.Environment.IsDevelopment() ? ex.Message : null,
+        });
+    }
+});
+
 // Serve uploaded card images as static files
 var uploadsPath = Path.Combine(app.Environment.ContentRootPath, "uploads");
 Directory.CreateDirectory(uploadsPath);

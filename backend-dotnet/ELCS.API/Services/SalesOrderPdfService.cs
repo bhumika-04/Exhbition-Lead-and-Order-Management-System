@@ -145,7 +145,7 @@ public class SalesOrderPdfService : ISalesOrderPdfService
                             IContainer Cell() => table.Cell()
                                 .BorderBottom(1).BorderColor(Colors.Grey.Lighten2).Padding(5);
 
-                            Cell().Text(item.LineNo.ToString()).FontColor(Colors.Grey.Darken1);
+                            Cell().Text(item.LineNumber.ToString()).FontColor(Colors.Grey.Darken1);
                             Cell().Text(item.ItemType).Bold();
                             Cell().Text(Dash(item.Barcode)).FontSize(8);
                             Cell().Text(Dash(item.Size));

@@ -79,7 +79,9 @@ BEGIN
     (
         OrderItemId     INT             IDENTITY(1,1) NOT NULL,
         OrderId         INT             NOT NULL,
-        LineNo          INT             NOT NULL CONSTRAINT DF_OrderItems_Line DEFAULT (1),
+        -- NOT "LineNo": LINENO is a reserved T-SQL keyword and needs bracketing
+        -- everywhere it appears, which one forgotten query would break.
+        LineNumber      INT             NOT NULL CONSTRAINT DF_OrderItems_Line DEFAULT (1),
         ItemType        NVARCHAR(50)    NOT NULL,          -- Suit / Lehenga / Saree
         Barcode         NVARCHAR(100)   NULL,
         Size            NVARCHAR(50)    NULL,
