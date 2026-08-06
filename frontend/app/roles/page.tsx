@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { api } from '@/lib/api';
-import { isAuthenticated, hasPermission, isSuperAdmin } from '@/lib/auth';
+import { isAuthenticated, hasPermission } from '@/lib/auth';
 import type { Role } from '@/lib/types';
 import { ALL_PERMISSIONS } from '@/lib/types';
 import { Plus, Edit2, Trash2, Shield, Loader2, X, ChevronDown, ChevronUp, Check } from 'lucide-react';
@@ -172,9 +172,6 @@ export default function RolesPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-semibold text-slate-800 leading-tight">{role.role_name}</span>
-                          {isSuperAdmin() && role.company_name && (
-                            <span className="text-[11px] font-medium bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full shrink-0">{role.company_name}</span>
-                          )}
                           <Badge variant="secondary" className="text-[11px] shrink-0">{perms.length} permission{perms.length !== 1 ? 's' : ''}</Badge>
                         </div>
                         {role.description && (

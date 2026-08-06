@@ -281,7 +281,6 @@ export default function ReportPage() {
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
   }).length;
   const highPriorityCount = leads.filter((l) => l.priority === 'high').length;
-  const crmCount = leads.filter((l) => l.crm_ledger_id).length;
 
   const fmt = (val?: string | null) => val || '—';
   const fmtDate = (iso?: string) =>
@@ -350,7 +349,6 @@ export default function ReportPage() {
     { label: 'Total Leads', value: leads.length, icon: Users, iconBg: 'bg-blue-100', iconColor: 'text-blue-600', text: 'text-blue-600' },
     { label: 'This Month', value: thisMonthCount, icon: Calendar, iconBg: 'bg-violet-100', iconColor: 'text-violet-600', text: 'text-violet-600' },
     { label: 'High Priority', value: highPriorityCount, icon: AlertTriangle, iconBg: 'bg-rose-100', iconColor: 'text-rose-600', text: 'text-rose-600' },
-    { label: 'In CRM', value: crmCount, icon: FileSpreadsheet, iconBg: 'bg-emerald-100', iconColor: 'text-emerald-600', text: 'text-emerald-600' },
   ];
 
   // Column definitions: index maps to thRefs
@@ -375,7 +373,7 @@ export default function ReportPage() {
       <div className="px-4 md:px-6 py-5 space-y-5">
 
         {/* KPI Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           {kpiCards.map(({ label, value, icon: Icon, iconBg, iconColor, text }, i) => (
             <BlurFade key={label} delay={0.05 * i} inView>
               <motion.div

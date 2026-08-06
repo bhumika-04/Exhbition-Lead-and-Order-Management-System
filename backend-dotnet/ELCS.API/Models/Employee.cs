@@ -12,6 +12,4 @@ public class Employee
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public int? RoleId { get; set; }
-    public int? TenantId { get; set; }     // null = super admin
-    public bool IsSuperAdmin { get; set; } = false;
 }

@@ -6,8 +6,7 @@ public record RoleDto(
     string RoleName,
     string? Description,
     string Permissions,   // JSON array string e.g. ["view_leads","scan_cards"]
-    DateTime CreatedAt,
-    string? CompanyName = null   // owning tenant — shown to super admin to disambiguate duplicate names
+    DateTime CreatedAt
 );
 
 public record CreateRoleRequest(
@@ -43,8 +42,7 @@ public record CreateUserRequest(
     string? Phone,
     string? Designation,
     string? CompanyName,
-    int? RoleId,
-    int? TenantId = null
+    int? RoleId
 );
 
 public record UpdateUserRequest(
@@ -62,18 +60,18 @@ public record ResetPasswordRequest(string NewPassword);
 // ── Service Interface ──────────────────────────────────────────────────────
 public interface IRoleService
 {
-    // Roles (tenant-scoped: each company manages its own roles)
-    Task<List<RoleDto>> GetRolesAsync(int? tenantId = null, bool isSuperAdmin = false);
-    Task<RoleDto?> GetRoleByIdAsync(int roleId, int? tenantId = null, bool isSuperAdmin = false);
-    Task<int> CreateRoleAsync(CreateRoleRequest request, int? tenantId = null);
-    Task<bool> UpdateRoleAsync(int roleId, UpdateRoleRequest request, int? tenantId = null, bool isSuperAdmin = false);
-    Task<bool> DeleteRoleAsync(int roleId, int? tenantId = null, bool isSuperAdmin = false);
+    // Roles
+    Task<List<RoleDto>> GetRolesAsync();
+    Task<RoleDto?> GetRoleByIdAsync(int roleId);
+    Task<int> CreateRoleAsync(CreateRoleRequest request);
+    Task<bool> UpdateRoleAsync(int roleId, UpdateRoleRequest request);
+    Task<bool> DeleteRoleAsync(int roleId);
 
-    // Users (tenant-scoped: regular admins only manage users in their own company)
-    Task<List<UserDto>> GetUsersAsync(int? tenantId = null, bool isSuperAdmin = false);
-    Task<UserDto?> GetUserByIdAsync(int employeeId, int? tenantId = null, bool isSuperAdmin = false);
+    // Users
+    Task<List<UserDto>> GetUsersAsync();
+    Task<UserDto?> GetUserByIdAsync(int employeeId);
     Task<int> CreateUserAsync(CreateUserRequest request);
-    Task<bool> UpdateUserAsync(int employeeId, UpdateUserRequest request, int? tenantId = null, bool isSuperAdmin = false);
-    Task<bool> DeleteUserAsync(int employeeId, int? tenantId = null, bool isSuperAdmin = false);
-    Task<bool> ResetPasswordAsync(int employeeId, string newPassword, int? tenantId = null, bool isSuperAdmin = false);
+    Task<bool> UpdateUserAsync(int employeeId, UpdateUserRequest request);
+    Task<bool> DeleteUserAsync(int employeeId);
+    Task<bool> ResetPasswordAsync(int employeeId, string newPassword);
 }

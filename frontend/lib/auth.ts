@@ -10,8 +10,6 @@ export interface Employee {
   role_id?: number | null;
   role_name?: string | null;
   permissions?: string[] | null;  // null = no role = full access (admin-level)
-  tenant_id?: number | null;
-  is_super_admin?: boolean;
 }
 
 export function getEmployee(): Employee | null {
@@ -56,14 +54,6 @@ export function hasPermission(key: string): boolean {
   const perms = getPermissions();
   if (perms === null) return true;  // no role = full admin access
   return perms.includes(key);
-}
-
-export function isSuperAdmin(): boolean {
-  return getEmployee()?.is_super_admin === true;
-}
-
-export function getTenantId(): number | null | undefined {
-  return getEmployee()?.tenant_id;
 }
 
 export function requireAuth(): Employee {

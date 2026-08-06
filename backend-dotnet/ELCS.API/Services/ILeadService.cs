@@ -5,15 +5,14 @@ namespace ELCS.API.Services;
 public interface ILeadService
 {
     Task<Lead?> GetLeadByIdAsync(int leadId);
-    Task<LeadDetailDto?> GetLeadDetailAsync(int leadId, int? tenantId = null, bool isSuperAdmin = false);
+    Task<LeadDetailDto?> GetLeadDetailAsync(int leadId);
     Task<(List<LeadListDto> Leads, int TotalCount)> GetLeadsAsync(LeadQueryParams queryParams);
     Task<int> CreateLeadAsync(CreateLeadDto dto);
-    Task UpdateLeadAsync(int leadId, UpdateLeadDto dto, int? tenantId = null, bool isSuperAdmin = false);
-    Task DeleteLeadAsync(int leadId, int? tenantId = null, bool isSuperAdmin = false);
+    Task UpdateLeadAsync(int leadId, UpdateLeadDto dto);
+    Task DeleteLeadAsync(int leadId);
     Task<int> AddMessageAsync(int leadId, string senderType, string text, int? employeeId = null);
     Task<List<LeadMessage>> GetMessagesAsync(int leadId);
     Task<List<LeadListDto>> SearchLeadsByNameAsync(string name);
-    Task<(bool Success, string? Error, long? LedgerId, string? LedgerCode)> PushToCrmAsync(int leadId, int? tenantId = null, bool isSuperAdmin = false);
 }
 
 public record LeadQueryParams(
@@ -23,9 +22,7 @@ public record LeadQueryParams(
     int Limit = 50,
     int Offset = 0,
     int? AssignedEmployeeId = null,
-    string? Service = null,
-    int? TenantId = null,      // null = super admin sees all
-    bool IsSuperAdmin = false
+    string? Service = null
 );
 
 public record LeadListDto(
@@ -40,7 +37,6 @@ public record LeadListDto(
     string? Priority,
     string? StatusCode,
     DateTime CreatedAt,
-    long? CrmLedgerId,
     string? City,
     string? State,
     string? ServicesJson,
@@ -48,8 +44,7 @@ public record LeadListDto(
     string? Category,
     string? TurnOver,
     string? TeamSize,
-    string? Vertical,
-    string? TenantName   // owning company — shown to super admin to identify the lead's tenant
+    string? Vertical
 );
 
 public record LeadDetailDto(
@@ -76,8 +71,7 @@ public record CreateLeadDto(
     string? PrimaryVisitorDesignation = null,
     string? DiscussionSummary = null,
     string? Segment = null,
-    string? Priority = null,
-    int? TenantId = null
+    string? Priority = null
 );
 
 public record UpdateLeadDto(

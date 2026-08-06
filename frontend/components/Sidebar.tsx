@@ -3,14 +3,14 @@
 import { useRouter, usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
-import { getEmployee, hasPermission, isSuperAdmin } from '@/lib/auth';
+import { getEmployee, hasPermission } from '@/lib/auth';
 import {
   ScanLine, Building2, Users, BarChart3,
   FileSpreadsheet, LogOut, ChevronLeft, ChevronRight,
   UserCog, Shield,
 } from 'lucide-react';
 
-// permission: null = always visible; 'superadmin' = super admin only
+// permission: null = always visible
 const NAV_ITEMS = [
   { name: 'Scan',        path: '/chat',        icon: ScanLine,        permission: null },
   { name: 'Leads',       path: '/leads',       icon: Users,           permission: 'view_leads' },
@@ -19,7 +19,6 @@ const NAV_ITEMS = [
   { name: 'Report',      path: '/report',      icon: FileSpreadsheet, permission: 'view_report' },
   { name: 'Users',       path: '/users',       icon: UserCog,         permission: 'manage_users' },
   { name: 'Roles',       path: '/roles',       icon: Shield,          permission: 'manage_roles' },
-  { name: 'Companies',   path: '/companies',   icon: Building2,       permission: 'superadmin' },
 ];
 
 export default function Sidebar() {
@@ -32,9 +31,7 @@ export default function Sidebar() {
   useEffect(() => {
     const emp = getEmployee();
     setEmployeeName(emp?.full_name ?? '');
-    const superAdmin = isSuperAdmin();
     setVisibleItems(NAV_ITEMS.filter(item => {
-      if (item.permission === 'superadmin') return superAdmin;
       if (item.permission === null) return true;
       return hasPermission(item.permission);
     }));

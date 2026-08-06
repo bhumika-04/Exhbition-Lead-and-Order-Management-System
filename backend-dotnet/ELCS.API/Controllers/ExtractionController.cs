@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Mvc;
-using ELCS.API.Data;
 using ELCS.API.DTOs;
 using ELCS.API.Services;
 
@@ -13,20 +12,17 @@ public class ExtractionController : ControllerBase
     private readonly IExtractionService _extractionService;
     private readonly ILeadService _leadService;
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly TenantContext _tenant;
 
     public ExtractionController(
         ILogger<ExtractionController> logger,
         IExtractionService extractionService,
         ILeadService leadService,
-        IServiceScopeFactory scopeFactory,
-        TenantContext tenant)
+        IServiceScopeFactory scopeFactory)
     {
         _logger = logger;
         _extractionService = extractionService;
         _leadService = leadService;
         _scopeFactory = scopeFactory;
-        _tenant = tenant;
     }
 
     /// <summary>
@@ -178,7 +174,7 @@ public class ExtractionController : ControllerBase
                 DiscussionSummary: request.Summary,
                 Segment: request.Segment,
                 Priority: request.Priority
-            ), _tenant.TenantId, _tenant.IsSuperAdmin);
+            ));
 
             return Ok(new { success = true, message = "Voice analysis confirmed" });
         }

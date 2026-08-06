@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Mvc;
-using ELCS.API.Data;
 using ELCS.API.Services;
 
 namespace ELCS.API.Controllers;
@@ -10,18 +9,18 @@ public class AuthController : ControllerBase
 {
     private readonly ILogger<AuthController> _logger;
     private readonly IAuthService _authService;
-    private readonly TenantContext _tenant;
 
-    public AuthController(ILogger<AuthController> logger, IAuthService authService, TenantContext tenant)
+    public AuthController(ILogger<AuthController> logger, IAuthService authService)
     {
         _logger = logger;
         _authService = authService;
-        _tenant = tenant;
     }
 
-    // A profile may only be read/edited by its owner (or the super admin).
+    // A profile may only be read/edited by its owner.
     private bool CanAccessProfile(int employeeId) =>
-        _tenant.IsSuperAdmin || _tenant.EmployeeId == employeeId;
+        Request.Headers.TryGetValue("X-Employee-Id", out var raw)
+        && int.TryParse(raw, out var callerId)
+        && callerId == employeeId;
 
     [HttpPost("login")]
     [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
@@ -30,15 +29,11 @@ public class AuthController : ControllerBase
         if (string.IsNullOrEmpty(request.Email) || string.IsNullOrEmpty(request.Password))
             return BadRequest(new { error = "Email and password are required" });
 
-        // Super admin can omit company name; everyone else must provide it
-        if (string.IsNullOrWhiteSpace(request.CompanyName) && request.Email != "admin@example.com")
-            return BadRequest(new { error = "Company name is required" });
-
-        var result = await _authService.AuthenticateAsync(request.Email, request.Password, request.CompanyName);
+        var result = await _authService.AuthenticateAsync(request.Email, request.Password);
 
         if (result == null)
         {
-            return Unauthorized(new { error = "Invalid company, email, or password" });
+            return Unauthorized(new { error = "Invalid email or password" });
         }
 
         Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate";
@@ -47,18 +42,16 @@ public class AuthController : ControllerBase
 
         return Ok(new
         {
-            success        = true,
-            employee_id    = result.EmployeeId,
-            full_name      = result.FullName,
-            email          = result.Email,
-            phone          = result.Phone,
-            designation    = result.Designation,
-            company_name   = result.CompanyName,
-            role_id        = result.RoleId,
-            role_name      = result.RoleName,
-            permissions    = result.Permissions,
-            tenant_id      = result.TenantId,
-            is_super_admin = result.IsSuperAdmin,
+            success      = true,
+            employee_id  = result.EmployeeId,
+            full_name    = result.FullName,
+            email        = result.Email,
+            phone        = result.Phone,
+            designation  = result.Designation,
+            company_name = result.CompanyName,
+            role_id      = result.RoleId,
+            role_name    = result.RoleName,
+            permissions  = result.Permissions,
         });
     }
 
@@ -97,4 +90,4 @@ public class AuthController : ControllerBase
     }
 }
 
-public record LoginRequest(string Email, string Password, string? CompanyName = null);
+public record LoginRequest(string Email, string Password);

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { api } from '@/lib/api';
-import { isAuthenticated, getEmployee, hasPermission, isSuperAdmin } from '@/lib/auth';
+import { isAuthenticated, getEmployee, hasPermission } from '@/lib/auth';
 import type { Lead } from '@/lib/types';
 import {
   Search, Plus, Building2, User, Phone, Trash2,
@@ -85,8 +85,6 @@ export default function LeadsPage() {
   const [exhibitions, setExhibitions] = useState<any[]>([]);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedLeads, setSelectedLeads] = useState<Set<number>>(new Set());
-  const [pushingCrm, setPushingCrm] = useState(false);
-  const [crmProgress, setCrmProgress] = useState<{ done: number; total: number } | null>(null);
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 21;
 
@@ -285,29 +283,6 @@ export default function LeadsPage() {
     setSelectedLeads(new Set());
   };
 
-  const bulkPushToCrm = async () => {
-    const toPush = filteredLeads.filter(l => selectedLeads.has(l.lead_id) && !l.crm_ledger_id);
-    if (toPush.length === 0) {
-      toast('All selected leads are already in CRM', { icon: 'ℹ️' });
-      return;
-    }
-    setPushingCrm(true);
-    setCrmProgress({ done: 0, total: toPush.length });
-    let success = 0, failed = 0;
-    for (const lead of toPush) {
-      try { await api.pushToCrm(lead.lead_id); success++; }
-      catch { failed++; }
-      setCrmProgress(p => p ? { ...p, done: p.done + 1 } : null);
-    }
-    setPushingCrm(false);
-    setCrmProgress(null);
-    await loadLeads();
-    if (failed === 0) toast.success(`${success} lead${success > 1 ? 's' : ''} pushed to CRM`);
-    else toast(`${success} pushed, ${failed} failed`, { icon: '⚠️' });
-    setSelectMode(false);
-    setSelectedLeads(new Set());
-  };
-
   const handleCreateLead = async (formData: any) => {
     try {
       const employee = getEmployee();
@@ -404,15 +379,12 @@ export default function LeadsPage() {
         /* ── Select Mode Toolbar ── */
         <div className="bg-blue-50 border-b border-blue-200 px-4 md:px-6 py-2.5 shrink-0 flex items-center gap-2">
           <span className="text-sm font-semibold text-blue-800 flex-1">
-            {crmProgress
-              ? `Pushing ${crmProgress.done}/${crmProgress.total}…`
-              : `${selectedLeads.size} of ${filteredLeads.length} selected`}
+            {`${selectedLeads.size} of ${filteredLeads.length} selected`}
           </span>
           <Button
             variant="outline"
             size="sm"
             onClick={selectAllFiltered}
-            disabled={pushingCrm}
             className="gap-1.5 h-9 text-xs px-3 shrink-0 border-blue-300 text-blue-700 hover:bg-blue-100"
           >
             All
@@ -420,28 +392,16 @@ export default function LeadsPage() {
           <Button
             size="sm"
             onClick={saveContacts}
-            disabled={selectedLeads.size === 0 || pushingCrm}
+            disabled={selectedLeads.size === 0}
             className="gap-1.5 h-9 text-xs px-3 shrink-0 bg-blue-600 hover:bg-blue-700"
           >
             <Download className="w-3 h-3" />
             Contacts{selectedLeads.size > 0 ? ` (${selectedLeads.size})` : ''}
           </Button>
           <Button
-            size="sm"
-            onClick={bulkPushToCrm}
-            disabled={selectedLeads.size === 0 || pushingCrm}
-            className="gap-1.5 h-9 text-xs px-3 shrink-0 bg-orange-500 hover:bg-orange-600 text-white"
-          >
-            {pushingCrm
-              ? <Loader2 className="w-3 h-3 animate-spin" />
-              : <Upload className="w-3 h-3" />}
-            CRM{selectedLeads.size > 0 ? ` (${selectedLeads.size})` : ''}
-          </Button>
-          <Button
             variant="ghost"
             size="sm"
             onClick={toggleSelectMode}
-            disabled={pushingCrm}
             className="gap-1 h-9 text-xs px-2.5 shrink-0 text-slate-600"
           >
             <X className="w-3.5 h-3.5" /> Cancel
@@ -708,15 +668,6 @@ export default function LeadsPage() {
                         </button>
                       )}
 
-                      {/* Owning company — super admin only */}
-                      {isSuperAdmin() && lead.tenant_name && (
-                        <div className="mb-2">
-                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-slate-800 text-white px-2 py-0.5 rounded-md max-w-full truncate" title={`Owner: ${lead.tenant_name}`}>
-                            <Building2 className="w-3 h-3 shrink-0" /> {lead.tenant_name}
-                          </span>
-                        </div>
-                      )}
-
                       <div className="flex items-start gap-3">
                         {/* Avatar */}
                         <div className={cn(
@@ -772,11 +723,6 @@ export default function LeadsPage() {
                           <Badge variant={statusVariant} className="text-[11px] h-5 py-0 px-2">
                             {lead.status_name || lead.status_code || 'pending'}
                           </Badge>
-                          {lead.crm_ledger_id && (
-                            <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 rounded-full px-1.5 py-0.5 leading-none">
-                              CRM
-                            </span>
-                          )}
                         </div>
                         <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
                           {lead.priority === 'high' && <span className="text-red-400 font-semibold">● High</span>}

@@ -17,33 +17,17 @@ public class AuthService : IAuthService
         _db = db;
     }
 
-    public async Task<AuthResult?> AuthenticateAsync(string email, string password, string? companyName)
+    public async Task<AuthResult?> AuthenticateAsync(string email, string password)
     {
         using var conn = _db.CreateConnection();
 
-        Employee? employee;
-
-        if (!string.IsNullOrWhiteSpace(companyName))
-        {
-            // Normal user: find employee within the specified company
-            employee = await conn.QueryFirstOrDefaultAsync<Employee>(@"
-                SELECT e.* FROM Employees e
-                JOIN Companies c ON c.CompanyId = e.TenantId
-                WHERE e.Email = @Email AND e.IsActive = 1
-                  AND (c.CompanyName = @CompanyName OR LOWER(c.CompanyName) = LOWER(@CompanyName))",
-                new { Email = email, CompanyName = companyName });
-        }
-        else
-        {
-            // Super admin login (no company required)
-            employee = await conn.QueryFirstOrDefaultAsync<Employee>(
-                "SELECT * FROM Employees WHERE Email = @Email AND IsActive = 1 AND IsSuperAdmin = 1",
-                new { Email = email });
-        }
+        var employee = await conn.QueryFirstOrDefaultAsync<Employee>(
+            "SELECT * FROM Employees WHERE Email = @Email AND IsActive = 1",
+            new { Email = email });
 
         if (employee == null)
         {
-            _logger.LogWarning("Login failed: not found - {Email} / {Company}", email, companyName);
+            _logger.LogWarning("Login failed: not found - {Email}", email);
             return null;
         }
 
@@ -54,7 +38,7 @@ public class AuthService : IAuthService
             return null;
         }
 
-        _logger.LogInformation("Employee {EmployeeId} logged in (tenant {TenantId})", employee.EmployeeId, employee.TenantId);
+        _logger.LogInformation("Employee {EmployeeId} logged in", employee.EmployeeId);
 
         string? roleName = null;
         string? permissions = null;
@@ -71,17 +55,15 @@ public class AuthService : IAuthService
         }
 
         return new AuthResult(
-            EmployeeId:   employee.EmployeeId,
-            FullName:     employee.FullName,
-            Email:        employee.Email,
-            Phone:        employee.Phone,
-            Designation:  employee.Designation,
-            CompanyName:  employee.CompanyName,
-            RoleId:       employee.RoleId,
-            RoleName:     roleName,
-            Permissions:  permissions,
-            TenantId:     employee.TenantId,
-            IsSuperAdmin: employee.IsSuperAdmin
+            EmployeeId:  employee.EmployeeId,
+            FullName:    employee.FullName,
+            Email:       employee.Email,
+            Phone:       employee.Phone,
+            Designation: employee.Designation,
+            CompanyName: employee.CompanyName,
+            RoleId:      employee.RoleId,
+            RoleName:    roleName,
+            Permissions: permissions
         );
     }
 

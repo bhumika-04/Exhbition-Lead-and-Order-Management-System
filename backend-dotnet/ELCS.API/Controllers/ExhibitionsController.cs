@@ -12,31 +12,19 @@ public class ExhibitionsController : ControllerBase
 {
     private readonly ILogger<ExhibitionsController> _logger;
     private readonly IDbConnection _db;
-    private readonly TenantContext _tenant;
 
-    public ExhibitionsController(ILogger<ExhibitionsController> logger, IDbConnection db, TenantContext tenant)
+    public ExhibitionsController(ILogger<ExhibitionsController> logger, IDbConnection db)
     {
         _logger = logger;
         _db = db;
-        _tenant = tenant;
     }
 
     [HttpGet]
     public async Task<IActionResult> GetExhibitions()
     {
         using var conn = _db.CreateConnection();
-        IEnumerable<Exhibition> exhibitions;
-        if (_tenant.IsSuperAdmin || !_tenant.TenantId.HasValue)
-        {
-            exhibitions = await conn.QueryAsync<Exhibition>(
-                "SELECT * FROM Exhibitions WHERE IsActive = 1 ORDER BY StartDate DESC");
-        }
-        else
-        {
-            exhibitions = await conn.QueryAsync<Exhibition>(
-                "SELECT * FROM Exhibitions WHERE IsActive = 1 AND TenantId = @TenantId ORDER BY StartDate DESC",
-                new { _tenant.TenantId });
-        }
+        var exhibitions = await conn.QueryAsync<Exhibition>(
+            "SELECT * FROM Exhibitions WHERE IsActive = 1 ORDER BY StartDate DESC");
         return Ok(new { exhibitions });
     }
 
@@ -44,10 +32,9 @@ public class ExhibitionsController : ControllerBase
     public async Task<IActionResult> GetExhibition(int exhibitionId)
     {
         using var conn = _db.CreateConnection();
-        var tenantClause = _tenant.IsSuperAdmin ? "" : " AND TenantId = @TenantId";
         var exhibition = await conn.QueryFirstOrDefaultAsync<Exhibition>(
-            $"SELECT * FROM Exhibitions WHERE ExhibitionId = @ExhibitionId AND IsActive = 1{tenantClause}",
-            new { ExhibitionId = exhibitionId, _tenant.TenantId });
+            "SELECT * FROM Exhibitions WHERE ExhibitionId = @ExhibitionId AND IsActive = 1",
+            new { ExhibitionId = exhibitionId });
 
         if (exhibition == null)
             return NotFound(new { error = "Exhibition not found" });
@@ -60,17 +47,16 @@ public class ExhibitionsController : ControllerBase
     {
         using var conn = _db.CreateConnection();
         var exhibitionId = await conn.ExecuteScalarAsync<int>(@"
-            INSERT INTO Exhibitions (Name, Location, StartDate, EndDate, Description, IsActive, TenantId, CreatedAt)
+            INSERT INTO Exhibitions (Name, Location, StartDate, EndDate, Description, IsActive, CreatedAt)
             OUTPUT INSERTED.ExhibitionId
-            VALUES (@Name, @Location, @StartDate, @EndDate, @Description, 1, @TenantId, GETUTCDATE())",
+            VALUES (@Name, @Location, @StartDate, @EndDate, @Description, 1, GETUTCDATE())",
             new
             {
                 request.Name,
                 request.Location,
                 request.StartDate,
                 request.EndDate,
-                request.Description,
-                TenantId = _tenant.TenantId
+                request.Description
             });
 
         _logger.LogInformation("Created exhibition {ExhibitionId}: {Name}", exhibitionId, request.Name);
@@ -83,10 +69,9 @@ public class ExhibitionsController : ControllerBase
     {
         using var conn = _db.CreateConnection();
 
-        var tenantClause = _tenant.IsSuperAdmin ? "" : " AND TenantId = @TenantId";
         var exhibition = await conn.QueryFirstOrDefaultAsync<Exhibition>(
-            $"SELECT * FROM Exhibitions WHERE ExhibitionId = @ExhibitionId{tenantClause}",
-            new { ExhibitionId = exhibitionId, _tenant.TenantId });
+            "SELECT * FROM Exhibitions WHERE ExhibitionId = @ExhibitionId",
+            new { ExhibitionId = exhibitionId });
 
         if (exhibition == null)
             return NotFound(new { error = "Exhibition not found" });
@@ -117,10 +102,9 @@ public class ExhibitionsController : ControllerBase
     {
         using var conn = _db.CreateConnection();
 
-        var tenantClause = _tenant.IsSuperAdmin ? "" : " AND TenantId = @TenantId";
         var exhibition = await conn.QueryFirstOrDefaultAsync<Exhibition>(
-            $"SELECT * FROM Exhibitions WHERE ExhibitionId = @ExhibitionId{tenantClause}",
-            new { ExhibitionId = exhibitionId, _tenant.TenantId });
+            "SELECT * FROM Exhibitions WHERE ExhibitionId = @ExhibitionId",
+            new { ExhibitionId = exhibitionId });
 
         if (exhibition == null)
             return NotFound(new { error = "Exhibition not found" });

@@ -6,29 +6,21 @@ import { api } from '@/lib/api';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [companyName, setCompanyName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Super admin email skips company field
-  const isSuperAdminEmail = email.toLowerCase() === 'admin@example.com';
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (!isSuperAdminEmail && !companyName.trim()) {
-      setError('Please enter your company name.');
-      return;
-    }
     setLoading(true);
     try {
-      await api.login({ email, password, company_name: isSuperAdminEmail ? undefined : companyName.trim() });
+      await api.login({ email, password });
       router.push('/chat');
     } catch (err: any) {
-      setError(err.response?.data?.error || err.response?.data?.detail || 'Invalid company, email, or password.');
+      setError(err.response?.data?.error || err.response?.data?.detail || 'Invalid email or password.');
     } finally {
       setLoading(false);
     }
@@ -69,23 +61,6 @@ export default function LoginPage() {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Company Name — hidden for super admin */}
-            {!isSuperAdminEmail && (
-              <div>
-                <label htmlFor="company" className="block text-sm font-medium text-gray-700 mb-2">
-                  Company Name
-                </label>
-                <input
-                  id="company"
-                  type="text"
-                  value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
-                  placeholder="Enter your company name"
-                  autoComplete="organization"
-                />
-              </div>
-            )}
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
                 Email / Phone

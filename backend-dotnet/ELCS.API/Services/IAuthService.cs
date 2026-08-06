@@ -4,7 +4,7 @@ namespace ELCS.API.Services;
 
 public interface IAuthService
 {
-    Task<AuthResult?> AuthenticateAsync(string email, string password, string? companyName);
+    Task<AuthResult?> AuthenticateAsync(string email, string password);
     Task<Employee?> GetEmployeeByIdAsync(int employeeId);
     Task<bool> UpdateProfileAsync(int employeeId, UpdateProfileRequest request);
 }
@@ -18,9 +18,7 @@ public record AuthResult(
     string? CompanyName,
     int? RoleId,
     string? RoleName,
-    string? Permissions,   // JSON array string, null = no role = full access
-    int? TenantId,
-    bool IsSuperAdmin
+    string? Permissions    // JSON array string, null = no role = full access
 );
 
 public record UpdateProfileRequest(

@@ -1,7 +1,6 @@
 ﻿using Dapper;
 using ELCS.API.Data;
 using ELCS.API.Models;
-using Microsoft.Data.SqlClient;
 using System.Text.Json;
 
 namespace ELCS.API.Services;
@@ -10,13 +9,11 @@ public class LeadService : ILeadService
 {
     private readonly ILogger<LeadService> _logger;
     private readonly IDbConnection _db;
-    private readonly IConfiguration _config;
 
-    public LeadService(ILogger<LeadService> logger, IDbConnection db, IConfiguration config)
+    public LeadService(ILogger<LeadService> logger, IDbConnection db)
     {
         _logger = logger;
         _db = db;
-        _config = config;
     }
 
     public async Task<Lead?> GetLeadByIdAsync(int leadId)
@@ -27,18 +24,16 @@ public class LeadService : ILeadService
             new { LeadId = leadId });
     }
 
-    public async Task<LeadDetailDto?> GetLeadDetailAsync(int leadId, int? tenantId = null, bool isSuperAdmin = false)
+    public async Task<LeadDetailDto?> GetLeadDetailAsync(int leadId)
     {
         using var conn = _db.CreateConnection();
 
-        // Tenant isolation: regular users may only read leads belonging to their own company
-        var tenantClause = isSuperAdmin ? "" : " AND l.TenantId = @TenantId";
-        var lead = await conn.QueryFirstOrDefaultAsync<Lead>($@"
+        var lead = await conn.QueryFirstOrDefaultAsync<Lead>(@"
             SELECT l.*, e.Name AS ExhibitionName
             FROM Leads l
             LEFT JOIN Exhibitions e ON e.ExhibitionId = l.ExhibitionId
-            WHERE l.LeadId = @LeadId{tenantClause}",
-            new { LeadId = leadId, TenantId = tenantId });
+            WHERE l.LeadId = @LeadId",
+            new { LeadId = leadId });
 
         if (lead == null) return null;
 
@@ -268,13 +263,6 @@ public class LeadService : ILeadService
             parameters.Add("Service", $"%{queryParams.Service}%");
         }
 
-        // Tenant isolation: super admins see everything; regular users see only their company's data
-        if (!queryParams.IsSuperAdmin && queryParams.TenantId.HasValue)
-        {
-            whereClause += " AND l.TenantId = @TenantId";
-            parameters.Add("TenantId", queryParams.TenantId.Value);
-        }
-
         // Get count
         var totalCount = await conn.ExecuteScalarAsync<int>(
             $"SELECT COUNT(*) FROM Leads l {whereClause}", parameters);
@@ -286,15 +274,13 @@ public class LeadService : ILeadService
         var sql = $@"
             SELECT l.LeadId, l.ExhibitionId, e.Name as ExhibitionName,
                    l.CompanyName, l.PrimaryVisitorName, l.PrimaryVisitorDesignation,
-                   l.PrimaryVisitorPhone, l.Segment, l.Priority, l.StatusCode, l.CreatedAt, l.CrmLedgerId,
+                   l.PrimaryVisitorPhone, l.Segment, l.Priority, l.StatusCode, l.CreatedAt,
                    JSON_VALUE(l.Addresses, '$[0].city') as City,
                    JSON_VALUE(l.Addresses, '$[0].state') as State,
                    l.Services as ServicesJson,
-                   l.PrimaryVisitorEmail, l.Category, l.TurnOver, l.TeamSize, l.Vertical,
-                   tc.CompanyName as TenantName
+                   l.PrimaryVisitorEmail, l.Category, l.TurnOver, l.TeamSize, l.Vertical
             FROM Leads l
             LEFT JOIN Exhibitions e ON l.ExhibitionId = e.ExhibitionId
-            LEFT JOIN Companies tc ON tc.CompanyId = l.TenantId
             {whereClause}
             ORDER BY l.CreatedAt DESC
             OFFSET @Offset ROWS FETCH NEXT @Limit ROWS ONLY";
@@ -314,11 +300,11 @@ public class LeadService : ILeadService
         var sql = @"
             INSERT INTO Leads (ExhibitionId, SourceCode, StatusCode, AssignedEmployeeId,
                               CompanyName, PrimaryVisitorName, PrimaryVisitorPhone, PrimaryVisitorEmail,
-                              PrimaryVisitorDesignation, DiscussionSummary, Segment, Priority, TenantId, CreatedAt)
+                              PrimaryVisitorDesignation, DiscussionSummary, Segment, Priority, CreatedAt)
             OUTPUT INSERTED.LeadId
             VALUES (@ExhibitionId, @SourceCode, 'new', @AssignedEmployeeId,
                    @CompanyName, @PrimaryVisitorName, @PrimaryVisitorPhone, @PrimaryVisitorEmail,
-                   @PrimaryVisitorDesignation, @DiscussionSummary, @Segment, @Priority, @TenantId, GETUTCDATE())";
+                   @PrimaryVisitorDesignation, @DiscussionSummary, @Segment, @Priority, GETUTCDATE())";
 
         var parameters = new
         {
@@ -332,8 +318,7 @@ public class LeadService : ILeadService
             dto.PrimaryVisitorDesignation,
             dto.DiscussionSummary,
             dto.Segment,
-            dto.Priority,
-            dto.TenantId
+            dto.Priority
         };
 
         var leadId = await conn.ExecuteScalarAsync<int>(sql, parameters);
@@ -341,18 +326,14 @@ public class LeadService : ILeadService
         return leadId;
     }
 
-    public async Task UpdateLeadAsync(int leadId, UpdateLeadDto dto, int? tenantId = null, bool isSuperAdmin = false)
+    public async Task UpdateLeadAsync(int leadId, UpdateLeadDto dto)
     {
         using var conn = _db.CreateConnection();
 
-        // Tenant isolation: regular users may only update leads in their own company
-        if (!isSuperAdmin)
-        {
-            var ownerTenant = await conn.ExecuteScalarAsync<int?>(
-                "SELECT TenantId FROM Leads WHERE LeadId = @LeadId", new { LeadId = leadId });
-            if (ownerTenant == null || ownerTenant != tenantId)
-                throw new KeyNotFoundException($"Lead {leadId} not found");
-        }
+        var exists = await conn.ExecuteScalarAsync<int?>(
+            "SELECT LeadId FROM Leads WHERE LeadId = @LeadId", new { LeadId = leadId });
+        if (exists == null)
+            throw new KeyNotFoundException($"Lead {leadId} not found");
 
         var updates = new List<string>();
         var parameters = new DynamicParameters();
@@ -388,18 +369,17 @@ public class LeadService : ILeadService
         _logger.LogInformation("Updated lead {LeadId}", leadId);
     }
 
-    public async Task DeleteLeadAsync(int leadId, int? tenantId = null, bool isSuperAdmin = false)
+    public async Task DeleteLeadAsync(int leadId)
     {
         using var conn = _db.CreateConnection();
 
         // Hard delete - the database will cascade delete all related data (messages, attachments, persons, etc.)
         // because all foreign keys are configured with ON DELETE CASCADE
 
-        // First get the lead to log the deletion (tenant-scoped so users can't delete other companies' leads)
-        var tenantClause = isSuperAdmin ? "" : " AND TenantId = @TenantId";
+        // First get the lead to log the deletion
         var lead = await conn.QueryFirstOrDefaultAsync<Lead>(
-            $"SELECT * FROM Leads WHERE LeadId = @LeadId{tenantClause}",
-            new { LeadId = leadId, TenantId = tenantId });
+            "SELECT * FROM Leads WHERE LeadId = @LeadId",
+            new { LeadId = leadId });
 
         if (lead == null)
             throw new KeyNotFoundException($"Lead {leadId} not found");
@@ -454,7 +434,6 @@ public class LeadService : ILeadService
                 l.Priority,
                 l.StatusCode,
                 l.CreatedAt,
-                l.CrmLedgerId,
                 JSON_VALUE(l.Addresses, '$[0].city') as City,
                 JSON_VALUE(l.Addresses, '$[0].state') as State
             FROM Leads l
@@ -469,243 +448,4 @@ public class LeadService : ILeadService
             results.Count, name, string.Join(", ", results.Select(l => $"{l.PrimaryVisitorName} ({l.LeadId})")));
         return results;
     }
-
-    public async Task<(bool Success, string? Error, long? LedgerId, string? LedgerCode)> PushToCrmAsync(int leadId, int? tenantId = null, bool isSuperAdmin = false)
-    {
-        // --- Config ---
-        var crmConnStr    = _config.GetConnectionString("CRMConnection")
-            ?? throw new InvalidOperationException("CRMConnection not configured in appsettings.json");
-        var companyId     = _config.GetValue<int>("CRM:CompanyId", 2);
-        var ledgerGroupId = _config.GetValue<int>("CRM:LedgerGroupId", 1);
-        var prefix        = _config["CRM:LedgerCodePrefix"] ?? "C";
-        var ledgerType    = _config["CRM:LedgerType"] ?? "Sundry Debtors";
-        var sysUserId     = _config.GetValue<int>("CRM:SystemUserId", 2);
-
-        // --- Load lead detail (tenant-scoped) ---
-        var detail = await GetLeadDetailAsync(leadId, tenantId, isSuperAdmin);
-        if (detail == null) return (false, "Lead not found", null, null);
-
-        var lead = detail.Lead;
-        if (lead.CrmLedgerId.HasValue)
-            return (false, $"Already pushed to CRM (LedgerID={lead.CrmLedgerId})", null, null);
-
-        // --- Resolve contact fields ---
-        var phone   = detail.Phones.FirstOrDefault()?.PhoneNumber ?? lead.PrimaryVisitorPhone ?? "";
-        var email   = detail.Emails.FirstOrDefault()?.EmailAddress ?? lead.PrimaryVisitorEmail ?? "";
-        var website = detail.Websites.FirstOrDefault()?.WebsiteUrl ?? "";
-        var addr    = detail.Addresses.FirstOrDefault();
-        var addr1   = addr?.AddressText ?? "";
-        var city    = addr?.City ?? "";
-        var state   = addr?.State ?? "";
-        var country = addr?.Country ?? "";
-        var pincode = addr?.PinCode ?? "";
-        var mailingAddress = string.Join(", ",
-            new[] { addr1, city, state, country }.Where(p => !string.IsNullOrWhiteSpace(p)));
-
-        var ledgerName   = !string.IsNullOrWhiteSpace(lead.CompanyName) ? lead.CompanyName : (lead.PrimaryVisitorName ?? "Unknown");
-        var fYear        = GetCurrentFinancialYear();
-        var now          = DateTime.UtcNow;
-        var leadStatus   = MapLeadStatus(lead.StatusCode);
-        var custCategory = MapSegmentToCategory(lead.Segment);
-
-        // Use a dedicated connection to the CRM/ERP server (different server than ELCS)
-        using var crmConn = new SqlConnection(crmConnStr);
-        await crmConn.OpenAsync();
-        using var crmTx = crmConn.BeginTransaction();
-
-        try
-        {
-            // --- Generate LedgerCode within transaction to prevent race conditions ---
-            var maxNo = await crmConn.ExecuteScalarAsync<long>(
-                "SELECT ISNULL(MAX(MaxLedgerNo), 0) FROM LedgerMaster WHERE LedgerCodePrefix = @Prefix",
-                new { Prefix = prefix }, crmTx);
-            var newMaxNo   = maxNo + 1;
-            var ledgerCode = prefix + newMaxNo.ToString("D5");
-            var ledgerDesc = $"{ledgerType}:{ledgerName}";
-
-            // --- Insert LedgerMaster ---
-            const string insertLmSql = @"
-                INSERT INTO LedgerMaster
-                (
-                    LedgerCode, MaxLedgerNo, LedgerCodePrefix, LedgerName, LedgerDescription,
-                    LedgerUnitID, LedgerType, LedgerGroupID, ISLedgerActive,
-                    CompanyID, UserID, CreatedDate, ModifiedDate,
-                    IsDeleted, IsBlocked, FYear, IsLocked, CreatedBy, ModifiedBy,
-                    DeletedBy, IsDeletedTransaction,
-                    MailingName, MailingAddress, Address1, Address2,
-                    City, District, State, Country, Pincode,
-                    MobileNo, Email, Website, Designation,
-                    LegalName, TradeName,
-                    ContactPersonName, ContactPersonNumber,
-                    Remarks, SalesPersonName, CustomerCategory, Source,
-                    isLead, isClient, LeadStatus, Status,
-                    InventoryEffect, IsTaxType, MaintainBillWise, IsCumulative,
-                    IsIntegrated, IsClientApproval, GSTApplicable,
-                    DepartmentID, ProductionUnitID, RefLedgerID, RefClientID,
-                    RefSalesRepresentativeID, TaxPercentage, TaxRatePer, InAmount,
-                    Distance, DeliveredQtyTolerance, expected_revenue,
-                    pipeline_stage_id, MaxCreditLimit, MaxCreditPeriod, FixedLimit,
-                    DateOfBirth
-                )
-                OUTPUT INSERTED.LedgerID
-                VALUES
-                (
-                    @LedgerCode, @MaxLedgerNo, @Prefix, @LedgerName, @LedgerDesc,
-                    0, @LedgerType, @LedgerGroupId, 1,
-                    @CompanyId, @UserId, @Now, @Now,
-                    0, 0, @FYear, 0, @UserId, @UserId,
-                    0, 0,
-                    @LedgerName, @MailingAddress, @Addr1, '',
-                    @City, @City, @State, @Country, @Pincode,
-                    @Phone, @Email, @Website, @Designation,
-                    @LedgerName, @LedgerName,
-                    @ContactName, @Phone,
-                    @Remarks, '', @CustCategory, @Source,
-                    1, 0, @LeadStatus, 'Active',
-                    0, 0, 0, 0,
-                    0, 1, 0,
-                    0, 0, 0, 0,
-                    0, 0, 0, 0,
-                    0, 0, 0,
-                    1, 0, 0, 0,
-                    '1900-01-01'
-                )";
-
-            var ledgerId = await crmConn.ExecuteScalarAsync<long>(insertLmSql, new
-            {
-                LedgerCode    = ledgerCode,
-                MaxLedgerNo   = newMaxNo,
-                Prefix        = prefix,
-                LedgerName    = ledgerName,
-                LedgerDesc    = ledgerDesc,
-                LedgerType    = ledgerType,
-                LedgerGroupId = ledgerGroupId,
-                CompanyId     = companyId,
-                UserId        = sysUserId,
-                Now           = now,
-                FYear         = fYear,
-                MailingAddress = mailingAddress,
-                Addr1         = addr1,
-                City          = city,
-                State         = state,
-                Country       = country,
-                Pincode       = pincode,
-                Phone         = phone,
-                Email         = email,
-                Website       = website,
-                Designation   = lead.PrimaryVisitorDesignation ?? "",
-                ContactName   = lead.PrimaryVisitorName ?? "",
-                Remarks       = lead.DiscussionSummary ?? "",
-                CustCategory  = custCategory,
-                Source        = "VistingCard",
-                LeadStatus    = leadStatus,
-            }, crmTx);
-
-            // --- Insert LedgerMasterDetails ---
-            var detailRows = BuildLedgerDetails(ledgerName, mailingAddress, addr1,
-                city, state, country, phone, email);
-
-            foreach (var (fieldName, fieldValue, seqNo) in detailRows)
-            {
-                if (string.IsNullOrWhiteSpace(fieldValue)) continue;
-                await crmConn.ExecuteAsync(@"
-                    INSERT INTO LedgerMasterDetails
-                    (ParentLedgerID, ParentFieldName, ParentFieldValue,
-                     LedgerID, FieldID, FieldName, FieldValue, SequenceNo,
-                     LedgerGroupID, CompanyID, UserID, CreatedDate, ModifiedDate,
-                     IsDeleted, IsBlocked, FYear, IsLocked, CreatedBy, ModifiedBy,
-                     DeletedBy, IsActive, IsDeletedTransaction, ProductionUnitID)
-                    VALUES
-                    (0, @FieldName, @FieldValue,
-                     @LedgerId, 0, @FieldName, @FieldValue, @SeqNo,
-                     @LedgerGroupId, @CompanyId, @UserId, @Now, @Now,
-                     0, 0, @FYear, 0, @UserId, @UserId,
-                     0, 0, 0, 0)",
-                    new
-                    {
-                        FieldName     = fieldName,
-                        FieldValue    = fieldValue,
-                        LedgerId      = ledgerId,
-                        SeqNo         = seqNo,
-                        LedgerGroupId = ledgerGroupId,
-                        CompanyId     = companyId,
-                        UserId        = sysUserId,
-                        Now           = now,
-                        FYear         = fYear,
-                    }, crmTx);
-            }
-
-            crmTx.Commit();
-            _logger.LogInformation("Lead {LeadId} pushed to CRM as LedgerID={LedgerId} Code={LedgerCode}", leadId, ledgerId, ledgerCode);
-
-            // --- Mark lead as pushed in ELCS (separate connection, best-effort) ---
-            using var elcsConn = _db.CreateConnection();
-            await elcsConn.ExecuteAsync(
-                "UPDATE Leads SET CrmLedgerId = @LedgerId, UpdatedAt = GETUTCDATE() WHERE LeadId = @LeadId",
-                new { LedgerId = ledgerId, LeadId = leadId });
-
-            return (true, null, ledgerId, ledgerCode);
-        }
-        catch (Exception ex)
-        {
-            crmTx.Rollback();
-            _logger.LogError(ex, "Failed to push lead {LeadId} to CRM", leadId);
-            return (false, ex.Message, null, null);
-        }
-    }
-
-    private static string GetCurrentFinancialYear()
-    {
-        var now = DateTime.Now;
-        var startYear = now.Month >= 4 ? now.Year : now.Year - 1;
-        return $"{startYear}-{startYear + 1}";
-    }
-
-    private static string MapLeadStatus(string? statusCode) => statusCode switch
-    {
-        "confirmed"        => "Won",
-        "contacted"        => "Contacted",
-        "needs_correction" => "Needs Review",
-        _                  => "New Lead"
-    };
-
-    private static string MapSegmentToCategory(string? segment) => segment switch
-    {
-        "decision_maker" => "Decision Maker",
-        "influencer"     => "Influencer",
-        "researcher"     => "Researcher",
-        "general"        => "General",
-        _                => ""
-    };
-
-    private static IEnumerable<(string FieldName, string FieldValue, byte SeqNo)> BuildLedgerDetails(
-        string ledgerName, string mailingAddress,
-        string addr1, string city, string state, string country,
-        string phone, string email)
-    {
-        yield return ("LedgerName",         ledgerName,       1);
-        yield return ("MailingName",        ledgerName,       2);
-        if (!string.IsNullOrWhiteSpace(addr1))
-            yield return ("Address1",       addr1,            3);
-        if (!string.IsNullOrWhiteSpace(country))
-            yield return ("Country",        country,          5);
-        if (!string.IsNullOrWhiteSpace(state))
-            yield return ("State",          state,            6);
-        if (!string.IsNullOrWhiteSpace(city))
-            yield return ("City",           city,             7);
-        if (!string.IsNullOrWhiteSpace(mailingAddress))
-            yield return ("MailingAddress", mailingAddress,   8);
-        if (!string.IsNullOrWhiteSpace(phone))
-            yield return ("MobileNo",       phone,            10);
-        if (!string.IsNullOrWhiteSpace(email))
-            yield return ("Email",          email,            11);
-        yield return ("LegalName",          ledgerName,       14);
-        yield return ("SupplyTypeCode",     "Not Applicable", 15);
-        yield return ("CreditDays",         "0",              16);
-        yield return ("GSTRegistrationType","Regular",        17);
-        yield return ("Source",             "VistingCard",    18);
-        yield return ("ISLedgerActive",     "True",           0);
-        yield return ("GSTApplicable",      "False",          19);
-    }
 }
-

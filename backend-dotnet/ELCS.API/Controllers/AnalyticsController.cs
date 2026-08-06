@@ -11,15 +11,12 @@ public class AnalyticsController : ControllerBase
 {
     private readonly ILogger<AnalyticsController> _logger;
     private readonly string _connectionString;
-    private readonly TenantContext _tenant;
 
     public AnalyticsController(
         ILogger<AnalyticsController> logger,
-        IConfiguration config,
-        TenantContext tenant)
+        IConfiguration config)
     {
         _logger = logger;
-        _tenant = tenant;
         _connectionString = config.GetConnectionString("DefaultConnection")
             ?? throw new InvalidOperationException("Connection string not configured");
     }
@@ -31,8 +28,6 @@ public class AnalyticsController : ControllerBase
         {
             using var conn = new SqlConnection(_connectionString);
 
-            // Tenant isolation: regular users only see their own company's leads
-            var tenantFilter = _tenant.IsSuperAdmin ? "" : " AND TenantId = @TenantId";
             var exhibitionFilter = exhibition_id.HasValue ? " AND ExhibitionId = @ExhibitionId" : "";
 
             var sql = @"
@@ -42,25 +37,24 @@ public class AnalyticsController : ControllerBase
                     SUM(CASE WHEN StatusCode = 'pending' OR StatusCode = 'new' THEN 1 ELSE 0 END) as PendingCount,
                     COUNT(DISTINCT ExhibitionId) as TotalExhibitions
                 FROM Leads
-                WHERE 1=1" + exhibitionFilter + tenantFilter;
+                WHERE 1=1" + exhibitionFilter;
 
-            var summary = await conn.QueryFirstAsync<AnalyticsSummaryDto>(sql, new { ExhibitionId = exhibition_id, _tenant.TenantId });
+            var summary = await conn.QueryFirstAsync<AnalyticsSummaryDto>(sql, new { ExhibitionId = exhibition_id });
 
             _logger.LogInformation("Analytics Summary: TotalLeads={TotalLeads}, Confirmed={Confirmed}, Pending={Pending}, Exhibitions={Exhibitions}",
                 summary.TotalLeads, summary.ConfirmedCount, summary.PendingCount, summary.TotalExhibitions);
 
             // Get lead source breakdown (using SourceCode directly since LeadSources table doesn't exist)
-            var sourcesTenantFilter = _tenant.IsSuperAdmin ? "" : " AND l.TenantId = @TenantId";
             var sourcesExhibitionFilter = exhibition_id.HasValue ? " AND l.ExhibitionId = @ExhibitionId" : "";
             var sourcesSql = @"
                 SELECT
                     COALESCE(l.SourceCode, 'Unknown') as SourceName,
                     COUNT(*) as Count
                 FROM Leads l
-                WHERE 1=1" + sourcesExhibitionFilter + sourcesTenantFilter + @"
+                WHERE 1=1" + sourcesExhibitionFilter + @"
                 GROUP BY l.SourceCode";
 
-            var sources = await conn.QueryAsync<LeadSourceBreakdownDto>(sourcesSql, new { ExhibitionId = exhibition_id, _tenant.TenantId });
+            var sources = await conn.QueryAsync<LeadSourceBreakdownDto>(sourcesSql, new { ExhibitionId = exhibition_id });
 
             return Ok(new
             {
@@ -105,12 +99,11 @@ public class AnalyticsController : ControllerBase
                 LEFT JOIN Leads l ON e.EmployeeId = l.AssignedEmployeeId
                 " + (exhibition_id.HasValue ? "AND l.ExhibitionId = @ExhibitionId" : "") + @"
                 WHERE e.IsActive = 1
-                " + (_tenant.IsSuperAdmin ? "" : " AND e.TenantId = @TenantId") + @"
                 GROUP BY e.FullName, e.EmployeeId
                 HAVING COUNT(l.LeadId) > 0
                 ORDER BY LeadsCaptured DESC";
 
-            var performance = await conn.QueryAsync<EmployeePerformanceDto>(sql, new { ExhibitionId = exhibition_id, _tenant.TenantId });
+            var performance = await conn.QueryAsync<EmployeePerformanceDto>(sql, new { ExhibitionId = exhibition_id });
 
             return Ok(new { performance = performance.ToList() });
         }
@@ -140,11 +133,10 @@ public class AnalyticsController : ControllerBase
                 FROM Exhibitions e
                 LEFT JOIN Leads l ON e.ExhibitionId = l.ExhibitionId
                 WHERE e.IsActive = 1
-                " + (_tenant.IsSuperAdmin ? "" : " AND e.TenantId = @TenantId") + @"
                 GROUP BY e.ExhibitionId, e.Name, e.Location, e.StartDate, e.EndDate
                 ORDER BY e.StartDate DESC";
 
-            var exhibitions = await conn.QueryAsync(sql, new { _tenant.TenantId });
+            var exhibitions = await conn.QueryAsync(sql);
 
             return Ok(new { exhibitions = exhibitions.ToList() });
         }

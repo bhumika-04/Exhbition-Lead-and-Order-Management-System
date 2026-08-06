@@ -36,9 +36,6 @@ builder.Services.AddSwaggerGen(c =>
 // Database connections
 builder.Services.AddSingleton<IDbConnection, DbConnectionFactory>();
 
-// Tenant context (scoped — populated by TenantMiddleware on each request)
-builder.Services.AddScoped<TenantContext>();
-
 // Register Services
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IRoleService, RoleService>();
@@ -103,9 +100,6 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseSerilogRequestLogging();
-
-// Resolve tenant from X-Employee-Id header
-app.UseMiddleware<TenantMiddleware>();
 
 // Response compression - must be early in pipeline
 app.UseResponseCompression();

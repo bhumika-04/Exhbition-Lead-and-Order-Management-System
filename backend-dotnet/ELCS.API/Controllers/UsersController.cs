@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Mvc;
-using ELCS.API.Data;
 using ELCS.API.Services;
 
 namespace ELCS.API.Controllers;
@@ -10,20 +9,18 @@ public class UsersController : ControllerBase
 {
     private readonly IRoleService _roleService;
     private readonly ILogger<UsersController> _logger;
-    private readonly TenantContext _tenant;
 
-    public UsersController(IRoleService roleService, ILogger<UsersController> logger, TenantContext tenant)
+    public UsersController(IRoleService roleService, ILogger<UsersController> logger)
     {
         _roleService = roleService;
         _logger = logger;
-        _tenant = tenant;
     }
 
-    // GET /api/users — scoped to current tenant
+    // GET /api/users
     [HttpGet]
     public async Task<IActionResult> GetUsers()
     {
-        var users = await _roleService.GetUsersAsync(_tenant.TenantId, _tenant.IsSuperAdmin);
+        var users = await _roleService.GetUsersAsync();
         return Ok(new { users });
     }
 
@@ -31,7 +28,7 @@ public class UsersController : ControllerBase
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetUser(int id)
     {
-        var user = await _roleService.GetUserByIdAsync(id, _tenant.TenantId, _tenant.IsSuperAdmin);
+        var user = await _roleService.GetUserByIdAsync(id);
         if (user == null) return NotFound(new { error = "User not found" });
         return Ok(user);
     }
@@ -49,9 +46,7 @@ public class UsersController : ControllerBase
 
         try
         {
-            // Stamp the new user with the caller's tenant
-            var requestWithTenant = request with { TenantId = _tenant.TenantId };
-            var userId = await _roleService.CreateUserAsync(requestWithTenant);
+            var userId = await _roleService.CreateUserAsync(request);
             return Ok(new { success = true, employee_id = userId });
         }
         catch (Exception ex) when (ex.Message.Contains("UNIQUE") || ex.Message.Contains("duplicate") || ex.Message.Contains("PRIMARY"))
@@ -69,7 +64,7 @@ public class UsersController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.Email))
             return BadRequest(new { error = "Email is required" });
 
-        var ok = await _roleService.UpdateUserAsync(id, request, _tenant.TenantId, _tenant.IsSuperAdmin);
+        var ok = await _roleService.UpdateUserAsync(id, request);
         if (!ok) return NotFound(new { error = "User not found" });
         return Ok(new { success = true });
     }
@@ -78,7 +73,7 @@ public class UsersController : ControllerBase
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> DeleteUser(int id)
     {
-        var ok = await _roleService.DeleteUserAsync(id, _tenant.TenantId, _tenant.IsSuperAdmin);
+        var ok = await _roleService.DeleteUserAsync(id);
         if (!ok) return NotFound(new { error = "User not found" });
         return Ok(new { success = true });
     }
@@ -92,7 +87,7 @@ public class UsersController : ControllerBase
         if (request.NewPassword.Length < 6)
             return BadRequest(new { error = "Password must be at least 6 characters" });
 
-        var ok = await _roleService.ResetPasswordAsync(id, request.NewPassword, _tenant.TenantId, _tenant.IsSuperAdmin);
+        var ok = await _roleService.ResetPasswordAsync(id, request.NewPassword);
         if (!ok) return NotFound(new { error = "User not found" });
 
         _logger.LogInformation("Password reset for EmployeeId {EmployeeId}", id);

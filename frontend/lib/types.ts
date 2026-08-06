@@ -38,7 +38,6 @@ export interface Lead {
   updated_at: string;
   segment?: string;
   priority?: string;
-  crm_ledger_id?: number | null;
   city?: string | null;
   state?: string | null;
 
@@ -57,7 +56,6 @@ export interface Lead {
   // Joined fields
   exhibition_name?: string;
   assigned_employee_name?: string;
-  tenant_name?: string | null;   // owning company — only displayed to super admin
   source_name?: string;
   status_name?: string;
 }
@@ -206,7 +204,6 @@ export interface AnalyticsSummary {
 export interface LoginRequest {
   email: string;
   password: string;
-  company_name?: string;
 }
 
 export interface LoginResponse {
@@ -220,8 +217,6 @@ export interface LoginResponse {
   role_id?: number | null;
   role_name?: string | null;
   permissions?: string | null;  // JSON array string, null = no role = full access
-  tenant_id?: number | null;
-  is_super_admin?: boolean;
 }
 
 export interface ApiError {
@@ -234,7 +229,6 @@ export interface Role {
   description?: string;
   permissions: string;   // JSON array string e.g. '["view_leads","scan_cards"]'
   created_at?: string;
-  company_name?: string | null;   // owning tenant — present for super admin to disambiguate
 }
 
 export interface UserDto {
@@ -257,7 +251,6 @@ export const ALL_PERMISSIONS = [
   { key: 'view_exhibitions',    label: 'View Exhibitions' },
   { key: 'manage_exhibitions',  label: 'Manage Exhibitions (Create / Edit / Delete)' },
   { key: 'view_report',         label: 'View Report' },
-  { key: 'push_to_crm',         label: 'Push to CRM / ERP' },
   { key: 'manage_users',        label: 'Manage Users' },
   { key: 'manage_roles',        label: 'Manage Roles' },
 ] as const;

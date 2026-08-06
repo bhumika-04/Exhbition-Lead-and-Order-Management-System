@@ -37,7 +37,7 @@ class ApiClient {
       },
     });
 
-    // Request interceptor — add auth token + employee-id for tenant resolution
+    // Request interceptor — add auth token + employee-id so the API can identify the caller
     this.client.interceptors.request.use((config) => {
       if (this.token) {
         config.headers.Authorization = `Bearer ${this.token}`;
@@ -88,9 +88,8 @@ class ApiClient {
   // Authentication
   async login(credentials: LoginRequest): Promise<LoginResponse> {
     const { data } = await this.client.post<LoginResponse>('/api/auth/login', {
-      email:        credentials.email,
-      password:     credentials.password,
-      company_name: credentials.company_name ?? null,
+      email:    credentials.email,
+      password: credentials.password,
     });
     if (typeof window !== 'undefined' && data.success) {
       let permissionsArray: string[] | null = null;
@@ -107,8 +106,6 @@ class ApiClient {
         role_id:       data.role_id       ?? null,
         role_name:     data.role_name     ?? null,
         permissions:   permissionsArray,
-        tenant_id:     data.tenant_id     ?? null,
-        is_super_admin: data.is_super_admin ?? false,
       };
       localStorage.setItem('employee', JSON.stringify(emp));
       // Use employee_id as token so backend can identify the caller
@@ -355,41 +352,10 @@ class ApiClient {
     return data.data || [];
   }
 
-  // Push lead to CRM/ERP (creates LedgerMaster entry)
-  async pushToCrm(leadId: number): Promise<{ success: boolean; ledger_id?: number; ledger_code?: string; error?: string }> {
-    const { data } = await this.client.post(`/api/leads/${leadId}/push-to-crm`);
-    return data;
-  }
-
   // Health Check
   async healthCheck(): Promise<{ status: string; database: string }> {
     const { data } = await this.client.get('/health');
     return data;
-  }
-
-  // Companies (super admin)
-  async getCompanies(): Promise<any[]> {
-    const { data } = await this.client.get('/api/companies');
-    return data.companies || [];
-  }
-
-  async createCompany(req: { company_name: string; admin_email: string; admin_password: string; admin_name?: string }): Promise<{ success: boolean; company_id: number; admin_employee_id: number }> {
-    const { data } = await this.client.post('/api/companies', {
-      company_name:   req.company_name,
-      admin_email:    req.admin_email,
-      admin_password: req.admin_password,
-      admin_name:     req.admin_name,
-    });
-    return data;
-  }
-
-  async updateCompany(id: number, req: { company_name: string; is_active: boolean }): Promise<void> {
-    await this.client.put(`/api/companies/${id}`, { company_name: req.company_name, is_active: req.is_active });
-  }
-
-  async getCompanyUsers(companyId: number): Promise<any[]> {
-    const { data } = await this.client.get(`/api/companies/${companyId}/users`);
-    return data.users || [];
   }
 
   // Roles

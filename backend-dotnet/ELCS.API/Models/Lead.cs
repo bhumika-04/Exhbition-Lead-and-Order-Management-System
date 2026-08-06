@@ -21,7 +21,6 @@ public class Lead
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 
-    public long? CrmLedgerId { get; set; }  // Set after push to CRM/ERP
     public string? ExhibitionName { get; set; }  // Joined from Exhibitions table
 
     // JSON columns for additional data (replaces child tables)
@@ -35,8 +34,6 @@ public class Lead
     public string? Topics { get; set; }             // JSON array of discussion topics
     public string? FrontImagePath { get; set; }
     public string? BackImagePath { get; set; }
-
-    public int? TenantId { get; set; }
 
     // Additional classification fields
     public string? Category { get; set; }

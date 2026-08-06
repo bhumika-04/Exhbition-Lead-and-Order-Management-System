@@ -39,17 +39,12 @@ public class ExtractionService : IExtractionService
     {
         using var conn = _db.CreateConnection();
 
-        // Inherit the tenant from the exhibition so the lead is scoped to the right company
-        var tenantId = await conn.ExecuteScalarAsync<int?>(
-            "SELECT TenantId FROM Exhibitions WHERE ExhibitionId = @ExhibitionId",
-            new { ExhibitionId = exhibitionId });
-
         // Create lead first
         var leadId = await conn.ExecuteScalarAsync<int>(@"
-            INSERT INTO Leads (ExhibitionId, SourceCode, StatusCode, AssignedEmployeeId, TenantId, CreatedAt)
+            INSERT INTO Leads (ExhibitionId, SourceCode, StatusCode, AssignedEmployeeId, CreatedAt)
             OUTPUT INSERTED.LeadId
-            VALUES (@ExhibitionId, 'employee_scan', 'new', @EmployeeId, @TenantId, GETUTCDATE())",
-            new { ExhibitionId = exhibitionId, EmployeeId = employeeId, TenantId = tenantId });
+            VALUES (@ExhibitionId, 'employee_scan', 'new', @EmployeeId, GETUTCDATE())",
+            new { ExhibitionId = exhibitionId, EmployeeId = employeeId });
 
         _logger.LogInformation("Created lead {LeadId} for card extraction", leadId);
 
@@ -344,17 +339,12 @@ public class ExtractionService : IExtractionService
     {
         using var conn = _db.CreateConnection();
 
-        // Inherit the tenant from the exhibition so the lead is scoped to the right company
-        var tenantId = await conn.ExecuteScalarAsync<int?>(
-            "SELECT TenantId FROM Exhibitions WHERE ExhibitionId = @ExhibitionId",
-            new { ExhibitionId = exhibitionId });
-
         // Create lead
         var leadId = await conn.ExecuteScalarAsync<int>(@"
-            INSERT INTO Leads (ExhibitionId, SourceCode, StatusCode, AssignedEmployeeId, TenantId, CreatedAt)
+            INSERT INTO Leads (ExhibitionId, SourceCode, StatusCode, AssignedEmployeeId, CreatedAt)
             OUTPUT INSERTED.LeadId
-            VALUES (@ExhibitionId, 'employee_scan', 'new', @EmployeeId, @TenantId, GETUTCDATE())",
-            new { ExhibitionId = exhibitionId, EmployeeId = employeeId, TenantId = tenantId });
+            VALUES (@ExhibitionId, 'employee_scan', 'new', @EmployeeId, GETUTCDATE())",
+            new { ExhibitionId = exhibitionId, EmployeeId = employeeId });
 
         _logger.LogInformation("Created confirmed lead {LeadId}", leadId);
 
@@ -411,14 +401,7 @@ public class ExtractionService : IExtractionService
         var primaryName = primaryPerson?.Name;
         var companyName = data.CompanyName;
 
-        // Scope duplicate detection to the same tenant/company. A person may exist
-        // independently across different companies, so we only flag duplicates within
-        // the tenant that owns this exhibition.
-        var tenantId = await conn.ExecuteScalarAsync<int?>(
-            "SELECT TenantId FROM Exhibitions WHERE ExhibitionId = @ExhibitionId",
-            new { ExhibitionId = exhibitionId });
-
-        _logger.LogInformation("Checking duplicates in exhibition {ExhibitionId} (tenant {TenantId})", exhibitionId, tenantId);
+        _logger.LogInformation("Checking duplicates in exhibition {ExhibitionId}", exhibitionId);
 
         var tenDigits = new List<string>();
         foreach (var phone in allPhones)
@@ -452,8 +435,7 @@ public class ExtractionService : IExtractionService
                     ELSE 0
                 END as SimilarityScore
             FROM Leads
-            WHERE (@TenantId IS NULL OR TenantId = @TenantId)
-            AND (
+            WHERE (
                 (@PhoneCount > 0 AND PrimaryVisitorPhone IS NOT NULL AND
                     REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(PrimaryVisitorPhone, ' ', ''), '-', ''), '+', ''), '(', ''), ')', ''), '91', '') IN (
                         SELECT value FROM STRING_SPLIT(@TenDigits, ',')
@@ -477,7 +459,6 @@ public class ExtractionService : IExtractionService
             sqlQuery,
             new {
                 ExhibitionId = exhibitionId,
-                TenantId = tenantId,
                 TenDigits = string.Join(",", tenDigits),
                 PhoneCount = tenDigits.Count,
                 AllEmails = string.Join("|", allEmails),

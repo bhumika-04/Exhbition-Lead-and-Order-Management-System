@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Mvc;
-using ELCS.API.Data;
 using ELCS.API.Services;
 
 namespace ELCS.API.Controllers;
@@ -10,20 +9,18 @@ public class RolesController : ControllerBase
 {
     private readonly IRoleService _roleService;
     private readonly ILogger<RolesController> _logger;
-    private readonly TenantContext _tenant;
 
-    public RolesController(IRoleService roleService, ILogger<RolesController> logger, TenantContext tenant)
+    public RolesController(IRoleService roleService, ILogger<RolesController> logger)
     {
         _roleService = roleService;
         _logger = logger;
-        _tenant = tenant;
     }
 
     // GET /api/roles
     [HttpGet]
     public async Task<IActionResult> GetRoles()
     {
-        var roles = await _roleService.GetRolesAsync(_tenant.TenantId, _tenant.IsSuperAdmin);
+        var roles = await _roleService.GetRolesAsync();
         return Ok(new { roles });
     }
 
@@ -31,7 +28,7 @@ public class RolesController : ControllerBase
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetRole(int id)
     {
-        var role = await _roleService.GetRoleByIdAsync(id, _tenant.TenantId, _tenant.IsSuperAdmin);
+        var role = await _roleService.GetRoleByIdAsync(id);
         if (role == null) return NotFound(new { error = "Role not found" });
         return Ok(role);
     }
@@ -45,7 +42,7 @@ public class RolesController : ControllerBase
 
         try
         {
-            var roleId = await _roleService.CreateRoleAsync(request, _tenant.TenantId);
+            var roleId = await _roleService.CreateRoleAsync(request);
             return Ok(new { success = true, role_id = roleId });
         }
         catch (Exception ex) when (ex.Message.Contains("UNIQUE") || ex.Message.Contains("duplicate"))
@@ -61,7 +58,7 @@ public class RolesController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.RoleName))
             return BadRequest(new { error = "RoleName is required" });
 
-        var ok = await _roleService.UpdateRoleAsync(id, request, _tenant.TenantId, _tenant.IsSuperAdmin);
+        var ok = await _roleService.UpdateRoleAsync(id, request);
         if (!ok) return NotFound(new { error = "Role not found" });
         return Ok(new { success = true });
     }
@@ -70,7 +67,7 @@ public class RolesController : ControllerBase
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> DeleteRole(int id)
     {
-        var ok = await _roleService.DeleteRoleAsync(id, _tenant.TenantId, _tenant.IsSuperAdmin);
+        var ok = await _roleService.DeleteRoleAsync(id);
         if (!ok) return NotFound(new { error = "Role not found" });
         return Ok(new { success = true });
     }

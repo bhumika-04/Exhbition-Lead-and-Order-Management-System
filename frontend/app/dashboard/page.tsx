@@ -123,7 +123,6 @@ export default function DashboardPage() {
   const totalLeads = dateFilteredLeads.length;
   const pending = dateFilteredLeads.filter(l => !l.status_code || l.status_code === 'new').length;
   const totalExhibitions = summary?.total_exhibitions ?? new Set(dateFilteredLeads.map((l: any) => l.exhibition_id)).size;
-  const crmCount = dateFilteredLeads.filter(l => l.crm_ledger_id).length;
 
   const SOURCE_LABELS: Record<string, string> = {
     employee_scan: 'Card Scan',
@@ -154,7 +153,6 @@ export default function DashboardPage() {
 
   const kpiCards = [
     { label: 'Cards Scanned', value: totalLeads, icon: ScanLine, iconBg: 'bg-blue-100', iconColor: 'text-blue-600', text: 'text-blue-600', link: '/leads' },
-    { label: 'In CRM / ERP', value: crmCount, icon: FileSpreadsheet, iconBg: 'bg-emerald-100', iconColor: 'text-emerald-600', text: 'text-emerald-600', link: '/leads' },
     { label: 'Pending', value: pending, icon: Clock, iconBg: 'bg-amber-100', iconColor: 'text-amber-600', text: 'text-amber-600', link: '/leads' },
     { label: 'Exhibitions', value: totalExhibitions, icon: Building2, iconBg: 'bg-violet-100', iconColor: 'text-violet-600', text: 'text-violet-600', link: '/exhibitions' },
   ];
@@ -298,9 +296,9 @@ export default function DashboardPage() {
       <div className="px-4 md:px-6 py-5 space-y-5">
 
         {/* KPI Cards */}
-        <div className={`grid grid-cols-2 gap-3 ${kpiCards.length === 5 ? 'md:grid-cols-5' : 'md:grid-cols-4'}`}>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
           {kpiCards.map(({ label, value, icon: Icon, iconBg, iconColor, text, link }, i) => (
-            <BlurFade key={label} delay={0.05 * i} inView className={kpiCards.length === 5 && i === 4 ? 'col-span-2 md:col-span-1' : ''}>
+            <BlurFade key={label} delay={0.05 * i} inView>
               <motion.div
                 onClick={() => router.push(link)}
                 whileHover={{ y: -3, boxShadow: '0 8px 30px -4px rgba(0,0,0,0.10)' }}

@@ -10,9 +10,8 @@ import type { LeadDetails } from '@/lib/types';
 import {
   ArrowLeft, Edit3, Check, X, Phone, Mail, Building2, Globe,
   MapPin, Users, MessageSquare, Zap, Loader2, CheckCircle2,
-  Upload, Tag, Image, Plus, Share2, Copy, ExternalLink,
+  Tag, Image, Plus, Share2, Copy, ExternalLink,
 } from 'lucide-react';
-// Note: Upload kept for Push to CRM button
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,12 +23,8 @@ export default function LeadDetailPage() {
   const params = useParams();
   const leadId = parseInt(params.id as string);
 
-  const canPushToCrm = hasPermission('push_to_crm');
-
   const [lead, setLead] = useState<LeadDetails | null>(null);
   const [loading, setLoading] = useState(true);
-  const [pushingToCrm, setPushingToCrm] = useState(false);
-  const [showCrmConfirm, setShowCrmConfirm] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -239,28 +234,6 @@ export default function LeadDetailPage() {
     }
   };
 
-  const handlePushToCrm = async () => {
-    if (!lead) return;
-    if (lead.crm_ledger_id) {
-      toast(`Already in CRM — Ledger ID: ${lead.crm_ledger_id}`);
-      return;
-    }
-
-    setShowCrmConfirm(true);
-  };
-
-  const executePushToCrm = async () => {
-    setShowCrmConfirm(false);
-    setPushingToCrm(true);
-    try {
-      const result = await api.pushToCrm(leadId);
-      if (result.success) { toast.success(`Pushed! Ledger: ${result.ledger_code}`); await loadLead(); }
-      else toast.error(result.error || 'Push failed');
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || err.message || 'Push failed');
-    } finally { setPushingToCrm(false); }
-  };
-
   const openEmail = async (email: string) => {
     // Set href synchronously so browser treats it as a direct user-gesture
     window.location.href = `mailto:${email}`;
@@ -425,29 +398,6 @@ export default function LeadDetailPage() {
                     >
                       <Share2 className="w-4 h-4" />Share Lead Details
                     </motion.button>
-                    {canPushToCrm && (
-                      <motion.button
-                        whileTap={!lead.crm_ledger_id && !pushingToCrm ? { scale: 0.96 } : {}}
-                        onClick={handlePushToCrm}
-                        disabled={pushingToCrm}
-                        className={cn(
-                          'col-span-2 flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold text-sm transition-all',
-                          lead.crm_ledger_id
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : pushingToCrm
-                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                            : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
-                        )}
-                      >
-                        {pushingToCrm ? (
-                          <><Loader2 className="w-4 h-4 animate-spin" />Pushing…</>
-                        ) : lead.crm_ledger_id ? (
-                          <><CheckCircle2 className="w-4 h-4" />In CRM (ID: {lead.crm_ledger_id})</>
-                        ) : (
-                          <><Upload className="w-4 h-4" />Push to CRM / ERP</>
-                        )}
-                      </motion.button>
-                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -983,32 +933,6 @@ export default function LeadDetailPage() {
                   >
                     <Share2 className="w-4 h-4" />Share Lead Details
                   </motion.button>
-
-                  {/* Push to CRM */}
-                  {canPushToCrm && (
-                    <motion.button
-                      whileHover={!lead.crm_ledger_id && !pushingToCrm ? { scale: 1.02 } : {}}
-                      whileTap={!lead.crm_ledger_id && !pushingToCrm ? { scale: 0.98 } : {}}
-                      onClick={handlePushToCrm}
-                      disabled={pushingToCrm}
-                      className={cn(
-                        'w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold text-sm transition-all',
-                        lead.crm_ledger_id
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : pushingToCrm
-                          ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                          : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
-                      )}
-                    >
-                      {pushingToCrm ? (
-                        <><Loader2 className="w-4 h-4 animate-spin" />Pushing…</>
-                      ) : lead.crm_ledger_id ? (
-                        <><CheckCircle2 className="w-4 h-4" />In CRM (ID: {lead.crm_ledger_id})</>
-                      ) : (
-                        <><Upload className="w-4 h-4" />Push to CRM / ERP</>
-                      )}
-                    </motion.button>
-                  )}
                 </CardContent>
               </Card>
             </BlurFade>
@@ -1160,41 +1084,6 @@ export default function LeadDetailPage() {
         )}
       </AnimatePresence>
 
-      {/* ── CRM Push Confirmation Modal ── */}
-      <AnimatePresence>
-        {showCrmConfirm && (
-          <motion.div
-            key="crm-confirm"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6"
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ duration: 0.18, ease: 'easeOut' }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-7 flex flex-col gap-5"
-            >
-              <div className="flex flex-col gap-1.5">
-                <p className="text-lg font-bold text-slate-900">Push to CRM / ERP?</p>
-                <p className="text-sm text-slate-500 leading-relaxed">
-                  This will create a new Ledger Client in the ERP system for <span className="font-semibold text-slate-700">{lead?.company_name || lead?.primary_visitor_name || 'this lead'}</span>.
-                </p>
-              </div>
-              <div className="flex gap-3">
-                <Button variant="outline" className="flex-1 py-5 text-sm" onClick={() => setShowCrmConfirm(false)}>
-                  Cancel
-                </Button>
-                <Button className="flex-1 py-5 text-sm bg-orange-500 hover:bg-orange-600 text-white" onClick={executePushToCrm}>
-                  Push to CRM
-                </Button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
