@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import CameraDialog from '@/components/CameraDialog';
 import { useIsMobile } from '@/lib/useIsMobile';
+import { apiErrorMessage } from '@/lib/apiError';
 
 interface FormState {
   company_name: string;
@@ -190,8 +191,8 @@ export default function ScanPage() {
       }
 
       toast.success('Card read — check the details');
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Could not read that card');
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Could not read that card'));
     } finally {
       setExtracting(false);
     }
@@ -242,6 +243,9 @@ export default function ScanPage() {
 
       if (tempId && extraction) {
         // Confirm path: reuses the extraction and moves the temp card images.
+        // Shape must match CardExtractionData exactly: its list members are
+        // non-nullable server-side, so a missing one is a 400 rather than a
+        // tolerated omission. `emails` is a LIST on a person, not a string.
         const merged = {
           ...extraction,
           company_name: form.company_name || null,
@@ -249,15 +253,27 @@ export default function ScanPage() {
             name: form.primary_visitor_name || null,
             designation: form.primary_visitor_designation || null,
             phones: form.phones,
-            email: form.emails[0] ?? null,
+            emails: form.emails,
+            is_primary: true,
           }],
           phones: form.phones,
           emails: form.emails,
           websites: form.websites,
           services: form.services,
-          addresses: form.address || form.city || form.state
-            ? [{ address: form.address, city: form.city, state: form.state }]
+          addresses: (form.address || form.city || form.state)
+            ? [{
+                address_type: null,
+                address: form.address || null,
+                city: form.city || null,
+                state: form.state || null,
+                country: null,
+                pin_code: null,
+              }]
             : [],
+          // Defaulted rather than assumed: a preview response missing either of
+          // these would otherwise fail validation with no obvious cause.
+          brands: (extraction as any)?.brands ?? [],
+          confidence: (extraction as any)?.confidence ?? 0,
         };
 
         const res = await api.confirmAndSaveLead(
@@ -304,8 +320,8 @@ export default function ScanPage() {
 
       toast.success('Lead saved');
       router.push(`/leads/${leadId}`);
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Could not save the lead');
+    } catch (err) {
+      toast.error(apiErrorMessage(err, 'Could not save the lead'));
     } finally {
       setSaving(false);
     }
