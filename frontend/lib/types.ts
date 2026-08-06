@@ -251,8 +251,94 @@ export const ALL_PERMISSIONS = [
   { key: 'view_exhibitions',    label: 'View Exhibitions' },
   { key: 'manage_exhibitions',  label: 'Manage Exhibitions (Create / Edit / Delete)' },
   { key: 'view_report',         label: 'View Report' },
+  { key: 'manage_orders',       label: 'Place & Confirm Orders' },
   { key: 'manage_users',        label: 'Manage Users' },
   { key: 'manage_roles',        label: 'Manage Roles' },
 ] as const;
+
+// ── Orders ─────────────────────────────────────────────────────────────────
+
+export const ORDER_ITEM_TYPES = ['Suit', 'Lehenga', 'Saree'] as const;
+export type OrderItemType = (typeof ORDER_ITEM_TYPES)[number];
+
+export interface OrderItem {
+  order_item_id: number;
+  line_no: number;
+  item_type: string;
+  barcode?: string | null;
+  size?: string | null;
+  colour?: string | null;
+  pieces: number;
+  rate: number;
+  amount: number;           // rate × pieces, computed server-side
+  customization?: string | null;
+}
+
+export interface OrderSummary {
+  order_id: number;
+  order_number: string;
+  lead_id: number;
+  status_code: 'draft' | 'confirmed' | 'cancelled';
+  order_total: number;
+  item_count: number;
+  total_pieces: number;
+  so_pdf_path?: string | null;
+  confirmed_at?: string | null;
+  created_at: string;
+}
+
+/**
+ * Advance and coupons are derived from the lead's TOTAL across all
+ * non-cancelled orders — never from a single order.
+ *   band = floor(total / 100000), advance = 11000 × band, coupons = 4 × band
+ * Below ₹1L: band 0, no coupons, advance is operator-entered.
+ */
+export interface LeadOrderSummary {
+  lead_id: number;
+  order_count: number;
+  lead_total: number;
+  band: number;
+  advance: number;
+  coupons: number;
+  balance: number;
+  is_manual_advance: boolean;
+  manual_advance_amount?: number | null;
+}
+
+export interface OrderDetail {
+  order_id: number;
+  order_number: string;
+  lead_id: number;
+  lead_name?: string | null;
+  lead_company_name?: string | null;
+  lead_phone?: string | null;
+  exhibition_id?: number | null;
+  exhibition_name?: string | null;
+  status_code: 'draft' | 'confirmed' | 'cancelled';
+  order_total: number;
+  notes?: string | null;
+  so_pdf_path?: string | null;
+  confirmed_at?: string | null;
+  created_at: string;
+  items: OrderItem[];
+  lead_summary: LeadOrderSummary;
+}
+
+export interface CreateOrderItemRequest {
+  item_type: string;
+  barcode?: string | null;
+  size?: string | null;
+  colour?: string | null;
+  pieces: number;
+  rate: number;
+  customization?: string | null;
+}
+
+export interface ConfirmOrderResult {
+  success: boolean;
+  order: OrderDetail;
+  so_pdf: { path?: string | null; url?: string | null; error?: string | null };
+  whatsapp: { sent: boolean; status: 'sent' | 'failed' | 'skipped'; error?: string | null };
+}
 
 export type PermissionKey = typeof ALL_PERMISSIONS[number]['key'];

@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BlurFade } from '@/components/ui/blur-fade';
+import LeadOrdersCard from '@/components/LeadOrdersCard';
 import { cn } from '@/lib/utils';
 
 export default function LeadDetailPage() {
@@ -401,6 +402,10 @@ export default function LeadDetailPage() {
                   </div>
                 </CardContent>
               </Card>
+            </BlurFade>
+
+            <BlurFade delay={0.08} inView>
+              <LeadOrdersCard leadId={leadId} />
             </BlurFade>
 
             <BlurFade delay={0.1} inView>
@@ -935,6 +940,10 @@ export default function LeadDetailPage() {
                   </motion.button>
                 </CardContent>
               </Card>
+            </BlurFade>
+
+            <BlurFade delay={0.14} inView>
+              <LeadOrdersCard leadId={leadId} />
             </BlurFade>
 
             {/* Status info */}

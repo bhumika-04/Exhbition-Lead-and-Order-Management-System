@@ -34,10 +34,12 @@ Copy `ELCS.API/appsettings.example.json` to `ELCS.API/appsettings.json` and fill
 
 ### 2. Database Setup
 
-Restore a backup of the previous multi-tenant database under a new name, then run
-`ELCS.API/database/014_remove_multitenancy_and_crm.sql` against it to collapse the
-schema to single-tenant (drops `Companies`, the `TenantId` columns, `IsSuperAdmin`
-and `CrmLedgerId`).
+Restore a backup of the previous multi-tenant database under a new name, then run, in order:
+
+| Script | Effect |
+|---|---|
+| `014_remove_multitenancy_and_crm.sql` | Drops `Companies`, the `TenantId` columns, `IsSuperAdmin`, `CrmLedgerId` |
+| `015_add_order_management.sql` | Adds `Orders`, `OrderItems`, `WhatsAppMessages`, `Leads.ManualAdvanceAmount`, order-number sequence |
 
 `014` starts with a pre-flight `SELECT` reporting the number of distinct tenants in the
 restored data — run it before the rest. More than one means the script is about to merge
@@ -68,6 +70,7 @@ ELCS.API/
 │   ├── AuthController.cs           Login, profile get/update
 │   ├── ExtractionController.cs     Card OCR + voice extraction
 │   ├── LeadsController.cs          Lead CRUD
+│   ├── OrdersController.cs         Orders, advance/coupons, confirm + SO PDF + WhatsApp
 │   ├── ExhibitionsController.cs    Exhibition CRUD
 │   ├── AnalyticsController.cs      Dashboard metrics
 │   ├── UsersController.cs          User management
@@ -75,6 +78,10 @@ ELCS.API/
 ├── Services/
 │   ├── ExtractionService.cs        Card + voice extraction pipeline
 │   ├── LeadService.cs              Lead CRUD, JSON column parsing
+│   ├── OrderService.cs             Order CRUD, lead totals, order numbering
+│   ├── AdvanceCalculator.cs        Advance + lucky-draw coupon rules (pure)
+│   ├── SalesOrderPdfService.cs     Sales Order PDF (QuestPDF)
+│   ├── InteraktWhatsAppService.cs  WhatsApp sends + WhatsAppMessages log
 │   ├── OpenAIService.cs            GPT-4o-mini card OCR + voice analysis
 │   ├── WhisperSpeechService.cs     Whisper voice transcription
 │   ├── AuthService.cs              SHA-256 password hashing + login
@@ -114,6 +121,19 @@ GET    /api/leads/{id}
 POST   /api/leads
 PUT    /api/leads/{id}
 DELETE /api/leads/{id}
+```
+
+### Orders
+```
+GET    /api/orders/item-types                    Suit / Lehenga / Saree
+GET    /api/orders/lead/{leadId}                 Orders + advance/coupon summary
+GET    /api/orders/lead/{leadId}/summary         Advance/coupon position only
+PUT    /api/orders/lead/{leadId}/manual-advance  Body: { amount }  — used below ₹1L
+GET    /api/orders/{id}
+POST   /api/orders                               Body: { lead_id, items[], notes }
+PUT    /api/orders/{id}                          Replaces all line items
+DELETE /api/orders/{id}
+POST   /api/orders/{id}/confirm                  Confirm + SO PDF + WhatsApp
 ```
 
 ### Exhibitions
@@ -196,6 +216,55 @@ A user with `RoleId = NULL` has full access.
 1. Audio file uploaded to Whisper (`whisper-1`) for transcription
 2. Transcript sent to GPT-4o-mini to extract: segment, priority, summary
 3. `voice/confirm` links analysis result to the matched lead
+
+### Order Management
+A lead may place multiple orders; each order has any number of line items.
+
+- `OrderItems.Amount` is always **derived server-side** as `Rate × Pieces` — the client's
+  figure is ignored. `Orders.OrderTotal` is `SUM(Amount)`, recomputed whenever items change.
+- Updating an order **replaces** its whole line set rather than diffing, so the total can
+  never drift from its items.
+- Order numbers come from a SQL `SEQUENCE` (`SO-yyyyMM-00001`), not `MAX()+1` — two operators
+  saving simultaneously at a counter cannot collide.
+- No inventory table. `Barcode` is free text, cross-checked manually against the ERP.
+- Cancelled orders are excluded from the lead's total, so cancelling re-bands the lead the
+  same way adding an order does.
+
+### Advance & Coupons
+Derived, never stored — see [`AdvanceCalculator.cs`](ELCS.API/Services/AdvanceCalculator.cs):
+
+```
+band    = floor(leadTotal / 100000)
+advance = 11000 * band     (band 0 → Leads.ManualAdvanceAmount, clamped to the total)
+coupons = 4 * band         (band 0 → 0)
+```
+
+Computed on the lead's combined value across all non-cancelled orders. Exact multiples land
+in the upper band (₹2,00,000 → band 2). The pattern has no ceiling.
+
+### Sales Order PDF
+QuestPDF, written to `uploads/orders/{leadId}/{orderNumber}-{guid}.pdf`.
+
+- Shows items, size, colour, pieces, rate, amount, customization, advance and balance due.
+- **Never shows coupons** — the SO is the customer's commercial record; the lucky draw is a
+  separate promotion.
+- When the lead has more than one order the totals block distinguishes *this order* from the
+  *total across all orders*, since advance and balance are positions on the whole account.
+- QuestPDF runs under the **Community licence** (set in `Program.cs`), free for organisations
+  under USD 1M annual revenue — review <https://www.questpdf.com/license/> before shipping.
+
+### WhatsApp (Interakt)
+`InteraktWhatsAppService` posts a template message to Interakt's public message API.
+
+- Interakt **fetches media by URL**; it accepts no upload. The SO PDF URL is built from
+  `PublicBaseUrl` + `/uploads/...`, so that setting must be the internet-facing origin.
+- Phone numbers are normalised before sending — the app stores them inconsistently
+  (`+91…`, leading `0`, bare 10 digits), so the service reduces to 10 digits + country code
+  and skips anything it cannot parse rather than sending to a malformed number.
+- Every attempt is written to `WhatsAppMessages` with status `sent` / `failed` / `skipped`,
+  so a failed send is visible instead of silently lost.
+- If `Interakt:ApiKey` or the template name is missing, sends are **skipped**, not failed —
+  the order flow works fully without WhatsApp configured.
 
 ### Data Storage
 - Lead child records (additional persons, phones, emails, addresses, websites, services,

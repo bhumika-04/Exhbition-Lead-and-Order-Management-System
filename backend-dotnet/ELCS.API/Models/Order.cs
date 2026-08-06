@@ -1,0 +1,52 @@
+namespace ELCS.API.Models;
+
+public class Order
+{
+    public int OrderId { get; set; }
+    public string OrderNumber { get; set; } = string.Empty;
+    public int LeadId { get; set; }
+    public int? ExhibitionId { get; set; }
+    public string StatusCode { get; set; } = "draft";
+    public decimal OrderTotal { get; set; }
+    public string? Notes { get; set; }
+    public string? SoPdfPath { get; set; }
+    public DateTime? ConfirmedAt { get; set; }
+    public int? CreatedByEmployeeId { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+
+    // Joined for display
+    public string? LeadName { get; set; }
+    public string? LeadCompanyName { get; set; }
+    public string? ExhibitionName { get; set; }
+}
+
+public class OrderItem
+{
+    public int OrderItemId { get; set; }
+    public int OrderId { get; set; }
+    public int LineNo { get; set; }
+    public string ItemType { get; set; } = string.Empty;   // Suit / Lehenga / Saree
+    public string? Barcode { get; set; }
+    public string? Size { get; set; }
+    public string? Colour { get; set; }
+    public int Pieces { get; set; } = 1;
+    public decimal Rate { get; set; }
+    public decimal Amount { get; set; }                    // Rate × Pieces
+    public string? Customization { get; set; }
+}
+
+public class WhatsAppMessage
+{
+    public int WhatsAppMessageId { get; set; }
+    public int LeadId { get; set; }
+    public int? OrderId { get; set; }
+    public string Touchpoint { get; set; } = string.Empty;
+    public string? Recipient { get; set; }
+    public string? TemplateName { get; set; }
+    public string? MediaUrl { get; set; }
+    public string StatusCode { get; set; } = string.Empty;
+    public string? ProviderMessageId { get; set; }
+    public string? ErrorMessage { get; set; }
+    public DateTime CreatedAt { get; set; }
+}

@@ -13,6 +13,11 @@ import type {
   VoiceExtractionResult,
   Role,
   UserDto,
+  OrderSummary,
+  OrderDetail,
+  LeadOrderSummary,
+  CreateOrderItemRequest,
+  ConfirmOrderResult,
 } from './types';
 
 class ApiClient {
@@ -350,6 +355,62 @@ class ApiClient {
       params: exhibitionId ? { exhibition_id: exhibitionId } : undefined,
     });
     return data.data || [];
+  }
+
+  // Orders
+  async getOrdersForLead(leadId: number): Promise<{ orders: OrderSummary[]; summary: LeadOrderSummary }> {
+    const { data } = await this.client.get(`/api/orders/lead/${leadId}`);
+    return { orders: data.orders || [], summary: data.summary };
+  }
+
+  async getLeadOrderSummary(leadId: number): Promise<LeadOrderSummary> {
+    const { data } = await this.client.get(`/api/orders/lead/${leadId}/summary`);
+    return data;
+  }
+
+  async getOrder(orderId: number): Promise<OrderDetail> {
+    const { data } = await this.client.get(`/api/orders/${orderId}`);
+    return data;
+  }
+
+  async createOrder(req: {
+    lead_id: number;
+    items: CreateOrderItemRequest[];
+    notes?: string | null;
+  }): Promise<{ success: boolean; order_id: number; order: OrderDetail }> {
+    const { data } = await this.client.post('/api/orders', req);
+    return data;
+  }
+
+  async updateOrder(orderId: number, req: {
+    items: CreateOrderItemRequest[];
+    notes?: string | null;
+    status_code?: string | null;
+  }): Promise<{ success: boolean; order: OrderDetail }> {
+    const { data } = await this.client.put(`/api/orders/${orderId}`, req);
+    return data;
+  }
+
+  async deleteOrder(orderId: number): Promise<{ success: boolean }> {
+    const { data } = await this.client.delete(`/api/orders/${orderId}`);
+    return data;
+  }
+
+  /** Confirms the order, renders the SO PDF and sends the WhatsApp confirmation. */
+  async confirmOrder(orderId: number): Promise<ConfirmOrderResult> {
+    const { data } = await this.client.post(`/api/orders/${orderId}/confirm`);
+    return data;
+  }
+
+  /** Operator-agreed advance; only applies when the lead's total is below ₹1L. */
+  async setManualAdvance(leadId: number, amount: number | null): Promise<LeadOrderSummary> {
+    const { data } = await this.client.put(`/api/orders/lead/${leadId}/manual-advance`, { amount });
+    return data;
+  }
+
+  /** Absolute URL for a file under the backend's /uploads root. */
+  uploadUrl(relativePath: string): string {
+    return `${this.client.defaults.baseURL}/uploads/${relativePath.replace(/^\/+/, '')}`;
   }
 
   // Health Check

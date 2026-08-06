@@ -25,6 +25,10 @@ Single-tenant: one deployment serves one company. All users of a deployment shar
 - **Filters** — Leads and Report pages filter by exhibition, status, priority, source, state/city, services, date range, plus **Category** and **Vertical** (dropdowns) and **Turn-over / Team-size** (Min–Max numeric ranges parsed from the free-text values).
 - **Classification Fields** — Category, Vertical, Turn-over, Team-size are inline-editable on the Report table and the Lead Detail page, and shown as chips on lead cards.
 - **Lead Detail** — View/edit all fields, visiting card images with lightbox, editable services.
+- **Order Placement** — A lead can place multiple orders; each order holds any number of items (Suit / Lehenga / Saree) with barcode, size, colour, pieces, rate and customization. No in-app inventory — barcodes are recorded for manual cross-check against the ERP.
+- **Advance & Lucky-Draw Coupons** — Calculated on the lead's combined value across all their orders. See [Advance & Coupons](#advance--coupons).
+- **Sales Order PDF** — Generated on confirmation; itemised with advance and balance due.
+- **WhatsApp Order Confirmation** — Sent via Interakt with the Sales Order PDF attached.
 - **Share / Save Contact** — Share lead as text or export as `.vcf` contact file.
 - **WhatsApp Quick-Open** — Pre-filled WhatsApp message opened in browser.
 - **Role Management** — Custom roles with granular permission keys.
@@ -48,9 +52,9 @@ then running `014` against the restored copy to collapse it to single-tenant:
 
 ```sql
 -- 1. Restore the old ELCS backup under a new database name for this project
--- 2. Run against the restored database:
---    backend-dotnet/ELCS.API/database/014_remove_multitenancy_and_crm.sql
---    (drops Companies, the TenantId columns, IsSuperAdmin and CrmLedgerId)
+-- 2. Run against the restored database, in order:
+--    014_remove_multitenancy_and_crm.sql   drops Companies, TenantId, IsSuperAdmin, CrmLedgerId
+--    015_add_order_management.sql          adds Orders, OrderItems, WhatsAppMessages
 ```
 
 `014` opens with a pre-flight `SELECT` reporting how many distinct tenants the restored
@@ -97,9 +101,34 @@ Frontend: `http://localhost:3000`
     "ApiKey": "sk-...",
     "Model": "gpt-4o-mini",
     "MaxTokens": 500
+  },
+  "PublicBaseUrl": "https://your-backend-domain.com",
+  "Interakt": {
+    "ApiKey": "...",
+    "BaseUrl": "https://api.interakt.ai/v1/public/message/",
+    "LanguageCode": "en",
+    "DefaultCountryCode": "+91",
+    "Templates": { "OrderConfirmation": "order_confirmation" }
+  },
+  "SalesOrder": {
+    "SellerName": "...",
+    "SellerAddress": "...",
+    "SellerPhone": "..."
   }
 }
 ```
+
+**`PublicBaseUrl` matters.** Interakt does not accept a file upload — it fetches media from a
+URL you give it. The Sales Order PDF is therefore served from this backend's `/uploads`, and
+`PublicBaseUrl` must be the internet-facing origin. Left as `localhost`, the order confirms
+and the PDF generates, but Interakt cannot retrieve it and the message fails.
+
+Generated PDFs carry a GUID in the filename (`uploads/orders/{leadId}/SO-…-{guid}.pdf`)
+because `/uploads` is served without authentication — a predictable name would make every
+customer's order document enumerable.
+
+If `Interakt:ApiKey` or the template name is blank, sends are **skipped** and logged rather
+than failing: the app is fully usable without WhatsApp configured.
 
 `appsettings.json` is gitignored because it holds live credentials. Copy
 `appsettings.example.json` and fill it in locally.
@@ -181,6 +210,49 @@ ExhibitionVistingCard/
 - **Leads** tab → filter by exhibition, status, source, employee, or service keyword
 - Click a lead → view full details, edit, share, save contact, WhatsApp
 
+### Place an Order
+1. Open the lead → **Orders** card → **Place Order**
+2. Add one row per item: type (Suit / Lehenga / Saree), barcode, size, colour, pieces, rate, customization
+3. The running total, advance and coupon count update live — including the lead's existing orders
+4. **Create Order** saves it as a *draft*
+5. On the order page, **Confirm & Send Sales Order** →
+   marks it confirmed, renders the Sales Order PDF, and sends the WhatsApp confirmation with the PDF attached
+
+Confirmation is resilient: if PDF generation or the WhatsApp send fails, the order still confirms
+and the failure is reported separately, so a messaging outage never blocks taking an order at the counter.
+
+## Advance & Coupons
+
+Advance and lucky-draw coupons are a function of the lead's **total across all their
+non-cancelled orders** — not of any single order. Adding a second order re-bands the lead
+automatically, which is why neither value is ever stored.
+
+```
+band    = floor(total ÷ ₹1,00,000)
+advance = ₹11,000 × band
+coupons = 4 × band
+```
+
+| Total order value | Advance | Coupons |
+|---|---|---|
+| Below ₹1 L | operator-entered | 0 |
+| ₹1 L – ₹2 L | ₹11,000 | 4 |
+| ₹2 L – ₹3 L | ₹22,000 | 8 |
+| ₹3 L – ₹4 L | ₹33,000 | 12 |
+| ₹4 L – ₹5 L | ₹44,000 | 16 |
+
+The pattern continues without a ceiling. Exact multiples fall in the **upper** band
+(₹2,00,000 → ₹22,000 / 8 coupons), which is what `floor` gives.
+
+Below ₹1 L there is no band: no coupons, and the advance is whatever the operator agreed —
+entered on the order page and stored on the lead. It is clamped to the order total.
+
+Coupons are lucky-draw entries (prize: iPhone). They are shown in the app but **never appear
+on the Sales Order PDF**, which is the customer's commercial record.
+
+The rule lives in one place — [`AdvanceCalculator.cs`](backend-dotnet/ELCS.API/Services/AdvanceCalculator.cs).
+Change the constants there and every screen, total and PDF follows.
+
 ## Permissions
 
 | Key | Description |
@@ -191,6 +263,7 @@ ExhibitionVistingCard/
 | `view_exhibitions` | View exhibitions list |
 | `manage_exhibitions` | Create, edit, delete exhibitions |
 | `view_report` | View reports page |
+| `manage_orders` | Place and confirm orders |
 | `manage_users` | Create, edit, delete users |
 | `manage_roles` | Create, edit, delete roles |
 
@@ -228,6 +301,19 @@ GET    /api/leads/{id}
 POST   /api/leads
 PUT    /api/leads/{id}
 DELETE /api/leads/{id}
+```
+
+### Orders
+```
+GET    /api/orders/item-types                    Suit / Lehenga / Saree
+GET    /api/orders/lead/{leadId}                 Orders + advance/coupon summary for a lead
+GET    /api/orders/lead/{leadId}/summary         Advance/coupon position only
+PUT    /api/orders/lead/{leadId}/manual-advance  Operator advance (used below ₹1L)
+GET    /api/orders/{id}
+POST   /api/orders
+PUT    /api/orders/{id}
+DELETE /api/orders/{id}
+POST   /api/orders/{id}/confirm                  Confirm + render SO PDF + send WhatsApp
 ```
 
 ### Exhibitions

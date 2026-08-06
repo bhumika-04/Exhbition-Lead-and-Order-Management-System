@@ -44,6 +44,16 @@ builder.Services.AddScoped<IExtractionService, ExtractionService>();
 builder.Services.AddScoped<ISpeechService, WhisperSpeechService>();
 builder.Services.AddScoped<IOpenAIService, OpenAIService>();
 
+// Order management (spec B/C/D)
+builder.Services.AddScoped<IOrderService, OrderService>();
+builder.Services.AddScoped<ISalesOrderPdfService, SalesOrderPdfService>();
+builder.Services.AddScoped<IWhatsAppService, InteraktWhatsAppService>();
+builder.Services.AddHttpClient();
+
+// QuestPDF Community licence — free for organisations under USD 1M annual revenue.
+// Review https://www.questpdf.com/license/ before shipping to a larger client.
+QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
+
 // Response Compression for faster loading
 builder.Services.AddResponseCompression(options =>
 {
