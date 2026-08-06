@@ -20,6 +20,10 @@ export interface Exhibition {
   is_active: boolean;
   created_at?: string;
   updated_at?: string;
+
+  // Self-service ordering: opaque token behind the printed QR
+  public_token?: string | null;
+  self_service_enabled?: boolean;
 }
 
 export interface Lead {

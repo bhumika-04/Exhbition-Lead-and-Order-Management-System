@@ -406,6 +406,19 @@ class ApiClient {
     return data;
   }
 
+  /**
+   * Enables/disables self-service ordering for an exhibition and mints its
+   * public QR token. Pass rotate to invalidate an already-printed QR.
+   */
+  async setSelfService(exhibitionId: number, enabled: boolean, rotateToken = false): Promise<{
+    success: boolean; self_service_enabled: boolean; public_token: string | null;
+  }> {
+    const { data } = await this.client.post(`/api/exhibitions/${exhibitionId}/self-service`, {
+      enabled, rotate_token: rotateToken,
+    });
+    return data;
+  }
+
   /** Slab options for the payment step — each suggests ₹11,000 × slab. */
   async getOrderSlabs(count = 6): Promise<SlabOption[]> {
     const { data } = await this.client.get('/api/orders/slabs', { params: { count } });

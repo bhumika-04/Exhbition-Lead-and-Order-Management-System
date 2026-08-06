@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { AnimatedList, AnimatedListItem } from '@/components/ui/animated-list';
+import SelfServiceQrCard from '@/components/SelfServiceQrCard';
 import { cn } from '@/lib/utils';
 
 const EXHIBITION_GRADIENTS = [
@@ -323,6 +324,24 @@ export default function ExhibitionsPage() {
                           )}
                         </div>
                       </div>
+
+                      {/* Self-service QR — shown on the selected exhibition so the
+                          list stays readable when several events are running. */}
+                      {isSelected && canManage && (
+                        <div className="mt-3 pt-3 border-t border-slate-100" onClick={e => e.stopPropagation()}>
+                          <SelfServiceQrCard
+                            exhibitionId={ex.exhibition_id}
+                            exhibitionName={ex.name}
+                            enabled={!!ex.self_service_enabled}
+                            token={ex.public_token}
+                            onChange={(enabled, token) =>
+                              setExhibitions(list => list.map(e =>
+                                e.exhibition_id === ex.exhibition_id
+                                  ? { ...e, self_service_enabled: enabled, public_token: token }
+                                  : e))}
+                          />
+                        </div>
+                      )}
                     </div>
                   </motion.div>
                 </AnimatedListItem>
