@@ -11,24 +11,23 @@ import { getEmployee, hasPermission } from '@/lib/auth';
 import { api } from '@/lib/api';
 import { motion, AnimatePresence } from 'framer-motion';
 
-// Primary items in the bar. Four plus More: six was already cramped at 360px,
-// and Orders belongs here — it is where a team member picks up the work a
-// customer has just sent them.
+// Primary items in the bar
 const PRIMARY_NAV = [
-  { name: 'Scan',      path: '/chat',      icon: ScanLine,    permission: null },
-  { name: 'Leads',     path: '/leads',     icon: Users,       permission: 'view_leads' },
-  { name: 'Orders',    path: '/orders',    icon: ShoppingBag, permission: 'manage_orders' },
-  { name: 'Dashboard', path: '/dashboard', icon: BarChart3,   permission: 'view_dashboard' },
+  { name: 'Scan',        path: '/chat',        icon: ScanLine,    permission: null },
+  { name: 'Leads',       path: '/leads',       icon: Users,       permission: 'view_leads' },
+  { name: 'Dashboard',   path: '/dashboard',   icon: BarChart3,   permission: 'view_dashboard' },
+  { name: 'Exhibitions', path: '/exhibitions', icon: Building2,   permission: 'view_exhibitions' },
+  { name: 'Orders',      path: '/orders',      icon: ShoppingBag, permission: 'manage_orders' },
 ];
 
-// Everything else, in the "More" sheet
+// Everything else, in the "More" sheet. Products and Settings are here rather
+// than nowhere — without them those screens are unreachable on a phone.
 const SECONDARY_NAV = [
-  { name: 'Exhibitions', path: '/exhibitions', icon: Building2,       permission: 'view_exhibitions' },
-  { name: 'Report',      path: '/report',      icon: FileSpreadsheet, permission: 'view_report' },
-  { name: 'Products',    path: '/products',    icon: Package,         permission: 'manage_products' },
-  { name: 'Users',       path: '/users',       icon: UserCog,         permission: 'manage_users' },
-  { name: 'Roles',       path: '/roles',       icon: Shield,          permission: 'manage_roles' },
-  { name: 'Settings',    path: '/settings',    icon: SettingsIcon,    permission: 'manage_settings' },
+  { name: 'Report',   path: '/report',   icon: FileSpreadsheet, permission: 'view_report' },
+  { name: 'Products', path: '/products', icon: Package,         permission: 'manage_products' },
+  { name: 'Users',    path: '/users',    icon: UserCog,         permission: 'manage_users' },
+  { name: 'Roles',    path: '/roles',    icon: Shield,          permission: 'manage_roles' },
+  { name: 'Settings', path: '/settings', icon: SettingsIcon,    permission: 'manage_settings' },
 ];
 
 export default function BottomNav() {
@@ -175,13 +174,17 @@ export default function BottomNav() {
               <button
                 key={item.path}
                 onClick={() => router.push(item.path)}
-                className={`flex flex-col items-center justify-center flex-1 h-full transition-all duration-200 transform active:scale-95 relative ${
+                className={`flex flex-col items-center justify-center flex-1 min-w-0 h-full px-0.5 transition-all duration-200 transform active:scale-95 relative ${
                   isActive ? 'text-blue-600' : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
-                <Icon className={`w-5 h-5 mb-1 transition-all duration-200 ${isActive ? 'scale-110' : ''}`} />
-                <span className="text-[10px] font-medium">{item.name}</span>
-                {isActive && <div className="absolute bottom-0 w-10 h-1 bg-blue-600 rounded-t-full" />}
+                <Icon className={`w-5 h-5 mb-0.5 shrink-0 transition-all duration-200 ${isActive ? 'scale-110' : ''}`} />
+                {/* Six slots at 360px leaves ~58px each — "Exhibitions" needs
+                    the smaller size and truncation to stay on one line. */}
+                <span className="text-[9px] font-medium leading-tight w-full text-center truncate">
+                  {item.name}
+                </span>
+                {isActive && <div className="absolute bottom-0 w-8 h-1 bg-blue-600 rounded-t-full" />}
               </button>
             );
           })}
@@ -189,14 +192,14 @@ export default function BottomNav() {
           {/* More button */}
           <button
             onClick={() => setShowMore(v => !v)}
-            className={`flex flex-col items-center justify-center flex-1 h-full transition-all duration-200 transform active:scale-95 relative ${
+            className={`flex flex-col items-center justify-center flex-1 min-w-0 h-full px-0.5 transition-all duration-200 transform active:scale-95 relative ${
               isMoreActive || showMore ? 'text-blue-600' : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            <MoreHorizontal className={`w-5 h-5 mb-1 transition-all duration-200 ${isMoreActive || showMore ? 'scale-110' : ''}`} />
-            <span className="text-[10px] font-medium">More</span>
+            <MoreHorizontal className={`w-5 h-5 mb-0.5 shrink-0 transition-all duration-200 ${isMoreActive || showMore ? 'scale-110' : ''}`} />
+            <span className="text-[9px] font-medium leading-tight">More</span>
             {(isMoreActive || showMore) && (
-              <div className="absolute bottom-0 w-10 h-1 bg-blue-600 rounded-t-full" />
+              <div className="absolute bottom-0 w-8 h-1 bg-blue-600 rounded-t-full" />
             )}
           </button>
 
