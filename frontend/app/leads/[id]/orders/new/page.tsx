@@ -3,9 +3,8 @@
 /**
  * Place order — step 1 (items).
  *
- * Built for speed at a counter: one Scan button adds a row, and the only things
- * on that row are the three that actually vary per piece — quantity, colour and
- * size. Everything else the catalogue already knows, and lives behind Edit.
+ * Scan-first. One button adds a row; the row shows only what varies per piece.
+ * Rows collapse as new ones arrive so the newest item is always the one in view.
  */
 
 import { useEffect, useState } from 'react';
@@ -13,37 +12,37 @@ import { useRouter, useParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import {
-  ArrowLeft, ScanLine, Trash2, Loader2, ShoppingBag, Pencil,
-  Plus, Minus, X, ImageIcon, PackagePlus,
+  ArrowLeft, ScanLine, Trash2, Loader2, ShoppingBag, Pencil, ChevronDown,
+  Plus, Minus, X, ImageIcon, PackagePlus, FileClock, ChevronRight,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
 import {
   ORDER_ITEM_TYPES, PRODUCT_CATEGORIES, takesCategory, takesSize,
-  type LeadDetails, type LeadOrderSummary, type Product,
+  type LeadDetails, type LeadOrderSummary, type Product, type OrderSummary,
 } from '@/lib/types';
 import { money } from '@/lib/orders';
 import { apiErrorMessage } from '@/lib/apiError';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import BarcodeScanner from '@/components/BarcodeScanner';
+import MultiSelect from '@/components/MultiSelect';
 
 interface Row {
   key: string;
   productId: number | null;
   imagePath: string | null;
-  name: string;              // what the row is called
+  name: string;
   itemType: string;
   category: string | null;
   barcode: string;
   fabric: string;
-  // The three the operator actually changes
   pieces: number;
-  colour: string;
-  size: string;
-  // Behind Edit
+  sizes: string[];      // several per line — same design in 38 and 40
+  colours: string[];
+  remark: string;
   rate: string;
-  customization: string;
+  expanded: boolean;
 }
 
 let rowSeq = 0;
@@ -56,6 +55,10 @@ export default function PlaceOrderPage() {
 
   const [lead, setLead] = useState<LeadDetails | null>(null);
   const [existing, setExisting] = useState<LeadOrderSummary | null>(null);
+  const [drafts, setDrafts] = useState<OrderSummary[]>([]);
+  const [sizeOptions, setSizeOptions] = useState<string[]>([]);
+  const [colourOptions, setColourOptions] = useState<string[]>([]);
+
   const [rows, setRows] = useState<Row[]>([]);
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(true);
@@ -64,14 +67,23 @@ export default function PlaceOrderPage() {
   const [scanOpen, setScanOpen] = useState(false);
   const [scanBusy, setScanBusy] = useState(false);
   const [editKey, setEditKey] = useState<string | null>(null);
+  // A pending row that is NOT in the list until "Add to cart" is pressed.
+  const [draftRow, setDraftRow] = useState<Row | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated()) { router.push('/auth/login'); return; }
     (async () => {
       try {
-        const [l, s] = await Promise.all([api.getLead(leadId), api.getLeadOrderSummary(leadId)]);
+        const [l, orders, opts] = await Promise.all([
+          api.getLead(leadId),
+          api.getOrdersForLead(leadId),
+          api.getProductOptions().catch(() => ({ sizes: [], colours: [] })),
+        ]);
         setLead(l);
-        setExisting(s);
+        setExisting(orders.summary);
+        setDrafts(orders.orders.filter(o => o.status_code === 'draft'));
+        setSizeOptions(opts.sizes);
+        setColourOptions(opts.colours);
       } catch {
         toast.error('Could not load lead');
       } finally { setLoading(false); }
@@ -83,6 +95,10 @@ export default function PlaceOrderPage() {
 
   const remove = (key: string) => setRows(rs => rs.filter(r => r.key !== key));
 
+  /** Adds a row and collapses the rest, so the newest item is the one in view. */
+  const addRow = (row: Row) =>
+    setRows(rs => [...rs.map(r => ({ ...r, expanded: false })), { ...row, expanded: true }]);
+
   const rowFromProduct = (p: Product): Row => ({
     key: newKey(),
     productId: p.product_id,
@@ -93,10 +109,11 @@ export default function PlaceOrderPage() {
     barcode: p.barcode,
     fabric: p.fabric ?? '',
     pieces: 1,
-    colour: p.colour ?? '',
-    size: p.size ?? '',
+    sizes: p.size ? [p.size] : [],
+    colours: p.colour ? [p.colour] : [],
+    remark: '',
     rate: p.price != null ? String(p.price) : '',
-    customization: '',
+    expanded: true,
   });
 
   const blankRow = (barcode = ''): Row => ({
@@ -109,13 +126,14 @@ export default function PlaceOrderPage() {
     barcode,
     fabric: '',
     pieces: 1,
-    colour: '',
-    size: '',
+    sizes: [],
+    colours: [],
+    remark: '',
     rate: '',
-    customization: '',
+    expanded: true,
   });
 
-  /** A scan adds a row outright — no intermediate form to fill in. */
+  /** A recognised scan is added outright. An unknown one becomes a draft to confirm. */
   const onScanned = async (barcode: string) => {
     const code = barcode.trim();
     if (!code || scanBusy) return;
@@ -124,28 +142,18 @@ export default function PlaceOrderPage() {
     try {
       const product = await api.getProductByBarcode(code);
       const row = rowFromProduct(product);
-      setRows(rs => [...rs, row]);
+      addRow(row);
       setScanOpen(false);
       toast.success(`Added ${row.name}`);
     } catch (err: any) {
       if (err?.response?.status === 404) {
-        // Unknown code still becomes a row — losing the scan would be worse
-        // than an incomplete line. Edit opens so it can be completed.
-        const row = blankRow(code);
-        setRows(rs => [...rs, row]);
         setScanOpen(false);
-        setEditKey(row.key);
-        toast(`${code} isn't in the catalogue — add the details`, { icon: 'ℹ️' });
+        setDraftRow(blankRow(code));
+        toast(`${code} isn't in the catalogue — fill in the details`, { icon: 'ℹ️' });
       } else {
         toast.error(apiErrorMessage(err, 'Could not look that barcode up'));
       }
     } finally { setScanBusy(false); }
-  };
-
-  const addManual = () => {
-    const row = blankRow();
-    setRows(rs => [...rs, row]);
-    setEditKey(row.key);
   };
 
   const lineAmount = (r: Row) => {
@@ -165,11 +173,12 @@ export default function PlaceOrderPage() {
       return {
         item_type: r.itemType,
         barcode: r.barcode.trim() || null,
-        size: r.size.trim() || null,
-        colour: r.colour.trim() || null,
+        // Several values per line are stored comma-separated.
+        size: r.sizes.length ? r.sizes.join(', ') : null,
+        colour: r.colours.length ? r.colours.join(', ') : null,
         pieces: r.pieces,
         rate: rate !== null && Number.isFinite(rate) ? rate : null,
-        customization: r.customization.trim() || null,
+        customization: r.remark.trim() || null,
         product_id: r.productId,
       };
     });
@@ -184,7 +193,7 @@ export default function PlaceOrderPage() {
     } finally { setSaving(false); }
   };
 
-  const editing = rows.find(r => r.key === editKey) ?? null;
+  const editing = draftRow ?? rows.find(r => r.key === editKey) ?? null;
 
   if (loading) {
     return <div className="flex-1 flex items-center justify-center">
@@ -194,7 +203,6 @@ export default function PlaceOrderPage() {
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-slate-50">
-      {/* Header */}
       <div className="bg-white border-b border-slate-200 px-4 md:px-6 py-3 flex items-center gap-3 shrink-0">
         <button onClick={() => router.back()} className="p-1.5 -ml-1.5 rounded-lg hover:bg-slate-100">
           <ArrowLeft className="w-5 h-5 text-slate-600" />
@@ -214,7 +222,37 @@ export default function PlaceOrderPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4 space-y-3">
-        {/* Scan — the primary action, deliberately large */}
+        {/* An unfinished order already exists — offer it before a second one is
+            started by accident. */}
+        {drafts.length > 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2">
+            <p className="text-xs font-semibold text-amber-900 flex items-center gap-1.5">
+              <FileClock className="w-3.5 h-3.5" />
+              {drafts.length === 1 ? 'This lead has an unfinished order' : `${drafts.length} unfinished orders`}
+            </p>
+            {drafts.map(d => (
+              <button
+                key={d.order_id}
+                onClick={() => router.push(`/orders/${d.order_id}`)}
+                className="w-full flex items-center gap-2 rounded-lg bg-white border border-amber-200 px-3 py-2 text-left hover:border-amber-300"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-slate-800">{d.order_number}</p>
+                  <p className="text-[10px] text-slate-400">
+                    {d.item_count} item{d.item_count === 1 ? '' : 's'} · {d.total_pieces} pc
+                    {d.effective_value > 0 ? ` · ${money(d.effective_value)}` : ''}
+                  </p>
+                </div>
+                <span className="text-[11px] font-semibold text-amber-700 shrink-0">Continue</span>
+                <ChevronRight className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+              </button>
+            ))}
+            <p className="text-[10px] text-amber-700">
+              Continue it, or keep scanning below to start a separate order.
+            </p>
+          </div>
+        )}
+
         <button
           onClick={() => setScanOpen(true)}
           className="w-full h-16 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-semibold flex items-center justify-center gap-2.5 transition-colors shadow-sm"
@@ -224,10 +262,11 @@ export default function PlaceOrderPage() {
         </button>
 
         {rows.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 py-12 text-center">
+          <div className="flex flex-col items-center gap-2 py-10 text-center">
             <PackagePlus className="w-10 h-10 text-slate-200" />
             <p className="text-sm text-slate-400">Scan a tag to add the first item</p>
-            <button onClick={addManual} className="text-xs text-blue-600 hover:underline mt-1">
+            <button onClick={() => setDraftRow(blankRow())}
+                    className="text-xs text-blue-600 hover:underline mt-1">
               or add one without a barcode
             </button>
           </div>
@@ -238,91 +277,116 @@ export default function PlaceOrderPage() {
                 key={r.key}
                 initial={{ opacity: 0, y: -6 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="rounded-xl border border-slate-200 bg-white p-3"
+                className="rounded-xl border border-slate-200 bg-white overflow-hidden"
               >
-                <div className="flex gap-3">
-                  <div className="w-12 h-14 rounded-lg bg-slate-100 shrink-0 overflow-hidden flex items-center justify-center">
-                    {r.imagePath
-                      ? <img src={api.uploadUrl(r.imagePath)} alt="" className="w-full h-full object-cover" />
-                      : <ImageIcon className="w-4 h-4 text-slate-300" />}
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start gap-2">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold text-slate-900 truncate">{r.name}</p>
-                        <p className="text-[11px] font-mono text-slate-400 truncate">
-                          {r.barcode || 'no barcode'}
+                {/* Row 1 — summary + qty. Always visible; tap to expand. */}
+                <div className="flex gap-3 p-3">
+                  <button
+                    onClick={() => patch(r.key, { expanded: !r.expanded })}
+                    className="flex gap-3 flex-1 min-w-0 text-left"
+                  >
+                    <div className="w-11 h-13 rounded-lg bg-slate-100 shrink-0 overflow-hidden flex items-center justify-center">
+                      {r.imagePath
+                        ? <img src={api.uploadUrl(r.imagePath)} alt="" className="w-full h-full object-cover" />
+                        : <ImageIcon className="w-4 h-4 text-slate-300" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-slate-900 truncate">{r.name}</p>
+                      <p className="text-[11px] font-mono text-slate-400 truncate">
+                        {r.barcode || 'no barcode'}
+                      </p>
+                      {!r.expanded && (
+                        <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                          {[r.sizes.join('/'), r.colours.join('/')].filter(Boolean).join(' · ') || 'no size or colour'}
                         </p>
-                      </div>
-                      <div className="flex items-center gap-0.5 shrink-0">
-                        <button onClick={() => setEditKey(r.key)} aria-label="Edit item"
-                                className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50">
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
-                        <button onClick={() => remove(r.key)} aria-label="Remove item"
-                                className="p-1.5 rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* The only three fields that vary per piece */}
-                    <div className="flex items-end gap-2 mt-2">
-                      <div>
-                        <span className="text-[10px] text-slate-400 block mb-0.5">Qty</span>
-                        <div className="flex items-center h-9 rounded-lg border border-slate-200 bg-white">
-                          <button
-                            onClick={() => patch(r.key, { pieces: Math.max(1, r.pieces - 1) })}
-                            aria-label="Decrease quantity"
-                            className="w-8 h-full flex items-center justify-center text-slate-400 hover:text-slate-700"
-                          >
-                            <Minus className="w-3.5 h-3.5" />
-                          </button>
-                          <span className="w-7 text-center text-sm font-semibold text-slate-800">{r.pieces}</span>
-                          <button
-                            onClick={() => patch(r.key, { pieces: r.pieces + 1 })}
-                            aria-label="Increase quantity"
-                            className="w-8 h-full flex items-center justify-center text-slate-400 hover:text-slate-700"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-
-                      <MiniField label="Colour" value={r.colour}
-                                 onChange={v => patch(r.key, { colour: v })} placeholder="—" />
-
-                      {/* Sarees and stitched pieces carry no size */}
-                      {takesSize(r.itemType, r.category) || r.productId === null ? (
-                        <MiniField label="Size" value={r.size}
-                                   onChange={v => patch(r.key, { size: v })} placeholder="—" />
-                      ) : (
-                        <div className="flex-1">
-                          <span className="text-[10px] text-slate-400 block mb-0.5">Size</span>
-                          <div className="h-9 flex items-center text-[11px] text-slate-400">
-                            {r.category === 'Stitched' ? 'made to measure' : 'n/a'}
-                          </div>
-                        </div>
                       )}
-
-                      <div className="text-right shrink-0 pb-1.5">
-                        <span className="text-[10px] text-slate-400 block">Amount</span>
-                        <span className="text-sm font-bold text-slate-900">
-                          {r.rate.trim() === '' ? '—' : money(lineAmount(r))}
-                        </span>
-                      </div>
                     </div>
+                  </button>
 
-                    {r.customization && (
-                      <p className="text-[11px] text-slate-500 italic mt-1.5 truncate">{r.customization}</p>
-                    )}
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <div className="flex items-center h-8 rounded-lg border border-slate-200">
+                      <button onClick={() => patch(r.key, { pieces: Math.max(1, r.pieces - 1) })}
+                              aria-label="Decrease quantity"
+                              className="w-7 h-full flex items-center justify-center text-slate-400 hover:text-slate-700">
+                        <Minus className="w-3 h-3" />
+                      </button>
+                      <span className="w-6 text-center text-sm font-semibold text-slate-800">{r.pieces}</span>
+                      <button onClick={() => patch(r.key, { pieces: r.pieces + 1 })}
+                              aria-label="Increase quantity"
+                              className="w-7 h-full flex items-center justify-center text-slate-400 hover:text-slate-700">
+                        <Plus className="w-3 h-3" />
+                      </button>
+                    </div>
+                    <span className="text-xs font-bold text-slate-900">
+                      {r.rate.trim() === '' ? '—' : money(lineAmount(r))}
+                    </span>
                   </div>
+
+                  <button onClick={() => patch(r.key, { expanded: !r.expanded })}
+                          aria-label={r.expanded ? 'Collapse' : 'Expand'}
+                          className="p-1 self-start text-slate-300 hover:text-slate-500">
+                    <ChevronDown className={`w-4 h-4 transition-transform ${r.expanded ? 'rotate-180' : ''}`} />
+                  </button>
                 </div>
+
+                <AnimatePresence initial={false}>
+                  {r.expanded && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-visible"
+                    >
+                      <div className="px-3 pb-3 space-y-2 border-t border-slate-100 pt-2">
+                        {/* Row 2 — size and colour, several of each */}
+                        <div className="flex gap-2">
+                          <MultiSelect
+                            label="Size"
+                            values={r.sizes}
+                            options={sizeOptions}
+                            onChange={v => patch(r.key, { sizes: v })}
+                            placeholder="Any size"
+                            disabled={r.productId !== null && !takesSize(r.itemType, r.category)}
+                            disabledHint={r.category === 'Stitched' ? 'made to measure' : 'not applicable'}
+                          />
+                          <MultiSelect
+                            label="Colour"
+                            values={r.colours}
+                            options={colourOptions}
+                            onChange={v => patch(r.key, { colours: v })}
+                            placeholder="Any colour"
+                          />
+                        </div>
+
+                        {/* Row 3 — remark */}
+                        <label className="block">
+                          <span className="text-[10px] text-slate-400 block mb-0.5">Remark</span>
+                          <input
+                            value={r.remark}
+                            onChange={e => patch(r.key, { remark: e.target.value })}
+                            placeholder="Alterations, special instructions…"
+                            className="w-full h-9 px-2 rounded-lg border border-slate-200 bg-white text-sm"
+                          />
+                        </label>
+
+                        <div className="flex gap-2 pt-0.5">
+                          <button onClick={() => setEditKey(r.key)}
+                                  className="text-[11px] text-slate-500 hover:text-blue-600 flex items-center gap-1">
+                            <Pencil className="w-3 h-3" /> All details
+                          </button>
+                          <button onClick={() => remove(r.key)}
+                                  className="text-[11px] text-slate-400 hover:text-rose-600 flex items-center gap-1 ml-auto">
+                            <Trash2 className="w-3 h-3" /> Remove
+                          </button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </motion.div>
             ))}
 
-            <button onClick={addManual}
+            <button onClick={() => setDraftRow(blankRow())}
                     className="w-full h-10 rounded-xl border border-dashed border-slate-300 text-xs font-medium text-slate-500 hover:bg-white transition-colors">
               Add item without a barcode
             </button>
@@ -392,14 +456,7 @@ export default function PlaceOrderPage() {
                   <X className="w-4 h-4 text-slate-400" />
                 </button>
               </div>
-
-              <BarcodeScanner
-                value=""
-                autoStart
-                onChange={onScanned}
-                placeholder="or type the barcode"
-              />
-
+              <BarcodeScanner value="" autoStart onChange={onScanned} placeholder="or type the barcode" />
               {scanBusy && (
                 <p className="text-[11px] text-slate-400 flex items-center gap-1.5">
                   <Loader2 className="w-3 h-3 animate-spin" /> Looking it up…
@@ -410,14 +467,23 @@ export default function PlaceOrderPage() {
         )}
       </AnimatePresence>
 
-      {/* Full detail for one row */}
+      {/* Full detail — a draft waiting to be added, or an existing row */}
       <AnimatePresence>
         {editing && (
-          <EditItemSheet
+          <ItemSheet
             row={editing}
-            onChange={p => patch(editing.key, p)}
-            onClose={() => setEditKey(null)}
-            onRemove={() => { remove(editing.key); setEditKey(null); }}
+            isDraft={draftRow !== null}
+            sizeOptions={sizeOptions}
+            colourOptions={colourOptions}
+            onChange={p => draftRow
+              ? setDraftRow({ ...draftRow, ...p })
+              : patch(editing.key, p)}
+            onConfirm={() => {
+              if (draftRow) { addRow(draftRow); setDraftRow(null); toast.success('Added to cart'); }
+              else setEditKey(null);
+            }}
+            onCancel={() => { setDraftRow(null); setEditKey(null); }}
+            onRemove={draftRow ? undefined : () => { remove(editing.key); setEditKey(null); }}
           />
         )}
       </AnimatePresence>
@@ -425,35 +491,23 @@ export default function PlaceOrderPage() {
   );
 }
 
-function MiniField({ label, value, onChange, placeholder }: {
-  label: string; value: string; onChange: (v: string) => void; placeholder?: string;
-}) {
-  return (
-    <label className="flex-1 min-w-0">
-      <span className="text-[10px] text-slate-400 block mb-0.5">{label}</span>
-      <input
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full h-9 px-2 rounded-lg border border-slate-200 bg-white text-sm text-center"
-      />
-    </label>
-  );
-}
-
-/** Everything the row hides. Opened by Edit, or automatically for an unknown barcode. */
-function EditItemSheet({ row, onChange, onClose, onRemove }: {
+/** Full detail for one item. Doubles as the "add without a barcode" form. */
+function ItemSheet({
+  row, isDraft, sizeOptions, colourOptions, onChange, onConfirm, onCancel, onRemove,
+}: {
   row: Row;
+  isDraft: boolean;
+  sizeOptions: string[];
+  colourOptions: string[];
   onChange: (p: Partial<Row>) => void;
-  onClose: () => void;
-  onRemove: () => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+  onRemove?: () => void;
 }) {
-  const fromCatalogue = row.productId !== null;
-
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      onClick={onClose}
+      onClick={onCancel}
       className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
     >
       <motion.div
@@ -461,15 +515,17 @@ function EditItemSheet({ row, onChange, onClose, onRemove }: {
         onClick={e => e.stopPropagation()}
         className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl max-h-[88vh] overflow-y-auto"
       >
-        <div className="sticky top-0 bg-white flex items-center justify-between px-5 py-4 border-b border-slate-100">
-          <p className="text-sm font-bold text-slate-900">Item details</p>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100">
+        <div className="sticky top-0 bg-white flex items-center justify-between px-5 py-4 border-b border-slate-100 z-10">
+          <p className="text-sm font-bold text-slate-900">
+            {isDraft ? 'New item' : 'Item details'}
+          </p>
+          <button onClick={onCancel} className="p-1 rounded-lg hover:bg-slate-100">
             <X className="w-4 h-4 text-slate-400" />
           </button>
         </div>
 
         <div className="px-5 py-4 space-y-3">
-          {fromCatalogue && (
+          {!isDraft && row.productId !== null && (
             <p className="text-[11px] text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
               From the catalogue. Changes here apply to this order only — they do not
               alter the product.
@@ -478,7 +534,13 @@ function EditItemSheet({ row, onChange, onClose, onRemove }: {
 
           <Field label="Barcode">
             <input value={row.barcode} onChange={e => onChange({ barcode: e.target.value })}
+                   placeholder="Optional"
                    className="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm font-mono" />
+          </Field>
+
+          <Field label="Item name">
+            <input value={row.name} onChange={e => onChange({ name: e.target.value })}
+                   className="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm" />
           </Field>
 
           <Field label="Type">
@@ -487,9 +549,9 @@ function EditItemSheet({ row, onChange, onClose, onRemove }: {
                 <button key={t}
                   onClick={() => onChange({
                     itemType: t,
-                    // Sarees carry no category or size; drop them on switch.
+                    name: row.productId === null ? t : row.name,
                     category: takesCategory(t) ? (row.category ?? 'Readymade') : null,
-                    size: takesSize(t, takesCategory(t) ? row.category : null) ? row.size : '',
+                    sizes: takesCategory(t) ? row.sizes : [],
                   })}
                   className={`flex-1 h-10 rounded-lg text-sm font-medium transition-colors ${
                     row.itemType === t ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -505,7 +567,7 @@ function EditItemSheet({ row, onChange, onClose, onRemove }: {
               <div className="flex gap-2">
                 {PRODUCT_CATEGORIES.map(c => (
                   <button key={c}
-                    onClick={() => onChange({ category: c, size: c === 'Readymade' ? row.size : '' })}
+                    onClick={() => onChange({ category: c, sizes: c === 'Readymade' ? row.sizes : [] })}
                     className={`flex-1 h-10 rounded-lg text-sm font-medium transition-colors ${
                       row.category === c ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                     }`}>
@@ -516,23 +578,13 @@ function EditItemSheet({ row, onChange, onClose, onRemove }: {
             </Field>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Colour">
-              <input value={row.colour} onChange={e => onChange({ colour: e.target.value })}
-                     className="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm" />
-            </Field>
-            {takesSize(row.itemType, row.category) ? (
-              <Field label="Size">
-                <input value={row.size} onChange={e => onChange({ size: e.target.value })}
-                       className="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm" />
-              </Field>
-            ) : (
-              <Field label="Size">
-                <div className="h-10 flex items-center text-[11px] text-slate-400">
-                  {row.category === 'Stitched' ? 'Made to measure' : 'Not applicable'}
-                </div>
-              </Field>
-            )}
+          <div className="flex gap-2">
+            <MultiSelect label="Size" values={row.sizes} options={sizeOptions}
+                         onChange={v => onChange({ sizes: v })} placeholder="Any size"
+                         disabled={takesCategory(row.itemType) && row.category === 'Stitched'}
+                         disabledHint="made to measure" />
+            <MultiSelect label="Colour" values={row.colours} options={colourOptions}
+                         onChange={v => onChange({ colours: v })} placeholder="Any colour" />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -554,20 +606,27 @@ function EditItemSheet({ row, onChange, onClose, onRemove }: {
                    className="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm" />
           </Field>
 
-          <Field label="Customization">
-            <textarea value={row.customization} rows={2}
-                      onChange={e => onChange({ customization: e.target.value })}
+          <Field label="Remark">
+            <textarea value={row.remark} rows={2}
+                      onChange={e => onChange({ remark: e.target.value })}
                       placeholder="Alterations, special instructions…"
                       className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm resize-none" />
           </Field>
         </div>
 
         <div className="sticky bottom-0 bg-white flex gap-2 px-5 py-4 border-t border-slate-100">
-          <Button variant="outline" onClick={onRemove}
-                  className="h-10 gap-1.5 text-xs text-rose-600 border-rose-200 hover:bg-rose-50">
-            <Trash2 className="w-3.5 h-3.5" /> Remove
+          {onRemove ? (
+            <Button variant="outline" onClick={onRemove}
+                    className="h-10 gap-1.5 text-xs text-rose-600 border-rose-200 hover:bg-rose-50">
+              <Trash2 className="w-3.5 h-3.5" /> Remove
+            </Button>
+          ) : (
+            <Button variant="outline" onClick={onCancel} className="h-10 text-xs">Cancel</Button>
+          )}
+          <Button onClick={onConfirm} className="flex-1 h-10 gap-1.5 text-sm">
+            {isDraft && <Plus className="w-4 h-4" />}
+            {isDraft ? 'Add to cart' : 'Done'}
           </Button>
-          <Button onClick={onClose} className="flex-1 h-10 text-sm">Done</Button>
         </div>
       </motion.div>
     </motion.div>

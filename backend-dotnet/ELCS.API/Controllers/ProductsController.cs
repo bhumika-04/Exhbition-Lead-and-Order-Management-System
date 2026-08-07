@@ -38,6 +38,18 @@ public class ProductsController : ControllerBase
         size_required_for = new[] { ProductRules.Readymade },
     });
 
+    /// <summary>
+    /// Distinct sizes and colours already in the catalogue, for the order form's
+    /// size/colour pickers. Derived rather than hard-coded so the options track
+    /// what is actually stocked without anyone maintaining a second list.
+    /// </summary>
+    [HttpGet("options")]
+    public async Task<IActionResult> GetOptions()
+    {
+        var (sizes, colours) = await _products.GetDistinctOptionsAsync();
+        return Ok(new { sizes, colours });
+    }
+
     [HttpGet]
     public async Task<IActionResult> Search(
         [FromQuery] string? search,

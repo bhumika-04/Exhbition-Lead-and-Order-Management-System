@@ -1,4 +1,4 @@
-﻿// Type definitions for ELCS Frontend
+// Type definitions for ELCS Frontend
 
 export interface Employee {
   employee_id: number;
@@ -246,7 +246,7 @@ export const ALL_PERMISSIONS = [
   { key: 'manage_settings',     label: 'Manage Settings (WhatsApp / Social)' },
 ] as const;
 
-// â”€â”€ Product Master â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Product Master ─────────────────────────────────────────────────────────
 
 export const PRODUCT_TYPES = ['Saree', 'Suit', 'Lehenga'] as const;
 export type ProductType = (typeof PRODUCT_TYPES)[number];
@@ -256,8 +256,8 @@ export type ProductCategory = (typeof PRODUCT_CATEGORIES)[number];
 
 /**
  * Which fields a product may carry:
- *   Saree          â†’ no category, no size
- *   Suit / Lehenga â†’ Stitched (no size) or Readymade (size required)
+ *   Saree          → no category, no size
+ *   Suit / Lehenga → Stitched (no size) or Readymade (size required)
  * Mirrors ProductRules on the server and CK_Products_Shape in the database.
  */
 export function takesCategory(type?: string | null): boolean {
@@ -294,7 +294,7 @@ export interface SaveProductRequest {
   name?: string | null;
 }
 
-// â”€â”€ Orders â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Orders ─────────────────────────────────────────────────────────────────
 
 // Order item types mirror product types.
 export const ORDER_ITEM_TYPES = PRODUCT_TYPES;
@@ -310,8 +310,8 @@ export interface OrderItem {
   colour?: string | null;
   fabric?: string | null;     // snapshot
   pieces: number;
-  rate?: number | null;       // optional â€” value can come from the slab instead
-  amount?: number | null;     // rate Ã— pieces, computed server-side
+  rate?: number | null;       // optional — value can come from the slab instead
+  amount?: number | null;     // rate × pieces, computed server-side
   customization?: string | null;
   product_id?: number | null; // pointer only; the snapshot above is authoritative
   product_image_path?: string | null;
@@ -338,9 +338,9 @@ export interface OrderSummary {
  * Lead-level money position across all non-cancelled orders.
  *
  * Coupons follow the advance ACTUALLY TAKEN, not the order value:
- *   coupons = 4 Ã— floor(total_advance / 11000)
- * A â‚¹2.5L order with only â‚¹11k advance earns 4 coupons, not 8.
- * The slab only suggests an advance (â‚¹11,000 Ã— slab); the operator may edit it.
+ *   coupons = 4 × floor(total_advance / 11000)
+ * A ₹2.5L order with only ₹11k advance earns 4 coupons, not 8.
+ * The slab only suggests an advance (₹11,000 × slab); the operator may edit it.
  */
 export interface LeadOrderSummary {
   lead_id: number;
@@ -421,7 +421,7 @@ export interface OrderListTotals {
   total_coupons: number;
 }
 
-// â”€â”€ Lead media â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Lead media ─────────────────────────────────────────────────────────────
 
 export interface LeadPhoto {
   lead_photo_id: number;
@@ -442,7 +442,7 @@ export interface LeadMedia {
   photos: LeadPhoto[];
 }
 
-// â”€â”€ Settings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Settings ───────────────────────────────────────────────────────────────
 
 export const SETTING_KEYS = {
   templateWelcome: 'whatsapp.template.welcome',

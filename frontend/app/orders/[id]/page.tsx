@@ -14,7 +14,7 @@ import type { OrderDetail, SlabOption } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
-  money, couponsForAdvance, ADVANCE_PER_SLAB,
+  money, couponsForAdvance, slabForValue, ADVANCE_PER_SLAB, SLAB_SIZE,
   ORDER_STATUS_LABELS, ORDER_STATUS_STYLES,
 } from '@/lib/orders';
 
@@ -32,6 +32,7 @@ export default function OrderDetailPage() {
   // Payment step state
   const [slab, setSlab] = useState(0);
   const [advance, setAdvance] = useState('');
+  const [showSlabPicker, setShowSlabPicker] = useState(false);
 
   const load = async () => {
     try {
@@ -59,6 +60,35 @@ export default function OrderDetailPage() {
     setSlab(option.slab);
     setAdvance(String(option.suggested_advance));
   };
+
+  /**
+   * The slab this order actually falls in, derived from its value.
+   *
+   * Null when the items carry no prices — there is nothing to derive from, so
+   * the operator has to choose and the full picker is shown instead.
+   */
+  const derivedSlab = (() => {
+    const value = order?.effective_value ?? 0;
+    if (!order || value <= 0) return null;
+    const n = slabForValue(value);
+    return {
+      slab: n,
+      from: n * SLAB_SIZE,
+      to: (n + 1) * SLAB_SIZE,
+      suggested: n * ADVANCE_PER_SLAB,
+      coupons: couponsForAdvance(n * ADVANCE_PER_SLAB),
+    };
+  })();
+
+  // Apply the derived slab once the order loads, so the operator only ever
+  // confirms the advance rather than re-deriving the band by hand.
+  useEffect(() => {
+    if (!order || derivedSlab === null) return;
+    if (order.slab_band !== 0 || order.advance_amount > 0) return;  // already set
+    setSlab(derivedSlab.slab);
+    setAdvance(derivedSlab.suggested > 0 ? String(derivedSlab.suggested) : '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order?.order_id]);
 
   const advanceNum = (() => {
     const n = parseFloat(advance);
@@ -205,57 +235,90 @@ export default function OrderDetailPage() {
         {!isCancelled && (
           <Card className="border-slate-200">
             <CardContent className="p-4 space-y-4">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
-                  Order value slab
-                </p>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  Picks the suggested advance. Coupons follow what you actually collect.
-                </p>
+              <div className="flex items-start gap-2">
+                <div className="flex-1">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                    Order value slab
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Sets the suggested advance. Coupons follow what you actually collect.
+                  </p>
+                </div>
+                {/* The picker is only offered when it is needed — see below. */}
+                {!isConfirmed && !showSlabPicker && (
+                  <button onClick={() => setShowSlabPicker(true)}
+                          className="text-[11px] text-blue-600 hover:underline shrink-0 pt-0.5">
+                    Change
+                  </button>
+                )}
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                {slabs.map(opt => {
-                  const active = slab === opt.slab;
-                  return (
-                    <button
-                      key={opt.slab}
-                      onClick={() => pickSlab(opt)}
-                      disabled={isConfirmed}
-                      className={`rounded-xl border px-3 py-2.5 text-left transition-colors disabled:opacity-60 ${
-                        active
-                          ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500'
-                          : 'border-slate-200 bg-white hover:bg-slate-50'
-                      }`}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-bold text-slate-800">
-                          {money(opt.from_value)}–{money(opt.to_value)}
-                        </span>
-                        {active && <Check className="w-3 h-3 text-blue-600 shrink-0" />}
-                      </div>
-                      <span className="text-[10px] text-slate-500">
-                        advance {money(opt.suggested_advance)} · {opt.coupons_if_paid} coupons
-                      </span>
-                    </button>
-                  );
-                })}
-                <button
-                  onClick={() => { setSlab(0); setAdvance(''); }}
-                  disabled={isConfirmed}
-                  className={`rounded-xl border px-3 py-2.5 text-left transition-colors disabled:opacity-60 ${
-                    slab === 0
-                      ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500'
-                      : 'border-slate-200 bg-white hover:bg-slate-50'
-                  }`}
-                >
+              {/* When the items carry prices the slab is a fact, not a choice —
+                  show the one this order falls in rather than a wall of options
+                  the operator has to match against the total themselves. */}
+              {!showSlabPicker && derivedSlab !== null ? (
+                <div className="rounded-xl border border-blue-500 bg-blue-50 ring-1 ring-blue-500 px-3 py-3">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-bold text-slate-800">Below {money(100000)}</span>
-                    {slab === 0 && <Check className="w-3 h-3 text-blue-600 shrink-0" />}
+                    <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <span className="text-sm font-bold text-slate-900">
+                      {derivedSlab.slab === 0
+                        ? `Below ${money(SLAB_SIZE)}`
+                        : `${money(derivedSlab.from)}–${money(derivedSlab.to)}`}
+                    </span>
                   </div>
-                  <span className="text-[10px] text-slate-500">advance entered manually</span>
-                </button>
-              </div>
+                  <p className="text-[11px] text-slate-600 mt-1">
+                    {derivedSlab.slab === 0
+                      ? 'No slab — enter the advance you agreed.'
+                      : `Suggested advance ${money(derivedSlab.suggested)} · ${derivedSlab.coupons} coupons if paid in full`}
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    From this order&apos;s value of {money(order.effective_value)}
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  {slabs.map(opt => {
+                    const active = slab === opt.slab;
+                    return (
+                      <button
+                        key={opt.slab}
+                        onClick={() => { pickSlab(opt); setShowSlabPicker(false); }}
+                        disabled={isConfirmed}
+                        className={`rounded-xl border px-3 py-2.5 text-left transition-colors disabled:opacity-60 ${
+                          active
+                            ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500'
+                            : 'border-slate-200 bg-white hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-slate-800">
+                            {money(opt.from_value)}–{money(opt.to_value)}
+                          </span>
+                          {active && <Check className="w-3 h-3 text-blue-600 shrink-0" />}
+                        </div>
+                        <span className="text-[10px] text-slate-500">
+                          advance {money(opt.suggested_advance)} · {opt.coupons_if_paid} coupons
+                        </span>
+                      </button>
+                    );
+                  })}
+                  <button
+                    onClick={() => { setSlab(0); setAdvance(''); setShowSlabPicker(false); }}
+                    disabled={isConfirmed}
+                    className={`rounded-xl border px-3 py-2.5 text-left transition-colors disabled:opacity-60 ${
+                      slab === 0
+                        ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-500'
+                        : 'border-slate-200 bg-white hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-bold text-slate-800">Below {money(SLAB_SIZE)}</span>
+                      {slab === 0 && <Check className="w-3 h-3 text-blue-600 shrink-0" />}
+                    </div>
+                    <span className="text-[10px] text-slate-500">advance entered manually</span>
+                  </button>
+                </div>
+              )}
 
               <div>
                 <label className="text-xs">

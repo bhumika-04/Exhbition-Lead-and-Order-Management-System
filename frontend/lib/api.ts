@@ -1,4 +1,4 @@
-﻿// API Client for ELCS Backend
+// API Client for ELCS Backend
 
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import type {
@@ -50,7 +50,7 @@ class ApiClient {
       },
     });
 
-    // Request interceptor â€” add auth token + employee-id so the API can identify the caller
+    // Request interceptor — add auth token + employee-id so the API can identify the caller
     this.client.interceptors.request.use((config) => {
       if (this.token) {
         config.headers.Authorization = `Bearer ${this.token}`;
@@ -252,7 +252,7 @@ class ApiClient {
     await this.client.delete(`/api/leads/${leadId}`);
   }
 
-  // Card Extraction (immediate â€” creates lead)
+  // Card Extraction (immediate — creates lead)
   async extractCard(
     frontImage: File,
     backImage: File | null,
@@ -272,7 +272,7 @@ class ApiClient {
     return data;
   }
 
-  // Card Extraction Preview (does NOT create lead â€” returns data for confirmation)
+  // Card Extraction Preview (does NOT create lead — returns data for confirmation)
   async extractCardPreview(
     frontImage: File,
     backImage: File | null,
@@ -383,7 +383,7 @@ class ApiClient {
     return data;
   }
 
-  /** Slab options for the payment step â€” each suggests â‚¹11,000 Ã— slab. */
+  /** Slab options for the payment step — each suggests ₹11,000 × slab. */
   async getOrderSlabs(count = 6): Promise<SlabOption[]> {
     const { data } = await this.client.get('/api/orders/slabs', { params: { count } });
     return data.slabs || [];
@@ -399,7 +399,7 @@ class ApiClient {
     return data;
   }
 
-  /** Orders page â€” filters, barcode search, and totals across the whole filter. */
+  /** Orders page — filters, barcode search, and totals across the whole filter. */
   async searchOrders(params?: {
     exhibition_id?: number;
     status_code?: string;
@@ -421,7 +421,7 @@ class ApiClient {
     return data.holders || [];
   }
 
-  // Lead media â€” team photos + testimonial
+  // Lead media — team photos + testimonial
   async getLeadMedia(leadId: number): Promise<LeadMedia> {
     const { data } = await this.client.get(`/api/leads/${leadId}/media`);
     return data;
@@ -486,7 +486,13 @@ class ApiClient {
     return { products: data.products || [], count: data.count ?? 0 };
   }
 
-  /** Barcode lookup â€” the counter's fast path when scanning. */
+  /** Barcode lookup — the counter's fast path when scanning. */
+  /** Distinct sizes and colours in the catalogue, for the order form's pickers. */
+  async getProductOptions(): Promise<{ sizes: string[]; colours: string[] }> {
+    const { data } = await this.client.get('/api/products/options');
+    return { sizes: data.sizes || [], colours: data.colours || [] };
+  }
+
   async getProductByBarcode(barcode: string): Promise<Product> {
     const { data } = await this.client.get(`/api/products/barcode/${encodeURIComponent(barcode)}`);
     return data;
@@ -502,7 +508,7 @@ class ApiClient {
     return data;
   }
 
-  /** Soft delete â€” order history references products and must survive. */
+  /** Soft delete — order history references products and must survive. */
   async deactivateProduct(productId: number): Promise<{ success: boolean }> {
     const { data } = await this.client.delete(`/api/products/${productId}`);
     return data;

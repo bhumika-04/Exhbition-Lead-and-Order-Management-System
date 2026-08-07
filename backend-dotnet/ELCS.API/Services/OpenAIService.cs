@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.ClientModel;
 using OpenAI;
@@ -29,7 +29,7 @@ public class OpenAIService : IOpenAIService
         _chatClient = openAIClient.GetChatClient(model);
     }
 
-    // One-shot: send image(s) directly to Vision â€” no separate OCR call
+    // One-shot: send image(s) directly to Vision — no separate OCR call
     public async Task<CardExtractionData> ExtractCardFromImagesAsync(Stream frontImage, Stream? backImage)
     {
         try
@@ -39,7 +39,7 @@ public class OpenAIService : IOpenAIService
             var contentParts = new List<ChatMessageContentPart>();
 
             contentParts.Add(ChatMessageContentPart.CreateTextPart(
-                "FRONT of business card â€” sent at 4 rotations (0Â°, 90Â°, 180Â°, 270Â°). " +
+                "FRONT of business card — sent at 4 rotations (0°, 90°, 180°, 270°). " +
                 "Identify which rotation is correctly oriented and extract all data from it:"));
             foreach (var rot in frontRotations)
                 contentParts.Add(ChatMessageContentPart.CreateImagePart(BinaryData.FromBytes(rot), "image/jpeg", ChatImageDetailLevel.High));
@@ -48,7 +48,7 @@ public class OpenAIService : IOpenAIService
             {
                 var backRotations = await GenerateRotationsAsync(backImage);
                 contentParts.Add(ChatMessageContentPart.CreateTextPart(
-                    "BACK of business card â€” 4 rotations:"));
+                    "BACK of business card — 4 rotations:"));
                 foreach (var rot in backRotations)
                     contentParts.Add(ChatMessageContentPart.CreateImagePart(BinaryData.FromBytes(rot), "image/jpeg", ChatImageDetailLevel.High));
             }
@@ -121,7 +121,7 @@ public class OpenAIService : IOpenAIService
         }
     }
 
-    // Generate 4 rotations with contrast boost â€” handles tilted photos and embossed cards
+    // Generate 4 rotations with contrast boost — handles tilted photos and embossed cards
     private static async Task<List<byte[]>> GenerateRotationsAsync(Stream imageStream)
     {
         using var original = await Image.LoadAsync(imageStream);
@@ -185,45 +185,45 @@ Return JSON with fields:
         return @"You are an expert Indian Visiting Card Data Extraction Engine.
 
 IMAGE HANDLING:
-- The card may be rotated, tilted, or at an angle â€” read text at ANY orientation
+- The card may be rotated, tilted, or at an angle — read text at ANY orientation
 - Read text from logos, stylised fonts, embossed text, and watermarks
 - If the image is blurry or partially visible, extract what you can confidently read
-- NEVER return null just because text is at an angle or in a logo â€” try harder
+- NEVER return null just because text is at an angle or in a logo — try harder
 
 EXTRACTION RULES:
-1. Extract everything visible â€” names, company from logo/header/footer, phones, emails, websites, addresses
-2. company_name: Read from the largest/most prominent text, logo text, or header â€” this is almost always present
+1. Extract everything visible — names, company from logo/header/footer, phones, emails, websites, addresses
+2. company_name: Read from the largest/most prominent text, logo text, or header — this is almost always present
 3. Only set a field to null if it is genuinely absent from the card, not because it was hard to read
 4. NEVER invent data that is not on the card
-5. Fix common image-to-text errors: 0â†”O, 1â†”I/l, 8â†”B, rnâ†”m
+5. Fix common image-to-text errors: 0↔O, 1↔I/l, 8↔B, rn↔m
 
-COMPANY NAME â€” LOOK IN THESE PLACES:
+COMPANY NAME — LOOK IN THESE PLACES:
 - Largest text on the card (usually top or center)
 - Logo text / brand name
 - Header or footer text
-- Domain name in email/website (e.g. john@acmecorp.com â†’ company may be Acme Corp)
+- Domain name in email/website (e.g. john@acmecorp.com → company may be Acme Corp)
 
 MULTIPLE COMPANIES (DEALER CARDS):
 - company_name: Main business name only
 - brands: Array of associated brands with relationship
 
-PHONE HANDLING â€” ALWAYS INCLUDE COUNTRY CODE:
+PHONE HANDLING — ALWAYS INCLUDE COUNTRY CODE:
 - Indian mobile (10 digits starting 6-9, or ISD prefix +91/0091/091): normalize to +91XXXXXXXXXX
 - Remove spaces, dashes, brackets; strip leading 0 from local Indian numbers
 - International numbers: keep country code as-is (e.g. +1, +44, +971, +65)
 
-ADDRESS HANDLING â€” INFER STATE FROM CITY:
+ADDRESS HANDLING — INFER STATE FROM CITY:
 - If state is not printed, infer from city:
-  Delhi/New Delhi â†’ Delhi, Mumbai/Pune/Nagpur/Nashik/Thane/Navi Mumbai â†’ Maharashtra,
-  Bengaluru/Bangalore/Mysuru/Hubli/Mangaluru â†’ Karnataka, Chennai/Coimbatore/Madurai â†’ Tamil Nadu,
-  Hyderabad/Secunderabad/Warangal/Vijayawada/Visakhapatnam â†’ Telangana/Andhra Pradesh,
-  Kolkata/Howrah/Durgapur â†’ West Bengal, Ahmedabad/Surat/Vadodara/Rajkot â†’ Gujarat,
-  Jaipur/Jodhpur/Udaipur/Kota â†’ Rajasthan, Lucknow/Kanpur/Agra/Varanasi/Noida/Ghaziabad â†’ Uttar Pradesh,
-  Bhopal/Indore/Jabalpur/Gwalior â†’ Madhya Pradesh, Patna/Muzaffarpur â†’ Bihar,
-  Chandigarh â†’ Chandigarh, Ludhiana/Amritsar/Jalandhar â†’ Punjab,
-  Bhubaneswar/Cuttack â†’ Odisha, Guwahati â†’ Assam, Dehradun â†’ Uttarakhand,
-  Ranchi â†’ Jharkhand, Raipur â†’ Chhattisgarh, Thiruvananthapuram/Kochi/Kozhikode â†’ Kerala,
-  Panaji/Goa â†’ Goa
+  Delhi/New Delhi → Delhi, Mumbai/Pune/Nagpur/Nashik/Thane/Navi Mumbai → Maharashtra,
+  Bengaluru/Bangalore/Mysuru/Hubli/Mangaluru → Karnataka, Chennai/Coimbatore/Madurai → Tamil Nadu,
+  Hyderabad/Secunderabad/Warangal/Vijayawada/Visakhapatnam → Telangana/Andhra Pradesh,
+  Kolkata/Howrah/Durgapur → West Bengal, Ahmedabad/Surat/Vadodara/Rajkot → Gujarat,
+  Jaipur/Jodhpur/Udaipur/Kota → Rajasthan, Lucknow/Kanpur/Agra/Varanasi/Noida/Ghaziabad → Uttar Pradesh,
+  Bhopal/Indore/Jabalpur/Gwalior → Madhya Pradesh, Patna/Muzaffarpur → Bihar,
+  Chandigarh → Chandigarh, Ludhiana/Amritsar/Jalandhar → Punjab,
+  Bhubaneswar/Cuttack → Odisha, Guwahati → Assam, Dehradun → Uttarakhand,
+  Ranchi → Jharkhand, Raipur → Chhattisgarh, Thiruvananthapuram/Kochi/Kozhikode → Kerala,
+  Panaji/Goa → Goa
 - If state is explicitly printed, always use that value
 
 Return STRICT JSON only.";

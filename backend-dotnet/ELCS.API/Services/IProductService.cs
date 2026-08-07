@@ -11,6 +11,9 @@ public interface IProductService
     Task UpdateAsync(int productId, SaveProductRequest request);
     Task DeactivateAsync(int productId);
     Task SetImageAsync(int productId, string relativePath);
+
+    /// <summary>Distinct sizes and colours across live products, for order-form pickers.</summary>
+    Task<(List<string> Sizes, List<string> Colours)> GetDistinctOptionsAsync();
 }
 
 /// <summary>

@@ -160,6 +160,23 @@ public class ProductService : IProductService
             new { Path = relativePath, Id = productId });
     }
 
+    public async Task<(List<string> Sizes, List<string> Colours)> GetDistinctOptionsAsync()
+    {
+        using var conn = _db.CreateConnection();
+
+        var sizes = (await conn.QueryAsync<string>(@"
+            SELECT DISTINCT Size FROM Products
+            WHERE IsActive = 1 AND Size IS NOT NULL AND LTRIM(RTRIM(Size)) <> ''
+            ORDER BY Size")).ToList();
+
+        var colours = (await conn.QueryAsync<string>(@"
+            SELECT DISTINCT Colour FROM Products
+            WHERE IsActive = 1 AND Colour IS NOT NULL AND LTRIM(RTRIM(Colour)) <> ''
+            ORDER BY Colour")).ToList();
+
+        return (sizes, colours);
+    }
+
     private static (string? Category, string? Size) ValidateAndNormalise(SaveProductRequest r)
     {
         if (string.IsNullOrWhiteSpace(r.Barcode))
