@@ -149,7 +149,6 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      <div className="md:hidden h-20" />
     </div>
   );
 }

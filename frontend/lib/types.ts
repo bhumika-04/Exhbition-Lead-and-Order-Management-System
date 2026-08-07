@@ -398,14 +398,18 @@ export interface SlabOption {
   coupons_if_paid: number;
 }
 
+export type OrderSource = 'staff' | 'self_service';
+
 export interface OrderListItem {
   order_id: number;
   order_number: string;
   lead_id: number;
   lead_name?: string | null;
   lead_company_name?: string | null;
+  lead_phone?: string | null;
   exhibition_name?: string | null;
   status_code: 'draft' | 'confirmed' | 'cancelled';
+  source: OrderSource;
   effective_value: number;
   advance_amount: number;
   item_count: number;
@@ -419,6 +423,8 @@ export interface OrderListTotals {
   total_value: number;
   total_advance: number;
   total_coupons: number;
+  /** Customer-placed orders still waiting on a team member. */
+  pending_self_service: number;
 }
 
 // ── Lead media ─────────────────────────────────────────────────────────────

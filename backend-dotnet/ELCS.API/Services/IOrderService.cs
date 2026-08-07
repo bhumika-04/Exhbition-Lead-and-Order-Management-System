@@ -120,6 +120,7 @@ public record OrderSearchParams(
     int? ExhibitionId = null,
     string? StatusCode = null,
     string? Search = null,      // order number, lead name, or barcode
+    string? Source = null,      // staff | self_service
     DateTime? FromDate = null,
     DateTime? ToDate = null,
     int Limit = 100,
@@ -132,8 +133,10 @@ public record OrderListItemDto(
     int LeadId,
     string? LeadName,
     string? LeadCompanyName,
+    string? LeadPhone,
     string? ExhibitionName,
     string StatusCode,
+    string Source,              // so a customer-submitted order is identifiable
     decimal EffectiveValue,
     decimal AdvanceAmount,
     int ItemCount,
@@ -146,7 +149,8 @@ public record OrderListTotalsDto(
     int OrderCount,
     decimal TotalValue,
     decimal TotalAdvance,
-    int TotalCoupons        // summed per lead, not per order
+    int TotalCoupons,       // summed per lead, not per order
+    int PendingSelfService  // customer orders waiting on a CRR — the work queue
 );
 
 public record OrderListResultDto(

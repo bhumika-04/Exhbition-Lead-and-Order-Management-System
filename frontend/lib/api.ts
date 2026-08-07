@@ -404,6 +404,7 @@ class ApiClient {
     exhibition_id?: number;
     status_code?: string;
     search?: string;
+    source?: string;
     from_date?: string;
     to_date?: string;
     limit?: number;

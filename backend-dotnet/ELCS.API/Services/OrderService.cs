@@ -292,6 +292,11 @@ public class OrderService : IOrderService
             where += " AND o.StatusCode = @StatusCode";
             args.Add("StatusCode", p.StatusCode);
         }
+        if (!string.IsNullOrWhiteSpace(p.Source))
+        {
+            where += " AND o.Source = @Source";
+            args.Add("Source", p.Source);
+        }
         if (p.FromDate.HasValue)
         {
             where += " AND o.CreatedAt >= @FromDate";
@@ -326,11 +331,13 @@ public class OrderService : IOrderService
 
         var orders = (await conn.QueryAsync<OrderListItemDto>($@"
             SELECT o.OrderId, o.OrderNumber, o.LeadId,
-                   l.PrimaryVisitorName AS LeadName,
-                   l.CompanyName        AS LeadCompanyName,
-                   e.Name               AS ExhibitionName,
+                   l.PrimaryVisitorName  AS LeadName,
+                   l.CompanyName         AS LeadCompanyName,
+                   l.PrimaryVisitorPhone AS LeadPhone,
+                   e.Name                AS ExhibitionName,
                    o.StatusCode,
-                   {EffectiveValueSql}  AS EffectiveValue,
+                   o.Source,
+                   {EffectiveValueSql}   AS EffectiveValue,
                    o.AdvanceAmount,
                    ISNULL(i.ItemCount, 0)   AS ItemCount,
                    ISNULL(i.TotalPieces, 0) AS TotalPieces,
@@ -364,14 +371,21 @@ public class OrderService : IOrderService
 
         var couponTotal = perLead.Sum(AdvanceCalculator.CouponsForAdvance);
 
+        // Counted across the whole database, not the current filter: this is the
+        // work queue, and it should not disappear because someone filtered by a
+        // different exhibition.
+        var pendingSelfService = await conn.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM Orders WHERE Source = 'self_service' AND StatusCode = 'draft'");
+
         return new OrderListResultDto(
             Orders: orders,
             TotalCount: totalCount,
             Totals: new OrderListTotalsDto(
-                OrderCount:   totals?.OrderCount ?? 0,
-                TotalValue:   totals?.TotalValue ?? 0m,
-                TotalAdvance: totals?.TotalAdvance ?? 0m,
-                TotalCoupons: couponTotal));
+                OrderCount:         totals?.OrderCount ?? 0,
+                TotalValue:         totals?.TotalValue ?? 0m,
+                TotalAdvance:       totals?.TotalAdvance ?? 0m,
+                TotalCoupons:       couponTotal,
+                PendingSelfService: pendingSelfService));
     }
 
     public async Task<List<CouponHolderDto>> GetCouponHoldersAsync(int? exhibitionId)

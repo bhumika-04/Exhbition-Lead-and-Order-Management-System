@@ -8,6 +8,14 @@ import BottomNav from './BottomNav';
 // Pages that manage their own internal scrolling (fixed-height layout)
 const FIXED_HEIGHT_PATHS = ['/chat', '/leads', '/exhibitions'];
 
+// Same, but with a dynamic segment. These screens pin a header at the top and
+// scroll their body, which only works inside a bounded container — an exact
+// path match would silently leave them scrolling the whole page instead.
+const FIXED_HEIGHT_PATTERNS = [
+  /^\/orders\/[^/]+$/,               // order detail
+  /^\/leads\/[^/]+\/orders\/new$/,   // place order
+];
+
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
@@ -24,7 +32,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // Gate isFixedHeight on mounted to avoid SSR/client mismatch.
   // Both server and client render the scrollable <main> on first pass;
   // after mount the fixed-height variant switches in (one silent re-render).
-  const isFixedHeight = mounted && FIXED_HEIGHT_PATHS.includes(pathname);
+  const isFixedHeight = mounted && (
+    FIXED_HEIGHT_PATHS.includes(pathname) ||
+    FIXED_HEIGHT_PATTERNS.some(re => re.test(pathname))
+  );
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
