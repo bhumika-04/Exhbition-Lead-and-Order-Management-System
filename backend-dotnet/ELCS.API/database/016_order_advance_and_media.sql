@@ -176,7 +176,9 @@ BEGIN
 END
 GO
 
-COMMIT TRANSACTION;
+-- Guarded so a rolled-back transaction does not raise a second, misleading
+-- "no corresponding BEGIN TRANSACTION" that buries the real failure.
+IF @@TRANCOUNT > 0 COMMIT TRANSACTION;
 GO
 
 /* ---------------------------------------------------------------------------

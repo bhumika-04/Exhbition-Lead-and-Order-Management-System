@@ -110,8 +110,9 @@ IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_Orders_Sourc
         CHECK (Source IN ('staff','self_service'));
 GO
 
-CREATE NONCLUSTERED INDEX IX_Orders_Source_Status
-    ON dbo.Orders (Source, StatusCode) INCLUDE (LeadId, CreatedAt);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Orders_Source_Status')
+    CREATE NONCLUSTERED INDEX IX_Orders_Source_Status
+        ON dbo.Orders (Source, StatusCode) INCLUDE (LeadId, CreatedAt);
 GO
 
 /* ---------------------------------------------------------------------------
@@ -122,7 +123,10 @@ IF OBJECT_ID('dbo.AppSettings', 'U') IS NOT NULL
     INSERT INTO dbo.AppSettings (SettingKey, SettingValue) VALUES ('whatsapp.template.otp', NULL);
 GO
 
-COMMIT TRANSACTION;
+-- Guarded: XACT_ABORT rolls the transaction back on any error above, and an
+-- unguarded COMMIT then raises "no corresponding BEGIN TRANSACTION" — a second,
+-- misleading message that buries the real failure at the top of the output.
+IF @@TRANCOUNT > 0 COMMIT TRANSACTION;
 GO
 
 /* ---------------------------------------------------------------------------

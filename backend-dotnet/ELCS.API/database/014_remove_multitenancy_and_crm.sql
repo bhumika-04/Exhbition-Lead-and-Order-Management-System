@@ -128,7 +128,9 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UQ_Roles_RoleName' AND ob
    --------------------------------------------------------------------------- */
 IF OBJECT_ID('dbo.Companies', 'U') IS NOT NULL DROP TABLE dbo.Companies;
 
-COMMIT TRANSACTION;
+-- Guarded so a rolled-back transaction does not raise a second, misleading
+-- "no corresponding BEGIN TRANSACTION" that buries the real failure.
+IF @@TRANCOUNT > 0 COMMIT TRANSACTION;
 GO
 
 /* ---------------------------------------------------------------------------

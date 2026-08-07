@@ -99,10 +99,13 @@ IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_OrderItems_Produc
             REFERENCES dbo.Products (ProductId) ON DELETE SET NULL;
 GO
 
-CREATE NONCLUSTERED INDEX IX_OrderItems_ProductId ON dbo.OrderItems (ProductId);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_OrderItems_ProductId')
+    CREATE NONCLUSTERED INDEX IX_OrderItems_ProductId ON dbo.OrderItems (ProductId);
 GO
 
-COMMIT TRANSACTION;
+-- Guarded so a rolled-back transaction does not raise a second, misleading
+-- "no corresponding BEGIN TRANSACTION" that buries the real failure.
+IF @@TRANCOUNT > 0 COMMIT TRANSACTION;
 GO
 
 /* ---------------------------------------------------------------------------
