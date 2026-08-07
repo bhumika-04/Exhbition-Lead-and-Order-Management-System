@@ -219,6 +219,29 @@ A **barcode identifies a design, not a physical piece**, so several garments sha
 scanning the same code twice is legitimate. There is no stock tracking — this is a catalogue,
 not an inventory.
 
+### Sizes and colours are lists
+
+A design is stocked in several sizes and colours, so both fields are **comma separated**:
+
+```
+Size    38, 40, 42
+Colour  Navy, Black, Maroon
+```
+
+The form shows the parsed values as chips while you type — `38,40 ,42` and `38, 40, 42` store
+identically, and seeing how the text actually parses is the only way to catch a stray comma
+before it becomes a phantom size on the order screen. Values are canonicalised on save, so the
+same design entered twice cannot produce two different strings.
+
+**Scanning that barcode on the order page offers exactly those options** — not every value in
+the catalogue. The operator picks what the customer wants from what the design can actually be
+supplied in. A design with only one size or colour has it preselected, since there is no
+decision to make; one with several leaves it unset, because guessing would silently order the
+wrong size.
+
+Items added without a barcode fall back to every distinct value in the catalogue
+(`GET /api/products/options`), and anything can be typed in either case.
+
 The shape rules are enforced by `CK_Products_Shape` **in the database**, not only in the form, so
 a bad row cannot be written even by a caller that bypasses the UI. The form mirrors them: pick
 Saree and category/size disappear; pick Stitched and size disappears with a made-to-measure note.
@@ -413,6 +436,14 @@ migrations against the restored copy, in order:
 | `016_order_advance_and_media.sql` | Per-order advance + slab, optional rate, `LeadPhotos`, testimonial, `AppSettings` |
 | `017_self_service_ordering.sql` | Exhibition QR token, `OtpChallenges`, `PublicSessions`, order source |
 | `018_product_master.sql` | `Products` + the product link/snapshot on order lines |
+| `019_ensure_missing_objects.sql` | Repairs a **copied** schema — sequences and filtered indexes that SSMS Generate Scripts drops |
+| `020_seed_first_user.sql` | First login for an empty database (edit the credentials at the top) |
+| `021_order_item_multi_values.sql` | Widens `OrderItems.Size`/`Colour` for comma-separated lists |
+| `022_product_multi_values.sql` | Widens `Products.Size`/`Colour` for comma-separated lists |
+
+> `019` matters if the database was built by copying a schema rather than running these
+> scripts. Tables, constraints and foreign keys copy across; **sequences and filtered indexes
+> do not** — and a missing `OrderNumberSequence` only surfaces when the first order fails.
 
 > **Run the pre-flight `SELECT` at the top of `014` first.** It reports how many distinct tenants
 > the restored data holds. If more than one, the script merges those companies' leads into a

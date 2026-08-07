@@ -21,7 +21,7 @@ import {
   ORDER_ITEM_TYPES, PRODUCT_CATEGORIES, takesCategory, takesSize,
   type LeadDetails, type LeadOrderSummary, type Product, type OrderSummary,
 } from '@/lib/types';
-import { money } from '@/lib/orders';
+import { money, splitCsv, joinCsv } from '@/lib/orders';
 import { apiErrorMessage } from '@/lib/apiError';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -43,6 +43,11 @@ interface Row {
   remark: string;
   rate: string;
   expanded: boolean;
+  // What THIS design is available in, from Product Master. The dropdown offers
+  // these rather than every value in the catalogue, so the operator picks from
+  // what can actually be supplied.
+  sizeOptions: string[];
+  colourOptions: string[];
 }
 
 let rowSeq = 0;
@@ -99,22 +104,31 @@ export default function PlaceOrderPage() {
   const addRow = (row: Row) =>
     setRows(rs => [...rs.map(r => ({ ...r, expanded: false })), { ...row, expanded: true }]);
 
-  const rowFromProduct = (p: Product): Row => ({
-    key: newKey(),
-    productId: p.product_id,
-    imagePath: p.image_path ?? null,
-    name: p.name || [p.category, p.product_type].filter(Boolean).join(' '),
-    itemType: p.product_type,
-    category: p.category ?? null,
-    barcode: p.barcode,
-    fabric: p.fabric ?? '',
-    pieces: 1,
-    sizes: p.size ? [p.size] : [],
-    colours: p.colour ? [p.colour] : [],
-    remark: '',
-    rate: p.price != null ? String(p.price) : '',
-    expanded: true,
-  });
+  const rowFromProduct = (p: Product): Row => {
+    const sizeOpts = splitCsv(p.size);
+    const colourOpts = splitCsv(p.colour);
+    return {
+      key: newKey(),
+      productId: p.product_id,
+      imagePath: p.image_path ?? null,
+      name: p.name || [p.category, p.product_type].filter(Boolean).join(' '),
+      itemType: p.product_type,
+      category: p.category ?? null,
+      barcode: p.barcode,
+      fabric: p.fabric ?? '',
+      pieces: 1,
+      // Only one option means there is no decision to make — preselect it.
+      // Several means the customer has a choice, so leave it for the operator
+      // rather than guessing and having a wrong size ordered by default.
+      sizes: sizeOpts.length === 1 ? sizeOpts : [],
+      colours: colourOpts.length === 1 ? colourOpts : [],
+      remark: '',
+      rate: p.price != null ? String(p.price) : '',
+      expanded: true,
+      sizeOptions: sizeOpts,
+      colourOptions: colourOpts,
+    };
+  };
 
   const blankRow = (barcode = ''): Row => ({
     key: newKey(),
@@ -131,6 +145,9 @@ export default function PlaceOrderPage() {
     remark: '',
     rate: '',
     expanded: true,
+    // No product behind it, so fall back to everything in the catalogue.
+    sizeOptions: sizeOptions,
+    colourOptions: colourOptions,
   });
 
   /** A recognised scan is added outright. An unknown one becomes a draft to confirm. */
@@ -174,8 +191,8 @@ export default function PlaceOrderPage() {
         item_type: r.itemType,
         barcode: r.barcode.trim() || null,
         // Several values per line are stored comma-separated.
-        size: r.sizes.length ? r.sizes.join(', ') : null,
-        colour: r.colours.length ? r.colours.join(', ') : null,
+        size: r.sizes.length ? joinCsv(r.sizes) : null,
+        colour: r.colours.length ? joinCsv(r.colours) : null,
         pieces: r.pieces,
         rate: rate !== null && Number.isFinite(rate) ? rate : null,
         customization: r.remark.trim() || null,
@@ -343,18 +360,18 @@ export default function PlaceOrderPage() {
                           <MultiSelect
                             label="Size"
                             values={r.sizes}
-                            options={sizeOptions}
+                            options={r.sizeOptions}
                             onChange={v => patch(r.key, { sizes: v })}
-                            placeholder="Any size"
+                            placeholder={r.sizeOptions.length ? 'Choose size' : 'Any size'}
                             disabled={r.productId !== null && !takesSize(r.itemType, r.category)}
                             disabledHint={r.category === 'Stitched' ? 'made to measure' : 'not applicable'}
                           />
                           <MultiSelect
                             label="Colour"
                             values={r.colours}
-                            options={colourOptions}
+                            options={r.colourOptions}
                             onChange={v => patch(r.key, { colours: v })}
-                            placeholder="Any colour"
+                            placeholder={r.colourOptions.length ? 'Choose colour' : 'Any colour'}
                           />
                         </div>
 
@@ -473,8 +490,6 @@ export default function PlaceOrderPage() {
           <ItemSheet
             row={editing}
             isDraft={draftRow !== null}
-            sizeOptions={sizeOptions}
-            colourOptions={colourOptions}
             onChange={p => draftRow
               ? setDraftRow({ ...draftRow, ...p })
               : patch(editing.key, p)}
@@ -493,12 +508,10 @@ export default function PlaceOrderPage() {
 
 /** Full detail for one item. Doubles as the "add without a barcode" form. */
 function ItemSheet({
-  row, isDraft, sizeOptions, colourOptions, onChange, onConfirm, onCancel, onRemove,
+  row, isDraft, onChange, onConfirm, onCancel, onRemove,
 }: {
   row: Row;
   isDraft: boolean;
-  sizeOptions: string[];
-  colourOptions: string[];
   onChange: (p: Partial<Row>) => void;
   onConfirm: () => void;
   onCancel: () => void;
@@ -579,11 +592,11 @@ function ItemSheet({
           )}
 
           <div className="flex gap-2">
-            <MultiSelect label="Size" values={row.sizes} options={sizeOptions}
+            <MultiSelect label="Size" values={row.sizes} options={row.sizeOptions}
                          onChange={v => onChange({ sizes: v })} placeholder="Any size"
                          disabled={takesCategory(row.itemType) && row.category === 'Stitched'}
                          disabledHint="made to measure" />
-            <MultiSelect label="Colour" values={row.colours} options={colourOptions}
+            <MultiSelect label="Colour" values={row.colours} options={row.colourOptions}
                          onChange={v => onChange({ colours: v })} placeholder="Any colour" />
           </div>
 

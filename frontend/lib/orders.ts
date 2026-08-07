@@ -31,6 +31,31 @@ export function money(value: number | null | undefined): string {
   return inr.format(Number.isFinite(value as number) ? (value as number) : 0);
 }
 
+/**
+ * Splits the comma-separated lists that Products and OrderItems store for size
+ * and colour. Trims, drops blanks, and de-duplicates case-insensitively so
+ * "38, 38 " does not yield two options.
+ */
+export function splitCsv(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of raw.split(',')) {
+    const v = part.trim();
+    if (!v) continue;
+    const key = v.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(v);
+  }
+  return out;
+}
+
+/** Canonical form for storage — matches ProductService.NormaliseList on the server. */
+export function joinCsv(values: string[]): string {
+  return splitCsv(values.join(',')).join(', ');
+}
+
 export const ORDER_STATUS_LABELS: Record<string, string> = {
   draft: 'Draft',
   confirmed: 'Confirmed',

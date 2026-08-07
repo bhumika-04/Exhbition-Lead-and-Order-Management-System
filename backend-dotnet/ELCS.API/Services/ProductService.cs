@@ -75,7 +75,7 @@ public class ProductService : IProductService
 
     public async Task<int> CreateAsync(SaveProductRequest request)
     {
-        var (category, size) = ValidateAndNormalise(request);
+        var (category, size, colour) = ValidateAndNormalise(request);
 
         using var conn = _db.CreateConnection();
 
@@ -97,7 +97,7 @@ public class ProductService : IProductService
                 request.ProductType,
                 Category = category,
                 Size = size,
-                request.Colour,
+                Colour = colour,
                 request.Fabric,
                 request.Price,
                 request.Name,
@@ -109,7 +109,7 @@ public class ProductService : IProductService
 
     public async Task UpdateAsync(int productId, SaveProductRequest request)
     {
-        var (category, size) = ValidateAndNormalise(request);
+        var (category, size, colour) = ValidateAndNormalise(request);
 
         using var conn = _db.CreateConnection();
 
@@ -131,7 +131,7 @@ public class ProductService : IProductService
                 request.ProductType,
                 Category = category,
                 Size = size,
-                request.Colour,
+                Colour = colour,
                 request.Fabric,
                 request.Price,
                 request.Name,
@@ -164,20 +164,27 @@ public class ProductService : IProductService
     {
         using var conn = _db.CreateConnection();
 
-        var sizes = (await conn.QueryAsync<string>(@"
-            SELECT DISTINCT Size FROM Products
-            WHERE IsActive = 1 AND Size IS NOT NULL AND LTRIM(RTRIM(Size)) <> ''
-            ORDER BY Size")).ToList();
+        // Products store these comma-separated, so split before de-duplicating —
+        // otherwise the fallback list offers "38, 40, 42" as a single option.
+        var rawSizes = await conn.QueryAsync<string>(
+            "SELECT Size FROM Products WHERE IsActive = 1 AND Size IS NOT NULL");
+        var rawColours = await conn.QueryAsync<string>(
+            "SELECT Colour FROM Products WHERE IsActive = 1 AND Colour IS NOT NULL");
 
-        var colours = (await conn.QueryAsync<string>(@"
-            SELECT DISTINCT Colour FROM Products
-            WHERE IsActive = 1 AND Colour IS NOT NULL AND LTRIM(RTRIM(Colour)) <> ''
-            ORDER BY Colour")).ToList();
-
-        return (sizes, colours);
+        return (SplitDistinct(rawSizes), SplitDistinct(rawColours));
     }
 
-    private static (string? Category, string? Size) ValidateAndNormalise(SaveProductRequest r)
+    /// <summary>Splits comma-separated values, trims, de-duplicates case-insensitively, sorts.</summary>
+    public static List<string> SplitDistinct(IEnumerable<string?> values) =>
+        values
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .SelectMany(v => v!.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Where(v => v.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(v => v, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private static (string? Category, string? Size, string? Colour) ValidateAndNormalise(SaveProductRequest r)
     {
         if (string.IsNullOrWhiteSpace(r.Barcode))
             throw new ArgumentException("Barcode is required");
@@ -187,6 +194,19 @@ public class ProductService : IProductService
         var problem = ProductRules.Validate(r.ProductType, r.Category, r.Size);
         if (problem != null) throw new ArgumentException(problem);
 
-        return ProductRules.Normalise(r.ProductType, r.Category, r.Size);
+        var (category, size) = ProductRules.Normalise(r.ProductType, r.Category, r.Size);
+
+        // Size and colour are comma-separated lists. Canonicalise the spacing so
+        // "38,40" and "38, 40" are stored identically — otherwise the same design
+        // entered twice yields two different strings and the order-page dropdown
+        // shows duplicates.
+        return (category, NormaliseList(size), NormaliseList(r.Colour));
+    }
+
+    private static string? NormaliseList(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        var parts = SplitDistinct(new[] { raw });
+        return parts.Count == 0 ? null : string.Join(", ", parts);
     }
 }

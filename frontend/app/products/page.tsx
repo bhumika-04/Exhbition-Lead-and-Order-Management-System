@@ -13,7 +13,7 @@ import {
   PRODUCT_TYPES, PRODUCT_CATEGORIES, takesCategory, takesSize,
   type Product, type SaveProductRequest,
 } from '@/lib/types';
-import { money } from '@/lib/orders';
+import { money, splitCsv } from '@/lib/orders';
 import { Button } from '@/components/ui/button';
 import BarcodeScanner from '@/components/BarcodeScanner';
 
@@ -237,8 +237,10 @@ export default function ProductsPage() {
                 <div className="flex flex-wrap gap-1 mt-1.5">
                   <Chip>{p.product_type}</Chip>
                   {p.category && <Chip tone="blue">{p.category}</Chip>}
-                  {p.size && <Chip>Size {p.size}</Chip>}
-                  {p.colour && <Chip>{p.colour}</Chip>}
+                  {/* One chip per value — a design in four sizes should read as
+                      four options, not one run-on string. */}
+                  {splitCsv(p.size).map(s => <Chip key={`s-${s}`}>{s}</Chip>)}
+                  {splitCsv(p.colour).map(c => <Chip key={`c-${c}`}>{c}</Chip>)}
                   {p.fabric && <Chip>{p.fabric}</Chip>}
                 </div>
 
@@ -324,18 +326,21 @@ export default function ProductsPage() {
                 )}
 
                 {takesSize(form.product_type, form.category) ? (
-                  <Input label="Size" value={form.size ?? ''}
-                         onChange={v => setForm(f => ({ ...f, size: v }))} placeholder="e.g. 40" />
+                  <CsvInput label="Sizes" value={form.size ?? ''}
+                            onChange={v => setForm(f => ({ ...f, size: v }))}
+                            placeholder="38, 40, 42"
+                            hint="Every size this design comes in, comma separated" />
                 ) : takesCategory(form.product_type) && form.category === 'Stitched' ? (
                   <p className="text-[11px] text-slate-400">Stitched items are made to measure — no size.</p>
                 ) : null}
 
-                <div className="grid grid-cols-2 gap-3">
-                  <Input label="Colour" value={form.colour ?? ''}
-                         onChange={v => setForm(f => ({ ...f, colour: v }))} />
-                  <Input label="Fabric" value={form.fabric ?? ''}
-                         onChange={v => setForm(f => ({ ...f, fabric: v }))} />
-                </div>
+                <CsvInput label="Colours" value={form.colour ?? ''}
+                          onChange={v => setForm(f => ({ ...f, colour: v }))}
+                          placeholder="Navy, Black, Maroon"
+                          hint="Every colour this design comes in, comma separated" />
+
+                <Input label="Fabric" value={form.fabric ?? ''}
+                       onChange={v => setForm(f => ({ ...f, fabric: v }))} />
 
                 <div className="grid grid-cols-2 gap-3">
                   <Input label="Price (₹)" value={priceText} onChange={setPriceText}
@@ -391,6 +396,46 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="text-xs text-slate-500 font-medium">{label}</span>
       <div className="mt-1">{children}</div>
     </div>
+  );
+}
+
+/**
+ * Comma-separated list input, with the parsed values shown as chips.
+ *
+ * The chips are the point: "38,40 ,42" and "38, 40, 42" look different while
+ * typing but store identically, and seeing how the text actually parses is the
+ * only way to catch a stray comma before it becomes a phantom size on the order
+ * page dropdown.
+ */
+function CsvInput({ label, value, onChange, placeholder, hint }: {
+  label: string; value: string; onChange: (v: string) => void;
+  placeholder?: string; hint?: string;
+}) {
+  const parsed = splitCsv(value);
+  return (
+    <label className="block text-xs">
+      <span className="text-slate-500 font-medium">{label}</span>
+      <input
+        value={value}
+        placeholder={placeholder}
+        onChange={e => onChange(e.target.value)}
+        className="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm"
+      />
+      {parsed.length > 0 ? (
+        <span className="flex flex-wrap gap-1 mt-1.5">
+          {parsed.map(v => (
+            <span key={v} className="text-[10px] font-medium bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">
+              {v}
+            </span>
+          ))}
+          <span className="text-[10px] text-slate-400 self-center ml-0.5">
+            {parsed.length} option{parsed.length === 1 ? '' : 's'}
+          </span>
+        </span>
+      ) : hint ? (
+        <span className="text-[10px] text-slate-400 mt-1 block">{hint}</span>
+      ) : null}
+    </label>
   );
 }
 
