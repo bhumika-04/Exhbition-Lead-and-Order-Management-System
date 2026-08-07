@@ -525,10 +525,32 @@ and team photos are served from this backend's `/uploads`, so this must be the i
 origin. Left as `localhost`, the order confirms and the PDF generates, but Interakt cannot
 retrieve it and the message fails.
 
-Generated files carry a **GUID in the filename**
-(`uploads/orders/{leadId}/SO-…-{guid}.pdf`, `uploads/leads/{id}/photos/{guid}.jpg`,
-`uploads/products/{id}/{guid}.jpg`) because `/uploads` is served without authentication — a
-predictable name would make every customer's document enumerable.
+### Uploads layout
+
+Everything belonging to a lead lives under one folder, so a lead's media can be found,
+archived or deleted in one place:
+
+```
+uploads/
+  leads/{leadId}/
+    card/     front.jpg, back.jpg        visiting card
+    team/     {guid}.jpg                 photos with the team
+    orders/   {orderNo}-{guid}.pdf       sales orders
+  products/{productId}/{guid}.jpg
+  temp/cards/{tempId}/                   scanned, not yet confirmed
+```
+
+The layout is defined once in
+[`UploadPaths.cs`](backend-dotnet/ELCS.API/Utils/UploadPaths.cs) rather than spelled out in
+each service, so it cannot drift apart again.
+
+Stored paths are **relative** to the uploads root. An absolute path breaks the moment the app
+moves machine or directory — `UploadPaths.ToRelative` still tolerates the older absolute
+values, and migration `023` rewrites them.
+
+Generated files carry a **GUID in the filename** because `/uploads` is served without
+authentication — a predictable name would make every customer's document enumerable.
+Testimonials are Drive links, so nothing is stored for them.
 
 ### Runtime settings (`/settings`)
 
@@ -676,11 +698,11 @@ GET/POST/PUT/DELETE /api/roles
 
 ### Static files & health
 ```
-GET /uploads/cards/{leadId}/front.jpg
-GET /uploads/cards/{leadId}/back.jpg
-GET /uploads/leads/{leadId}/photos/{guid}.jpg
+GET /uploads/leads/{leadId}/card/front.jpg
+GET /uploads/leads/{leadId}/card/back.jpg
+GET /uploads/leads/{leadId}/team/{guid}.jpg
+GET /uploads/leads/{leadId}/orders/{orderNo}-{guid}.pdf
 GET /uploads/products/{productId}/{guid}.jpg
-GET /uploads/orders/{leadId}/{orderNo}-{guid}.pdf
 GET /health
 ```
 

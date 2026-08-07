@@ -1,4 +1,4 @@
-﻿namespace ELCS.API.DTOs;
+namespace ELCS.API.DTOs;
 
 // Card Extraction DTOs
 public record CardExtractionResponse(
@@ -10,7 +10,7 @@ public record CardExtractionResponse(
     DuplicateCheckResult? DuplicateCheck,
     string Message,
     string? TaskId = null,
-    string? TempId = null  // Temp image folder ID for preview â†’ confirm flow
+    string? TempId = null  // Temp image folder ID for preview → confirm flow
 );
 
 public record CardExtractionData(

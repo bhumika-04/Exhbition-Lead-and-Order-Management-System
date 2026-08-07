@@ -1,4 +1,5 @@
 using System.Globalization;
+using ELCS.API.Utils;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
@@ -40,11 +41,10 @@ public class SalesOrderPdfService : ISalesOrderPdfService
         // without authentication (Interakt must be able to fetch it by URL),
         // so a predictable name would expose every customer's order document.
         var fileName = $"{order.OrderNumber}-{Guid.NewGuid():N}.pdf";
-        var relativePath = Path.Combine("orders", order.LeadId.ToString(), fileName)
-                               .Replace('\\', '/');
+        var folder = UploadPaths.LeadOrders(order.LeadId);
+        var relativePath = $"{folder}/{fileName}";
 
-        var absoluteDir = Path.Combine(_env.ContentRootPath, "uploads", "orders", order.LeadId.ToString());
-        Directory.CreateDirectory(absoluteDir);
+        var absoluteDir = UploadPaths.EnsureFolder(_env.ContentRootPath, folder);
         var absolutePath = Path.Combine(absoluteDir, fileName);
 
         var summary = order.LeadSummary;

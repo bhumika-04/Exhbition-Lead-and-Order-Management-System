@@ -1,7 +1,8 @@
-﻿using Dapper;
+using Dapper;
 using ELCS.API.Data;
 using ELCS.API.DTOs;
 using ELCS.API.Models;
+using ELCS.API.Utils;
 using System.Text.Json;
 
 namespace ELCS.API.Services;
@@ -11,7 +12,7 @@ public class ExtractionService : IExtractionService
     private readonly ILogger<ExtractionService> _logger;
     private readonly IDbConnection _db;
     private readonly IOpenAIService _openAIService;
-    private readonly string _uploadsRoot;
+    private readonly string _contentRoot;
 
     public ExtractionService(
         ILogger<ExtractionService> logger,
@@ -22,8 +23,7 @@ public class ExtractionService : IExtractionService
         _logger = logger;
         _db = db;
         _openAIService = openAIService;
-        _uploadsRoot = Path.Combine(env.ContentRootPath, "uploads", "cards");
-        Directory.CreateDirectory(_uploadsRoot);
+        _contentRoot = env.ContentRootPath;
     }
 
     public async Task<CardExtractionResponse> ExtractCardAsync(
@@ -48,12 +48,14 @@ public class ExtractionService : IExtractionService
         try
         {
             // Save images to disk first, then open fresh streams for OpenAI
-            var (frontPath, backPath) = await SaveCardImagesAsync(leadId.ToString(), frontImage, frontFileName, backImage, backFileName);
+            var (frontPath, backPath) = await SaveCardImagesAsync(
+                UploadPaths.LeadCard(leadId), frontImage, frontFileName, backImage, backFileName);
 
             CardExtractionData extractionData;
-            await using (var frontForOcr = System.IO.File.OpenRead(frontPath))
+            await using (var frontForOcr = System.IO.File.OpenRead(UploadPaths.Absolute(_contentRoot, frontPath)))
             {
-                Stream? backForOcr = backPath != null ? System.IO.File.OpenRead(backPath) : null;
+                Stream? backForOcr = backPath != null
+                    ? System.IO.File.OpenRead(UploadPaths.Absolute(_contentRoot, backPath)) : null;
                 _logger.LogInformation("Extracting card with OpenAI Vision for lead {LeadId}", leadId);
                 extractionData = await _openAIService.ExtractCardFromImagesAsync(frontForOcr, backForOcr);
                 if (backForOcr is IAsyncDisposable ad) await ad.DisposeAsync();
@@ -100,14 +102,16 @@ public class ExtractionService : IExtractionService
 
         try
         {
-            // Save to temp folder so images survive the preview â†’ confirm round-trip
+            // Save to temp folder so images survive the preview → confirm round-trip
             var tempId = Guid.NewGuid().ToString("N");
-            var (frontPath, backPath) = await SaveCardImagesAsync($"temp/{tempId}", frontImage, frontFileName, backImage, backFileName);
+            var (frontPath, backPath) = await SaveCardImagesAsync(
+                UploadPaths.TempCard(tempId), frontImage, frontFileName, backImage, backFileName);
 
             CardExtractionData extractionData;
-            await using (var frontForOcr = System.IO.File.OpenRead(frontPath))
+            await using (var frontForOcr = System.IO.File.OpenRead(UploadPaths.Absolute(_contentRoot, frontPath)))
             {
-                Stream? backForOcr = backPath != null ? System.IO.File.OpenRead(backPath) : null;
+                Stream? backForOcr = backPath != null
+                    ? System.IO.File.OpenRead(UploadPaths.Absolute(_contentRoot, backPath)) : null;
                 _logger.LogInformation("Extracting card with OpenAI Vision (preview mode)");
                 extractionData = await _openAIService.ExtractCardFromImagesAsync(frontForOcr, backForOcr);
                 if (backForOcr is IAsyncDisposable ad) await ad.DisposeAsync();
@@ -164,7 +168,7 @@ public class ExtractionService : IExtractionService
             var segmentInfo = SegmentLead(primaryPerson?.Designation);
 
             // Move temp images to permanent lead folder if tempId provided
-            var (frontPath, backPath) = MoveTempImages(tempId, leadId.ToString());
+            var (frontPath, backPath) = MoveTempImages(tempId, leadId);
 
             await UpdateLeadWithExtraction(conn, leadId, extractionData, segmentInfo, frontPath, backPath);
             await SaveLeadEntities(conn, leadId, extractionData);
@@ -191,7 +195,7 @@ public class ExtractionService : IExtractionService
         }
     }
 
-    // â”€â”€â”€ Private helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ─── Private helpers ───────────────────────────────────────────────────────
 
     private async Task<DuplicateCheckResult> CheckForDuplicates(Microsoft.Data.SqlClient.SqlConnection conn, CardExtractionData data, int exhibitionId)
     {
@@ -359,59 +363,67 @@ public class ExtractionService : IExtractionService
             });
     }
 
+    /// <summary>
+    /// Writes the card images and returns paths RELATIVE to the uploads root.
+    /// Relative, not absolute: the value is stored in the database and appended
+    /// to a public URL, so an absolute path breaks the moment the app moves
+    /// machine or directory.
+    /// </summary>
     private async Task<(string frontPath, string? backPath)> SaveCardImagesAsync(
-        string folderKey,
+        string relativeFolder,
         Stream frontStream,
         string frontFileName,
         Stream? backStream,
         string? backFileName)
     {
-        var folder = Path.Combine(_uploadsRoot, folderKey);
-        Directory.CreateDirectory(folder);
+        var folder = UploadPaths.EnsureFolder(_contentRoot, relativeFolder);
 
         var frontExt = Path.GetExtension(frontFileName).ToLower().TrimStart('.');
         if (string.IsNullOrEmpty(frontExt)) frontExt = "jpg";
-        var frontPath = Path.Combine(folder, $"front.{frontExt}");
+        var frontName = $"front.{frontExt}";
 
-        await using (var fs = System.IO.File.Create(frontPath))
+        await using (var fs = System.IO.File.Create(Path.Combine(folder, frontName)))
             await frontStream.CopyToAsync(fs);
 
-        string? backPath = null;
+        string? backRelative = null;
         if (backStream != null)
         {
             var backExt = Path.GetExtension(backFileName ?? "").ToLower().TrimStart('.');
             if (string.IsNullOrEmpty(backExt)) backExt = "jpg";
-            backPath = Path.Combine(folder, $"back.{backExt}");
-            await using var fs = System.IO.File.Create(backPath);
+            var backName = $"back.{backExt}";
+            await using var fs = System.IO.File.Create(Path.Combine(folder, backName));
             await backStream.CopyToAsync(fs);
+            backRelative = $"{relativeFolder}/{backName}";
         }
 
-        _logger.LogInformation("Card images saved to: {Folder}", folder);
-        return (frontPath, backPath);
+        _logger.LogInformation("Card images saved to {Folder}", relativeFolder);
+        return ($"{relativeFolder}/{frontName}", backRelative);
     }
 
-    private (string? frontPath, string? backPath) MoveTempImages(string? tempId, string leadFolder)
+    /// <summary>Moves preview images into the lead's own folder on confirm.</summary>
+    private (string? frontPath, string? backPath) MoveTempImages(string? tempId, int leadId)
     {
         if (string.IsNullOrEmpty(tempId)) return (null, null);
 
-        var tempFolder = Path.Combine(_uploadsRoot, "temp", tempId);
+        var tempFolder = UploadPaths.Absolute(_contentRoot, UploadPaths.TempCard(tempId));
         if (!Directory.Exists(tempFolder)) return (null, null);
 
-        var destFolder = Path.Combine(_uploadsRoot, leadFolder);
-        Directory.CreateDirectory(destFolder);
+        var destRelative = UploadPaths.LeadCard(leadId);
+        var destFolder = UploadPaths.EnsureFolder(_contentRoot, destRelative);
 
         string? frontPath = null, backPath = null;
 
         foreach (var file in Directory.GetFiles(tempFolder))
         {
-            var dest = Path.Combine(destFolder, Path.GetFileName(file));
-            System.IO.File.Move(file, dest, overwrite: true);
-            if (Path.GetFileNameWithoutExtension(file) == "front") frontPath = dest;
-            else if (Path.GetFileNameWithoutExtension(file) == "back") backPath = dest;
+            var name = Path.GetFileName(file);
+            System.IO.File.Move(file, Path.Combine(destFolder, name), overwrite: true);
+            var relative = $"{destRelative}/{name}";
+            if (Path.GetFileNameWithoutExtension(file) == "front") frontPath = relative;
+            else if (Path.GetFileNameWithoutExtension(file) == "back") backPath = relative;
         }
 
         Directory.Delete(tempFolder, recursive: true);
-        _logger.LogInformation("Moved temp images {TempId} â†’ lead {LeadFolder}", tempId, leadFolder);
+        _logger.LogInformation("Moved temp images {TempId} to lead {LeadId}", tempId, leadId);
         return (frontPath, backPath);
     }
 

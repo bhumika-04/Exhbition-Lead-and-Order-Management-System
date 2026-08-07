@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using ELCS.API.Services;
+using ELCS.API.Utils;
 
 namespace ELCS.API.Controllers;
 
@@ -143,14 +144,13 @@ public class ProductsController : ControllerBase
         // images are shown to customers on the public ordering page, so the path
         // should not double as a way to enumerate the catalogue.
         var fileName = $"{Guid.NewGuid():N}{ext}";
-        var dir = Path.Combine(_env.ContentRootPath, "uploads", "products", productId.ToString());
-        Directory.CreateDirectory(dir);
+        var folder = UploadPaths.Product(productId);
+        var dir = UploadPaths.EnsureFolder(_env.ContentRootPath, folder);
 
-        var absolute = Path.Combine(dir, fileName);
-        await using (var stream = System.IO.File.Create(absolute))
+        await using (var stream = System.IO.File.Create(Path.Combine(dir, fileName)))
             await image.CopyToAsync(stream);
 
-        var relative = $"products/{productId}/{fileName}";
+        var relative = $"{folder}/{fileName}";
         await _products.SetImageAsync(productId, relative);
 
         _logger.LogInformation("Uploaded image for product {ProductId}", productId);

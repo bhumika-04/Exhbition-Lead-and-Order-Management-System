@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using ELCS.API.Services;
+using ELCS.API.Utils;
 
 namespace ELCS.API.Controllers;
 
@@ -80,13 +81,13 @@ public class LeadMediaController : ControllerBase
         // GUID filename: /uploads is public so Interakt can fetch media by URL,
         // and a sequential name would make customers' photos enumerable.
         var fileName = $"{Guid.NewGuid():N}{ext}";
-        var dir = Path.Combine(_env.ContentRootPath, "uploads", "leads", leadId.ToString(), "photos");
-        Directory.CreateDirectory(dir);
+        var folder = UploadPaths.LeadTeam(leadId);
+        var dir = UploadPaths.EnsureFolder(_env.ContentRootPath, folder);
 
         await using (var stream = System.IO.File.Create(Path.Combine(dir, fileName)))
             await photo.CopyToAsync(stream);
 
-        var relative = $"leads/{leadId}/photos/{fileName}";
+        var relative = $"{folder}/{fileName}";
 
         try
         {
