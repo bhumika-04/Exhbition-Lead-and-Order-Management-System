@@ -33,7 +33,7 @@ SETUP        Exhibition  →  Product Master  →  Settings (templates, social l
                 │   → team photo → welcome WhatsApp                │
                 │                                                  ▼
                 └── A2. SELF-SERVICE ──────────────────────►   LEAD EXISTS
-                    QR → mobile → OTP → identify/register          │
+                    QR → mobile → identify/register                │
                     → items → pending order                        │
                                                                    ▼
                                                         B. ORDER PLACEMENT
@@ -308,7 +308,8 @@ At a busy booth the CRR becomes the bottleneck. A visitor instead scans a QR at 
 a public page on their own phone, and enters their own order.
 
 ```
-QR  →  /o/{token}  →  mobile  →  WhatsApp OTP  →  identify  →  items  →  pending order
+QR  →  /o/{token}  →  mobile  →  identify  →  items  →  pending order
+                                 └── optional WhatsApp OTP, off by default
 ```
 
 ### Generating the QR
@@ -327,31 +328,48 @@ exhibition, so self-service orders land in the right event.
 
 ### The visitor's flow
 
-1. **Mobile number.** Interakt sends a 6-digit code over WhatsApp.
-2. **Verify.** Only now does any lead data come back.
-3. **Identify or self-register.** A verified number matches an existing lead (newest wins, since
+1. **Mobile number.** Taken at face value by default; with verification on, Interakt sends a
+   6-digit code over WhatsApp first.
+2. **Identify or self-register.** The number matches an existing lead (newest wins, since
    phone numbers are not unique in this schema) and greets them by name. An unknown number
    self-registers with just a name — which makes the QR a lead-capture channel as well as an
    order channel, important because the walk-in crowd causing the queue mostly has not handed
    over a card. Self-registered leads get the welcome WhatsApp immediately.
-4. **Items.** Scanning a tag resolves the product and shows the **garment — photo, fabric, colour,
+3. **Items.** Scanning a tag resolves the product and shows the **garment — photo, fabric, colour,
    price** — so the customer confirms a picture rather than a code. Unknown codes are surfaced,
    not silently accepted.
-5. **Submit.** The order becomes a `draft` flagged `Source = 'self_service'` for a CRR to price
+4. **Submit.** The order becomes a `draft` flagged `Source = 'self_service'` for a CRR to price
    and collect against.
 
-### Why the OTP is not optional
+### Mobile verification is optional — and off
 
-The page is public: no login, no employee header. A mobile number is a *claim*, not a credential,
-and phone numbers are guessable. Without verification, anyone who scans the QR could type numbers
-and read back names, companies, emails and order history — the customer list, one number at a
-time.
+**Settings → Self-service ordering → "Verify the customer's mobile by WhatsApp before they can
+order."** Default off (`selfservice.require_otp = false`, migration `024`).
 
-The OTP makes the visitor prove the number is theirs before any lead data is returned, and the
-request endpoint's response is **identical whether or not the number is on file**, so it cannot
-be used to test which numbers are customers.
+Requiring an OTP means requiring an approved Meta **authentication** template, which is a separate
+approval from the three utility templates this app already needs. Until that clears, an OTP gate
+doesn't secure the QR — it disables it, and the visitor hits *"WhatsApp is not configured"* after
+typing their number.
 
-Supporting limits, all server-side:
+The judgement behind the default: at a booth the QR is printed on the stall with staff beside it,
+and — the part that actually matters — **every self-service order is a `draft` that a CRR reviews,
+prices and collects against before it becomes a confirmed Sales Order.** The review step, not the
+OTP, is what stops a bad order becoming a real one. The customer cannot set their own rate, advance
+or coupon count, and the public endpoint discards any rate sent to it.
+
+What that default costs, stated plainly so it is not discovered later: **a number typed on the
+public page is believed.** Entering a number belonging to an existing lead returns that lead's name
+and company and allows an order in their name. Someone doing that is standing at your stall, and a
+CRR sees the order before it counts for anything — but if you would rather not accept that, turn
+the setting on.
+
+Turning it on restores the stricter contract exactly, with no code change: nothing about a lead
+comes back until a code sent to that number returns, and `otp/request` responds **identically
+whether or not the number is on file**, so it cannot be used to test which numbers are customers.
+The `/api/public/session` endpoint refuses while the setting is on, so the gate cannot be skipped
+by calling the API directly.
+
+The OTP machinery is untouched and still enforces, whenever it is switched on:
 
 | Control | Value |
 |---|---|
@@ -440,6 +458,9 @@ migrations against the restored copy, in order:
 | `020_seed_first_user.sql` | First login for an empty database (edit the credentials at the top) |
 | `021_order_item_multi_values.sql` | Widens `OrderItems.Size`/`Colour` for comma-separated lists |
 | `022_product_multi_values.sql` | Widens `Products.Size`/`Colour` for comma-separated lists |
+| `023_normalise_media_paths.sql` | Rewrites stored media paths to lead-scoped relatives |
+| `024_self_service_optional_otp.sql` | Adds `selfservice.require_otp` (default `false`) and seeds the OTP template key |
+| `025_product_image_named_by_id.sql` | Renames product images to `products/{id}.{ext}` — **move the files first**, see the script header |
 
 > `019` matters if the database was built by copying a schema rather than running these
 > scripts. Tables, constraints and foreign keys copy across; **sequences and filtered indexes
@@ -536,9 +557,13 @@ uploads/
     card/     front.jpg, back.jpg        visiting card
     team/     {guid}.jpg                 photos with the team
     orders/   {orderNo}-{guid}.pdf       sales orders
-  products/{productId}/{guid}.jpg
+  products/{productId}.jpg               one image per product, named by id
   temp/cards/{tempId}/                   scanned, not yet confirmed
 ```
+
+A product carries exactly one image, so the product id names the file and the folder stays
+readable. Re-uploading deletes whatever extension was there before, so swapping a PNG for a
+JPG does not leave the PNG behind pointing at nothing.
 
 The layout is defined once in
 [`UploadPaths.cs`](backend-dotnet/ELCS.API/Utils/UploadPaths.cs) rather than spelled out in
@@ -669,7 +694,9 @@ POST   /api/exhibitions/{id}/self-service   Body: { enabled, rotate_token } → 
 
 ### Public — self-service ordering (no auth, rate-limited)
 ```
-GET  /api/public/exhibition/{token}   Resolve the QR token
+GET  /api/public/exhibition/{token}   Resolve the QR token (returns requires_otp)
+POST /api/public/session              Body: { token, mobile }       → session token + known lead
+                                      Refused while require_otp is on
 POST /api/public/otp/request          Body: { token, mobile }       → sends the WhatsApp code
 POST /api/public/otp/verify           Body: { token, mobile, code } → session token + known lead
 GET  /api/public/product/{barcode}    Resolve a scanned code   (X-Public-Session required)
@@ -702,7 +729,7 @@ GET /uploads/leads/{leadId}/card/front.jpg
 GET /uploads/leads/{leadId}/card/back.jpg
 GET /uploads/leads/{leadId}/team/{guid}.jpg
 GET /uploads/leads/{leadId}/orders/{orderNo}-{guid}.pdf
-GET /uploads/products/{productId}/{guid}.jpg
+GET /uploads/products/{productId}.jpg
 GET /health
 ```
 
@@ -766,7 +793,7 @@ ELOMS/
 │   │   ├── AuthService.cs              SHA-256 hashing + login
 │   │   └── RoleService.cs
 │   ├── Models/ DTOs/ Data/ Utils/
-│   ├── database/                       SQL migrations 014–018
+│   ├── database/                       SQL migrations 014–025
 │   └── uploads/                        cards/ · leads/ · products/ · orders/
 │
 └── frontend/
@@ -814,13 +841,24 @@ frontend origin, so it needs no extra CORS entry.
 **In place**
 
 - SQL injection prevented by Dapper parameterisation throughout
-- OTP: hashed codes, fixed-time comparison, attempt/rate limits (see [the table](#why-the-otp-is-not-optional))
+- OTP: hashed codes, fixed-time comparison, attempt/rate limits — **off by default**, see
+  [Mobile verification is optional](#mobile-verification-is-optional--and-off)
 - Public endpoints rate-limited to 30 req/min per IP
 - Self-service cannot set prices; the server re-reads the catalogue
-- Uploaded documents use GUID filenames so they are not enumerable
+- Lead media (visiting cards, team photos) uses GUID filenames so it is not enumerable.
+  Product images are deliberately named `products/{id}.{ext}` — they are catalogue photos
+  already shown to any visitor who scans the QR, so there is nothing to hide behind a GUID
 - Product shape rules enforced by database constraints
 - OpenAI and Interakt keys stay server-side
 - Upload caps: 20 MB card images, 20 MB team photos, 10 MB product images
+
+**Accepted trade-off — deliberate, and reversible from Settings**
+
+> - **The public ordering page believes the mobile number it is given.** With verification off
+>   (the default), typing a number that belongs to an existing lead returns that lead's name and
+>   company and permits an order in their name. Accepted because the QR is physical, staff are
+>   present, and a CRR reviews every self-service order before it is confirmed. Reversible: see
+>   [Mobile verification is optional](#mobile-verification-is-optional--and-off).
 
 **Known weaknesses — unaddressed, and predating this work**
 
@@ -842,7 +880,8 @@ frontend origin, so it needs no extra CORS entry.
 | Card extraction fails | Check `OpenAI:ApiKey` in `appsettings.json` |
 | WhatsApp never sends | Template name blank in `/settings` — sends are skipped, check the logs |
 | WhatsApp fails with a media error | `PublicBaseUrl` is not internet-reachable; Interakt cannot fetch the file |
-| OTP not received | The OTP template must be an **authentication** template in Interakt |
+| OTP not received | The OTP template must be an **authentication** template in Interakt. Verification is off by default — you only need this if you turned it on |
+| Public page says "WhatsApp is not configured" | Verification is on but no OTP template is set. Set one, or turn verification off in Settings |
 | Barcode does not resolve | Product missing or inactive in Product Master |
 | Barcode scan won't start | Camera permission denied, or no camera — the field still accepts typing |
 | Barcode scan slow to start on Safari/Firefox | First use downloads the ZXing decoder chunk; subsequent scans are instant |

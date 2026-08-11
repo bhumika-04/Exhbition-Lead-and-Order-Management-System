@@ -14,12 +14,12 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 
 const ROLE_COLORS = [
-  'from-blue-500 to-blue-700',
-  'from-violet-500 to-purple-700',
-  'from-emerald-500 to-teal-700',
-  'from-amber-500 to-orange-600',
-  'from-rose-500 to-pink-700',
-  'from-cyan-500 to-sky-700',
+  'from-primary to-primary',
+  'from-primary to-primary',
+  'from-[hsl(var(--chart-2))] to-[hsl(var(--chart-2))]',
+  'from-[hsl(var(--chart-3))] to-[hsl(var(--chart-3))]',
+  'from-[hsl(var(--chart-5))] to-[hsl(var(--chart-5))]',
+  'from-primary to-primary',
 ];
 
 interface RoleForm {
@@ -127,14 +127,14 @@ export default function RolesPage() {
   if (!mounted) return null;
 
   return (
-    <div className="flex-1 overflow-y-auto bg-slate-50 min-h-screen">
+    <div className="flex-1 overflow-y-auto bg-background min-h-screen">
       {/* Header */}
-      <div className="bg-white border-b border-slate-100 sticky top-0 z-10 px-4 md:px-6 py-4 md:py-0 md:min-h-[65px] flex items-center justify-between shrink-0">
+      <div className="bg-card border-b border-border sticky top-0 z-10 px-4 md:px-6 py-4 md:py-0 md:min-h-[65px] flex items-center justify-between shrink-0">
         <div>
-          <h1 className="text-xl font-bold text-slate-800">Role Management</h1>
-          <p className="text-sm text-slate-500 mt-0.5">{roles.length} role{roles.length !== 1 ? 's' : ''} defined</p>
+          <h1 className="text-xl font-bold text-foreground">Role Management</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">{roles.length} role{roles.length !== 1 ? 's' : ''} defined</p>
         </div>
-        <Button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
+        <Button onClick={openCreate} className="bg-primary hover:bg-primary/90 text-white gap-2">
           <Plus className="w-4 h-4" /> Add Role
         </Button>
       </div>
@@ -143,10 +143,10 @@ export default function RolesPage() {
       <div className="max-w-full px-4 py-6 space-y-3">
         {loading ? (
           <div className="flex items-center justify-center py-20">
-            <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
           </div>
         ) : roles.length === 0 ? (
-          <div className="text-center py-20 text-slate-500">No roles yet. Create one to get started.</div>
+          <div className="text-center py-20 text-muted-foreground">No roles yet. Create one to get started.</div>
         ) : (
           roles.map((role, idx) => {
             const perms = getPermissions(role);
@@ -171,21 +171,21 @@ export default function RolesPage() {
                       {/* Info */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-semibold text-slate-800 leading-tight">{role.role_name}</span>
+                          <span className="font-semibold text-foreground leading-tight">{role.role_name}</span>
                           <Badge variant="secondary" className="text-[11px] shrink-0">{perms.length} permission{perms.length !== 1 ? 's' : ''}</Badge>
                         </div>
                         {role.description && (
-                          <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">{role.description}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{role.description}</p>
                         )}
                         {/* Permission chips (collapsed preview) */}
                         {!isExpanded && perms.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-1.5">
                             {perms.slice(0, 3).map(p => {
                               const label = ALL_PERMISSIONS.find(x => x.key === p)?.label ?? p;
-                              return <span key={p} className="text-[11px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{label}</span>;
+                              return <span key={p} className="text-[11px] bg-primary/10 text-primary px-2 py-0.5 rounded-full">{label}</span>;
                             })}
                             {perms.length > 3 && (
-                              <span className="text-[11px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">+{perms.length - 3} more</span>
+                              <span className="text-[11px] bg-secondary text-muted-foreground px-2 py-0.5 rounded-full">+{perms.length - 3} more</span>
                             )}
                           </div>
                         )}
@@ -195,21 +195,21 @@ export default function RolesPage() {
                       <div className="flex items-center gap-0.5 shrink-0">
                         <button
                           onClick={() => setExpandedRole(isExpanded ? null : role.role_id)}
-                          className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition"
+                          className="p-1.5 text-muted-foreground hover:text-muted-foreground hover:bg-secondary rounded-lg transition"
                           title={isExpanded ? 'Collapse' : 'Expand'}
                         >
                           {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                         </button>
                         <button
                           onClick={() => openEdit(role)}
-                          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                          className="p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition"
                           title="Edit"
                         >
                           <Edit2 className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => setDeletingRole(role)}
-                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                          className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/12 rounded-lg transition"
                           title="Delete"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -225,15 +225,15 @@ export default function RolesPage() {
                           animate={{ height: 'auto', opacity: 1 }}
                           exit={{ height: 0, opacity: 0 }}
                           transition={{ duration: 0.2 }}
-                          className="overflow-hidden border-t border-slate-100"
+                          className="overflow-hidden border-t border-border"
                         >
-                          <div className="px-5 py-4 bg-slate-50">
-                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Permissions</p>
+                          <div className="px-5 py-4 bg-background">
+                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Permissions</p>
                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                               {ALL_PERMISSIONS.map(({ key, label }) => {
                                 const has = perms.includes(key);
                                 return (
-                                  <div key={key} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${has ? 'bg-green-50 text-green-700' : 'bg-white text-slate-400 border border-slate-100'}`}>
+                                  <div key={key} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${has ? 'bg-success/12 text-success' : 'bg-card text-muted-foreground border border-border'}`}>
                                     <Check className={`w-3.5 h-3.5 ${has ? 'opacity-100' : 'opacity-0'}`} />
                                     {label}
                                   </div>
@@ -266,16 +266,16 @@ export default function RolesPage() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col"
+              className="bg-card rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col"
             >
               {/* Modal header */}
-              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-                <h2 className="text-lg font-bold text-slate-800">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+                <h2 className="text-lg font-bold text-foreground">
                   {editingRole ? 'Edit Role' : 'Add New Role'}
                 </h2>
                 <button
                   onClick={() => { setShowCreateModal(false); setEditingRole(null); }}
-                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"
+                  className="p-2 text-muted-foreground hover:text-muted-foreground hover:bg-secondary rounded-lg"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -285,31 +285,31 @@ export default function RolesPage() {
               <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
                 {/* Role Name */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Role Name <span className="text-red-500">*</span></label>
+                  <label className="block text-sm font-medium text-foreground mb-1">Role Name <span className="text-destructive">*</span></label>
                   <input
                     type="text"
                     value={form.role_name}
                     onChange={e => setForm(f => ({ ...f, role_name: e.target.value }))}
                     placeholder="e.g. Sales Executive"
-                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
                   />
                 </div>
 
                 {/* Description */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
+                  <label className="block text-sm font-medium text-foreground mb-1">Description</label>
                   <input
                     type="text"
                     value={form.description}
                     onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
                     placeholder="Optional description"
-                    className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
                   />
                 </div>
 
                 {/* Permissions */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Permissions / Visibility</label>
+                  <label className="block text-sm font-medium text-foreground mb-2">Permissions / Visibility</label>
                   <div className="space-y-2">
                     {ALL_PERMISSIONS.map(({ key, label }) => {
                       const checked = form.permissions.includes(key);
@@ -317,15 +317,15 @@ export default function RolesPage() {
                         <label
                           key={key}
                           className={`flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer border transition-all ${
-                            checked ? 'bg-blue-50 border-blue-200' : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                            checked ? 'bg-primary/10 border-primary/20' : 'bg-background border-border hover:border-input'
                           }`}
                         >
                           <div className={`w-5 h-5 rounded-md flex items-center justify-center border-2 shrink-0 transition-all ${
-                            checked ? 'bg-blue-600 border-blue-600' : 'border-slate-300 bg-white'
+                            checked ? 'bg-primary border-primary' : 'border-input bg-card'
                           }`}>
                             {checked && <Check className="w-3 h-3 text-white" />}
                           </div>
-                          <span className={`text-sm font-medium ${checked ? 'text-blue-800' : 'text-slate-600'}`}>{label}</span>
+                          <span className={`text-sm font-medium ${checked ? 'text-primary' : 'text-muted-foreground'}`}>{label}</span>
                           <input type="checkbox" className="sr-only" checked={checked} onChange={() => togglePermission(key)} />
                         </label>
                       );
@@ -335,7 +335,7 @@ export default function RolesPage() {
               </div>
 
               {/* Modal footer */}
-              <div className="px-6 py-4 border-t border-slate-100 flex gap-3">
+              <div className="px-6 py-4 border-t border-border flex gap-3">
                 <Button
                   variant="outline"
                   className="flex-1"
@@ -344,7 +344,7 @@ export default function RolesPage() {
                   Cancel
                 </Button>
                 <Button
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                  className="flex-1 bg-primary hover:bg-primary/90 text-white"
                   onClick={editingRole ? handleUpdate : handleCreate}
                   disabled={saving}
                 >
@@ -369,19 +369,19 @@ export default function RolesPage() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6"
+              className="bg-card rounded-2xl shadow-2xl w-full max-w-sm p-6"
             >
-              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Trash2 className="w-6 h-6 text-red-600" />
+              <div className="w-12 h-12 bg-destructive/12 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Trash2 className="w-6 h-6 text-destructive" />
               </div>
-              <h3 className="text-lg font-bold text-slate-800 text-center mb-2">Delete Role?</h3>
-              <p className="text-sm text-slate-500 text-center mb-6">
-                <span className="font-semibold text-slate-700">{deletingRole.role_name}</span> will be deleted.
+              <h3 className="text-lg font-bold text-foreground text-center mb-2">Delete Role?</h3>
+              <p className="text-sm text-muted-foreground text-center mb-6">
+                <span className="font-semibold text-foreground">{deletingRole.role_name}</span> will be deleted.
                 Users assigned this role will have no role.
               </p>
               <div className="flex gap-3">
                 <Button variant="outline" className="flex-1" onClick={() => setDeletingRole(null)}>Cancel</Button>
-                <Button className="flex-1 bg-red-600 hover:bg-red-700 text-white" onClick={handleDelete} disabled={deleting}>
+                <Button className="flex-1 bg-destructive hover:bg-destructive text-white" onClick={handleDelete} disabled={deleting}>
                   {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Delete'}
                 </Button>
               </div>

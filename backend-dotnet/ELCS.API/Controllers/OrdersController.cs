@@ -34,7 +34,6 @@ public class OrdersController : ControllerBase
 
     /// <summary>Item types offered (Suit / Lehenga / Saree).</summary>
     [HttpGet("item-types")]
-    public IActionResult GetItemTypes() => Ok(new { item_types = OrderItemTypes.All });
 
     /// <summary>
     /// Slab options for the payment step. Each slab suggests ₹11,000 × slab as the
@@ -49,7 +48,7 @@ public class OrdersController : ControllerBase
             from_value = AdvanceCalculator.SlabSize * n,
             to_value = AdvanceCalculator.SlabSize * (n + 1),
             suggested_advance = AdvanceCalculator.SuggestedAdvance(n),
-            coupons_if_paid = AdvanceCalculator.CouponsForAdvance(AdvanceCalculator.SuggestedAdvance(n)),
+            coupons_if_paid = AdvanceCalculator.CouponsForSlab(n),
         });
         return Ok(new { slabs, slab_size = AdvanceCalculator.SlabSize, advance_per_slab = AdvanceCalculator.AdvancePerSlab });
     }
@@ -148,6 +147,11 @@ public class OrdersController : ControllerBase
             return Ok(new { success = true, order = await _orderService.GetOrderAsync(orderId) });
         }
         catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        // Editing the lines of an order that is no longer a draft.
+        catch (InvalidOperationException ex)
         {
             return BadRequest(new { error = ex.Message });
         }

@@ -22,6 +22,11 @@ public class Order
     public string? LeadName { get; set; }
     public string? LeadCompanyName { get; set; }
     public string? LeadPhone { get; set; }
+    public string? LeadEmail { get; set; }
+    public string? LeadGstNumber { get; set; }
+    public string? LeadAddress { get; set; }
+    public string? LeadCity { get; set; }
+    public string? LeadState { get; set; }
     public string? ExhibitionName { get; set; }
 }
 
@@ -30,7 +35,6 @@ public class OrderItem
     public int OrderItemId { get; set; }
     public int OrderId { get; set; }
     public int LineNumber { get; set; }   // "LineNo" is a reserved T-SQL keyword
-    public string ItemType { get; set; } = string.Empty;   // Suit / Lehenga / Saree
     public string? Barcode { get; set; }
     public string? Size { get; set; }
     public string? Colour { get; set; }

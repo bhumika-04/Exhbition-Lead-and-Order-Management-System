@@ -57,7 +57,6 @@ public class LeadsController : ControllerBase
             persons = detail.Persons,
             addresses = detail.Addresses,
             websites = detail.Websites,
-            services = detail.Services,
             topics = detail.Topics,
             messages = detail.Messages,
             brands = detail.Brands,

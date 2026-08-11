@@ -52,10 +52,10 @@ public class ExtractionService : IExtractionService
                 UploadPaths.LeadCard(leadId), frontImage, frontFileName, backImage, backFileName);
 
             CardExtractionData extractionData;
-            await using (var frontForOcr = System.IO.File.OpenRead(UploadPaths.Absolute(_contentRoot, frontPath)))
+            await using (var frontForOcr = System.IO.File.OpenRead(UploadPaths.Absolute(frontPath)))
             {
                 Stream? backForOcr = backPath != null
-                    ? System.IO.File.OpenRead(UploadPaths.Absolute(_contentRoot, backPath)) : null;
+                    ? System.IO.File.OpenRead(UploadPaths.Absolute(backPath)) : null;
                 _logger.LogInformation("Extracting card with OpenAI Vision for lead {LeadId}", leadId);
                 extractionData = await _openAIService.ExtractCardFromImagesAsync(frontForOcr, backForOcr);
                 if (backForOcr is IAsyncDisposable ad) await ad.DisposeAsync();
@@ -64,12 +64,12 @@ public class ExtractionService : IExtractionService
 
             var duplicateCheck = await CheckForDuplicates(conn, extractionData, exhibitionId);
             var primaryPerson = extractionData.Persons.FirstOrDefault();
-            var segmentInfo = SegmentLead(primaryPerson?.Designation);
+            var priority = PriorityFor(primaryPerson?.Designation);
 
-            await UpdateLeadWithExtraction(conn, leadId, extractionData, segmentInfo, frontPath, backPath);
+            await UpdateLeadWithExtraction(conn, leadId, extractionData, priority, frontPath, backPath);
             await SaveLeadEntities(conn, leadId, extractionData);
             await AddSystemMessage(conn, leadId,
-                $"Card scanned. Confidence: {extractionData.Confidence:P0} | Segment: {segmentInfo.Segment} (Priority {segmentInfo.Priority})",
+                $"Card scanned. Confidence: {extractionData.Confidence:P0} | Priority: {priority}",
                 employeeId);
 
             _logger.LogInformation("Card extraction completed for lead {LeadId}", leadId);
@@ -78,8 +78,7 @@ public class ExtractionService : IExtractionService
                 Success: true,
                 LeadId: leadId,
                 Extraction: extractionData,
-                Segment: segmentInfo.Segment,
-                Priority: segmentInfo.Priority,
+                Priority: priority,
                 DuplicateCheck: duplicateCheck,
                 Message: "Card extracted successfully."
             );
@@ -108,10 +107,10 @@ public class ExtractionService : IExtractionService
                 UploadPaths.TempCard(tempId), frontImage, frontFileName, backImage, backFileName);
 
             CardExtractionData extractionData;
-            await using (var frontForOcr = System.IO.File.OpenRead(UploadPaths.Absolute(_contentRoot, frontPath)))
+            await using (var frontForOcr = System.IO.File.OpenRead(UploadPaths.Absolute(frontPath)))
             {
                 Stream? backForOcr = backPath != null
-                    ? System.IO.File.OpenRead(UploadPaths.Absolute(_contentRoot, backPath)) : null;
+                    ? System.IO.File.OpenRead(UploadPaths.Absolute(backPath)) : null;
                 _logger.LogInformation("Extracting card with OpenAI Vision (preview mode)");
                 extractionData = await _openAIService.ExtractCardFromImagesAsync(frontForOcr, backForOcr);
                 if (backForOcr is IAsyncDisposable ad) await ad.DisposeAsync();
@@ -120,7 +119,7 @@ public class ExtractionService : IExtractionService
 
             var duplicateCheck = await CheckForDuplicates(conn, extractionData, exhibitionId);
             var primaryPerson = extractionData.Persons.FirstOrDefault();
-            var segmentInfo = SegmentLead(primaryPerson?.Designation);
+            var priority = PriorityFor(primaryPerson?.Designation);
 
             _logger.LogInformation("Card preview extraction completed");
 
@@ -128,8 +127,7 @@ public class ExtractionService : IExtractionService
                 Success: true,
                 LeadId: 0,
                 Extraction: extractionData,
-                Segment: segmentInfo.Segment,
-                Priority: segmentInfo.Priority,
+                Priority: priority,
                 DuplicateCheck: duplicateCheck,
                 Message: "Card extracted successfully. Please review and confirm to save.",
                 TempId: tempId
@@ -165,15 +163,15 @@ public class ExtractionService : IExtractionService
         try
         {
             var primaryPerson = extractionData.Persons.FirstOrDefault();
-            var segmentInfo = SegmentLead(primaryPerson?.Designation);
+            var priority = PriorityFor(primaryPerson?.Designation);
 
             // Move temp images to permanent lead folder if tempId provided
             var (frontPath, backPath) = MoveTempImages(tempId, leadId);
 
-            await UpdateLeadWithExtraction(conn, leadId, extractionData, segmentInfo, frontPath, backPath);
+            await UpdateLeadWithExtraction(conn, leadId, extractionData, priority, frontPath, backPath);
             await SaveLeadEntities(conn, leadId, extractionData);
             await AddSystemMessage(conn, leadId,
-                $"Card scanned and confirmed. Confidence: {extractionData.Confidence:P0} | Segment: {segmentInfo.Segment} (Priority {segmentInfo.Priority})",
+                $"Card scanned and confirmed. Confidence: {extractionData.Confidence:P0} | Priority: {priority}",
                 employeeId);
 
             _logger.LogInformation("Lead {LeadId} confirmed and saved successfully", leadId);
@@ -182,8 +180,7 @@ public class ExtractionService : IExtractionService
                 Success: true,
                 LeadId: leadId,
                 Extraction: extractionData,
-                Segment: segmentInfo.Segment,
-                Priority: segmentInfo.Priority,
+                Priority: priority,
                 DuplicateCheck: null,
                 Message: "Lead saved successfully."
             );
@@ -302,32 +299,30 @@ public class ExtractionService : IExtractionService
         return digits;
     }
 
-    private (string Segment, string Priority) SegmentLead(string? designation)
+    /// <summary>
+    /// Priority from the visitor's designation. This used to return a Segment
+    /// alongside it; that column is gone (migration 027) because classifying a
+    /// retail customer as "decision_maker" meant nothing. Priority survives —
+    /// it still colours the lead list.
+    /// </summary>
+    private string PriorityFor(string? designation)
     {
-        if (string.IsNullOrEmpty(designation))
-            return ("general", "medium");
+        if (string.IsNullOrEmpty(designation)) return "medium";
 
         var lower = designation.ToLower();
 
         if (lower.Contains("director") || lower.Contains("ceo") || lower.Contains("owner") ||
             lower.Contains("managing") || lower.Contains("proprietor") || lower.Contains("chairman"))
-            return ("decision_maker", "high");
+            return "high";
 
-        if (lower.Contains("manager") || lower.Contains("head") || lower.Contains("lead") ||
-            lower.Contains("supervisor") || lower.Contains("executive"))
-            return ("influencer", "medium");
-
-        if (lower.Contains("engineer") || lower.Contains("technical") || lower.Contains("analyst"))
-            return ("researcher", "medium");
-
-        return ("general", "medium");
+        return "medium";
     }
 
     private async Task UpdateLeadWithExtraction(
         Microsoft.Data.SqlClient.SqlConnection conn,
         int leadId,
         CardExtractionData data,
-        (string Segment, string Priority) segmentInfo,
+        string priority,
         string? frontImagePath = null,
         string? backImagePath = null)
     {
@@ -340,7 +335,6 @@ public class ExtractionService : IExtractionService
                 PrimaryVisitorDesignation = @Designation,
                 PrimaryVisitorPhone = @Phone,
                 PrimaryVisitorEmail = @Email,
-                Segment = @Segment,
                 Priority = @Priority,
                 RawCardJson = @RawJson,
                 FrontImagePath = @FrontImagePath,
@@ -355,8 +349,7 @@ public class ExtractionService : IExtractionService
                 Designation = primaryPerson?.Designation,
                 Phone = data.Phones.FirstOrDefault() ?? primaryPerson?.Phones.FirstOrDefault(),
                 Email = data.Emails.FirstOrDefault() ?? primaryPerson?.Emails.FirstOrDefault(),
-                segmentInfo.Segment,
-                segmentInfo.Priority,
+                Priority = priority,
                 RawJson = JsonSerializer.Serialize(data),
                 FrontImagePath = frontImagePath,
                 BackImagePath = backImagePath
@@ -376,7 +369,7 @@ public class ExtractionService : IExtractionService
         Stream? backStream,
         string? backFileName)
     {
-        var folder = UploadPaths.EnsureFolder(_contentRoot, relativeFolder);
+        var folder = UploadPaths.EnsureFolder(relativeFolder);
 
         var frontExt = Path.GetExtension(frontFileName).ToLower().TrimStart('.');
         if (string.IsNullOrEmpty(frontExt)) frontExt = "jpg";
@@ -405,11 +398,11 @@ public class ExtractionService : IExtractionService
     {
         if (string.IsNullOrEmpty(tempId)) return (null, null);
 
-        var tempFolder = UploadPaths.Absolute(_contentRoot, UploadPaths.TempCard(tempId));
+        var tempFolder = UploadPaths.Absolute(UploadPaths.TempCard(tempId));
         if (!Directory.Exists(tempFolder)) return (null, null);
 
         var destRelative = UploadPaths.LeadCard(leadId);
-        var destFolder = UploadPaths.EnsureFolder(_contentRoot, destRelative);
+        var destFolder = UploadPaths.EnsureFolder(destRelative);
 
         string? frontPath = null, backPath = null;
 
@@ -453,7 +446,6 @@ public class ExtractionService : IExtractionService
         }).ToList();
         var addressesJsonString = addressesJson.Any() ? JsonSerializer.Serialize(addressesJson) : null;
         var websitesJsonString = data.Websites.Any() ? JsonSerializer.Serialize(data.Websites) : null;
-        var servicesJsonString = data.Services.Any() ? JsonSerializer.Serialize(data.Services) : null;
         var brandsJson = data.Brands.Select(b => new { brand = b.BrandName, relationship = b.Relationship }).ToList();
         var brandsJsonString = brandsJson.Any() ? JsonSerializer.Serialize(brandsJson) : null;
 
@@ -464,7 +456,6 @@ public class ExtractionService : IExtractionService
                 EmailAddresses = @EmailAddresses,
                 Addresses = @Addresses,
                 Websites = @Websites,
-                Services = @Services,
                 Brands = @Brands,
                 UpdatedAt = GETUTCDATE()
             WHERE LeadId = @LeadId",
@@ -476,7 +467,6 @@ public class ExtractionService : IExtractionService
                 EmailAddresses = emailsJsonString,
                 Addresses = addressesJsonString,
                 Websites = websitesJsonString,
-                Services = servicesJsonString,
                 Brands = brandsJsonString
             });
     }

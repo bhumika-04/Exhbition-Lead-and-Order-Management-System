@@ -38,12 +38,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50">
+    <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar />
 
       {isFixedHeight ? (
-        // Fixed-height pages: flex column so pages can use flex-1 for internal scrolling
-        <main className="flex-1 min-h-0 flex flex-col overflow-hidden">
+        // Fixed-height pages: flex column so pages can use flex-1 for internal
+        // scrolling.
+        //
+        // pb-16 keeps the whole column clear of the fixed bottom nav. These
+        // pages scroll INSIDE a flex-1 child, so the spacer used by the
+        // scrollable branch below would sit outside the scroll area and do
+        // nothing — the last 64px stayed under the nav, which is what put
+        // "Confirm & Send Sales Order" out of reach on a phone. Padding the
+        // column shortens the scroll area instead, so its end is reachable.
+        <main className="flex-1 min-h-0 flex flex-col overflow-hidden pb-16 md:pb-0">
           {children}
         </main>
       ) : (

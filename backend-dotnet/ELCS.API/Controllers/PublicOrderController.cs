@@ -11,13 +11,16 @@ namespace ELCS.API.Controllers;
 /// PUBLIC — no employee header, no login.
 ///
 /// Rules this controller exists to enforce:
-///  • Nothing about a lead is returned until an OTP sent to that number is
-///    verified. A phone number is a claim, not a credential.
-///  • Existence of a lead is never revealed before verification, so the page
-///    cannot be used to test which numbers are customers.
 ///  • Self-service orders are created as drafts flagged 'self_service'. The
 ///    customer never sets their own advance or coupon count — a CRR confirms
-///    and records what was actually collected.
+///    and records what was actually collected. This is the control that makes
+///    the rest of the page safe to leave open.
+///  • The catalogue and every lead detail sit behind a session token, so none
+///    of it is reachable by walking URLs.
+///  • A typed mobile number is taken at face value, which is the intended booth
+///    behaviour: the QR is printed on the stall and staff are standing there.
+///    The number opens a session; it does not prove identity, so nothing more
+///    sensitive than the customer's own draft order sits behind it.
 /// </summary>
 [ApiController]
 [Route("api/public")]
@@ -26,28 +29,22 @@ public class PublicOrderController : ControllerBase
 {
     private readonly ILogger<PublicOrderController> _logger;
     private readonly IDbConnection _db;
-    private readonly IOtpService _otp;
+    private readonly IPublicSessionService _sessions;
     private readonly IOrderService _orders;
     private readonly IProductService _products;
-    private readonly ISettingsService _settings;
-    private readonly IWhatsAppService _whatsApp;
 
     public PublicOrderController(
         ILogger<PublicOrderController> logger,
         IDbConnection db,
-        IOtpService otp,
+        IPublicSessionService sessions,
         IOrderService orders,
-        IProductService products,
-        ISettingsService settings,
-        IWhatsAppService whatsApp)
+        IProductService products)
     {
         _logger = logger;
         _db = db;
-        _otp = otp;
+        _sessions = sessions;
         _orders = orders;
         _products = products;
-        _settings = settings;
-        _whatsApp = whatsApp;
     }
 
     private const string SessionHeader = "X-Public-Session";
@@ -65,43 +62,39 @@ public class PublicOrderController : ControllerBase
             exhibition_id = ex.ExhibitionId,
             name          = ex.Name,
             location      = ex.Location,
-            item_types    = OrderItemTypes.All,
         });
     }
 
-    [HttpPost("otp/request")]
-    public async Task<IActionResult> RequestOtp([FromBody] PublicOtpRequest request)
+    /// <summary>Opens a session from the mobile number the customer typed.</summary>
+    [HttpPost("session")]
+    public async Task<IActionResult> StartSession([FromBody] PublicSessionRequest request)
     {
         var ex = await FindExhibitionAsync(request.Token);
         if (ex == null) return NotFound(new { error = "This ordering link is not valid" });
 
-        var result = await _otp.RequestAsync(request.Mobile, ex.ExhibitionId);
+        var result = await _sessions.StartSessionAsync(request.Mobile, ex.ExhibitionId);
+        if (!result.Success)
+            return BadRequest(new { error = result.Error });
 
-        // The response is identical whether or not the number belongs to an
-        // existing lead — otherwise this endpoint becomes a customer-list oracle.
-        if (!result.Sent)
-            return BadRequest(new { error = result.Error, retry_after_seconds = result.RetryAfterSeconds });
+        var session = await _sessions.GetSessionAsync(result.SessionToken);
+        var mobile = session?.Mobile ?? PublicSessionService.NormaliseMobile(request.Mobile)!;
 
-        return Ok(new { success = true, retry_after_seconds = result.RetryAfterSeconds });
+        return Ok(new
+        {
+            success       = true,
+            session_token = result.SessionToken,
+            known_lead    = await MatchLeadAsync(mobile, session),
+        });
     }
 
-    [HttpPost("otp/verify")]
-    public async Task<IActionResult> VerifyOtp([FromBody] PublicOtpVerifyRequest request)
+    /// <summary>
+    /// Finds the lead behind a number and binds it to the session.
+    /// Phone numbers are not unique in this schema (duplicate detection warns but
+    /// permits saving), so the most recent lead wins and the page asks the
+    /// customer to confirm it is them. Null → the page asks them to register.
+    /// </summary>
+    private async Task<PublicLeadDto?> MatchLeadAsync(string mobile, PublicSession? session)
     {
-        var ex = await FindExhibitionAsync(request.Token);
-        if (ex == null) return NotFound(new { error = "This ordering link is not valid" });
-
-        var result = await _otp.VerifyAsync(request.Mobile, request.Code, ex.ExhibitionId);
-        if (!result.Verified)
-            return BadRequest(new { error = result.Error, attempts_remaining = result.AttemptsRemaining });
-
-        var session = await _otp.GetSessionAsync(result.SessionToken);
-        var mobile = session?.Mobile ?? OtpService.NormaliseMobile(request.Mobile)!;
-
-        // Only now — after proving the number — does any lead data come back.
-        // Phone numbers are not unique in this schema (duplicate detection warns
-        // but permits saving), so the most recent lead wins and the customer is
-        // asked to confirm it is them.
         using var conn = _db.CreateConnection();
         var lead = await conn.QueryFirstOrDefaultAsync<PublicLeadDto>(@"
             SELECT TOP 1 LeadId, PrimaryVisitorName AS Name, CompanyName
@@ -111,22 +104,18 @@ public class PublicOrderController : ControllerBase
             ORDER BY CreatedAt DESC", new { Mobile = mobile });
 
         if (lead != null && session != null)
-            await _otp.BindLeadAsync(session.PublicSessionId, lead.LeadId);
+            await _sessions.BindLeadAsync(session.PublicSessionId, lead.LeadId);
 
-        return Ok(new
-        {
-            success       = true,
-            session_token = result.SessionToken,
-            known_lead    = lead,     // null → the page asks them to register
-        });
+        return lead;
     }
+
 
     /// <summary>Creates a lead from the public page when the number is new to us.</summary>
     [HttpPost("lead")]
     public async Task<IActionResult> SelfRegister([FromBody] PublicRegisterRequest request)
     {
         var session = await RequireSessionAsync();
-        if (session == null) return Unauthorized(new { error = "Verify your mobile number first" });
+        if (session == null) return Unauthorized(new { error = "Your session has ended — please scan the code again" });
 
         if (string.IsNullOrWhiteSpace(request.Name))
             return BadRequest(new { error = "Please enter your name" });
@@ -144,28 +133,18 @@ public class PublicOrderController : ControllerBase
                 ExhibitionId = session.ExhibitionId,
                 CompanyName  = request.CompanyName,
                 Name         = request.Name.Trim(),
-                Phone        = session.Mobile,      // from the verified session, never the body
+                Phone        = session.Mobile,      // from the session, never the body
                 Email        = request.Email,
             });
 
-        await _otp.BindLeadAsync(session.PublicSessionId, leadId);
+        await _sessions.BindLeadAsync(session.PublicSessionId, leadId);
         _logger.LogInformation("Self-registered lead {LeadId} at exhibition {ExhibitionId}",
             leadId, session.ExhibitionId);
 
-        // Welcome fires here rather than from a staff screen, because nobody is
-        // at a counter for this path. Best-effort: a messaging failure must not
-        // stop the customer getting to the order form.
-        if (await _settings.GetAsync(SettingKeys.WelcomeAutoSend) != "false")
-        {
-            try
-            {
-                await _whatsApp.SendWelcomeAsync(leadId, request.Name.Trim(), session.Mobile, null);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Welcome message failed for self-registered lead {LeadId}", leadId);
-            }
-        }
+        // No welcome message on this path. A visitor registering at the QR is
+        // standing at the stall with staff beside them, so a WhatsApp greeting
+        // adds nothing — and it would arrive before anyone has met them, which
+        // is not what the message says. Staff send it from the lead screen.
 
         return Ok(new { success = true, lead_id = leadId });
     }
@@ -179,7 +158,7 @@ public class PublicOrderController : ControllerBase
     public async Task<IActionResult> LookupProduct(string barcode)
     {
         var session = await RequireSessionAsync();
-        if (session == null) return Unauthorized(new { error = "Verify your mobile number first" });
+        if (session == null) return Unauthorized(new { error = "Your session has ended — please scan the code again" });
 
         var product = await _products.GetByBarcodeAsync(barcode);
         if (product == null)
@@ -190,15 +169,175 @@ public class PublicOrderController : ControllerBase
         {
             product_id   = product.ProductId,
             barcode      = product.Barcode,
-            product_type = product.ProductType,
-            category     = product.Category,
             size         = product.Size,
             colour       = product.Colour,
             fabric       = product.Fabric,
             price        = product.Price,
             name         = product.Name,
             image_path   = product.ImagePath,
+            image_url    = product.ImageUrl,
+            colour_is_set = product.ColourIsSet,
+            size_is_set   = product.SizeIsSet,
         });
+    }
+
+    /// <summary>
+    /// Orders already placed by the customer behind this session.
+    ///
+    /// Without this the QR page is a blank slate on every visit: a customer who
+    /// ordered an hour ago sees "nothing added yet" and reasonably concludes the
+    /// order was lost. Session-gated and scoped to that session's own lead.
+    ///
+    /// Deliberately narrow. Coupons and the advance are set by a CRR against
+    /// what was actually collected, and showing a customer a figure they can
+    /// neither verify nor change at the stall invites an argument at the
+    /// counter — so this returns what they ordered, not what they owe.
+    /// </summary>
+    [HttpGet("orders")]
+    public async Task<IActionResult> MyOrders()
+    {
+        var session = await RequireSessionAsync();
+        if (session == null) return Unauthorized(new { error = "Your session has ended — please scan the code again" });
+        if (session.LeadId == null) return Ok(new { orders = Array.Empty<object>() });
+
+        using var conn = _db.CreateConnection();
+        var orders = await conn.QueryAsync(@"
+            SELECT o.OrderNumber                       AS order_number,
+                   o.StatusCode                        AS status_code,
+                   COALESCE(o.OrderValue, o.OrderTotal) AS total,
+                   o.CreatedAt                         AS created_at,
+                   ISNULL(i.ItemCount, 0)              AS item_count,
+                   ISNULL(i.TotalPieces, 0)            AS total_pieces
+            FROM Orders o
+            OUTER APPLY (
+                SELECT COUNT(*) AS ItemCount, SUM(Pieces) AS TotalPieces
+                FROM OrderItems WHERE OrderId = o.OrderId
+            ) i
+            WHERE o.LeadId = @LeadId
+            ORDER BY o.CreatedAt DESC",
+            new { LeadId = session.LeadId.Value });
+
+        return Ok(new { orders });
+    }
+
+    /// <summary>
+    /// The lines of one of the customer's own orders — the same picture the
+    /// Sales Order PDF shows, so what they read on their phone matches the
+    /// document they are handed.
+    ///
+    /// Looked up by order NUMBER and constrained to the session's lead, so the
+    /// id cannot be walked to reach somebody else's order.
+    /// </summary>
+    [HttpGet("orders/{orderNumber}")]
+    public async Task<IActionResult> MyOrder(string orderNumber)
+    {
+        var session = await RequireSessionAsync();
+        if (session == null) return Unauthorized(new { error = "Your session has ended — please scan the code again" });
+        if (session.LeadId == null) return NotFound(new { error = "Order not found" });
+
+        using var conn = _db.CreateConnection();
+
+        var order = await conn.QueryFirstOrDefaultAsync(@"
+            SELECT o.OrderId, o.OrderNumber, o.StatusCode, o.CreatedAt, o.Notes,
+                   COALESCE(o.OrderValue, o.OrderTotal) AS Total
+            FROM Orders o
+            WHERE o.OrderNumber = @Number AND o.LeadId = @LeadId",
+            new { Number = orderNumber, LeadId = session.LeadId.Value });
+
+        if (order == null) return NotFound(new { error = "Order not found" });
+
+        var items = await conn.QueryAsync(@"
+            SELECT oi.LineNumber   AS line_number,
+                   oi.Barcode      AS barcode,
+                   oi.Size         AS size,
+                   oi.Colour       AS colour,
+                   oi.Fabric       AS fabric,
+                   oi.Pieces       AS pieces,
+                   oi.Rate         AS rate,
+                   oi.Amount       AS amount,
+                   oi.Customization AS customization,
+                   p.Name          AS name,
+                   p.ImagePath     AS image_path,
+                   p.ImageUrl      AS image_url
+            FROM OrderItems oi
+            LEFT JOIN Products p ON p.ProductId = oi.ProductId
+            WHERE oi.OrderId = @OrderId
+            ORDER BY oi.LineNumber",
+            new { OrderId = (int)order.OrderId });
+
+        return Ok(new
+        {
+            order_number = (string)order.OrderNumber,
+            status_code  = (string)order.StatusCode,
+            created_at   = (DateTime)order.CreatedAt,
+            notes        = (string?)order.Notes,
+            total        = (decimal)order.Total,
+            items,
+        });
+    }
+
+    /// <summary>
+    /// Lets the customer change an order that is still with our team.
+    ///
+    /// Only a DRAFT of their OWN lead, and the draft stays a draft — which is
+    /// the approval. Nothing they change takes effect commercially until a CRR
+    /// confirms it, so no separate review state is needed; staff see the order
+    /// as it now stands at the moment they confirm.
+    ///
+    /// Prices are re-read from the catalogue exactly as on the first submit, so
+    /// an edit cannot be used to restate what a garment costs.
+    /// </summary>
+    [HttpPut("orders/{orderNumber}")]
+    public async Task<IActionResult> EditMyOrder(string orderNumber, [FromBody] PublicOrderRequest request)
+    {
+        var session = await RequireSessionAsync();
+        if (session == null) return Unauthorized(new { error = "Your session has ended — please scan the code again" });
+        if (session.LeadId == null) return NotFound(new { error = "Order not found" });
+
+        if (request.Items == null || request.Items.Count == 0)
+            return BadRequest(new { error = "Keep at least one item, or ask our staff to cancel the order" });
+
+        using var conn = _db.CreateConnection();
+
+        // Matched on lead as well as number, so an order number belonging to
+        // somebody else is simply "not found" rather than an error that
+        // confirms it exists.
+        var row = await conn.QueryFirstOrDefaultAsync(@"
+            SELECT OrderId, StatusCode FROM Orders
+            WHERE OrderNumber = @Number AND LeadId = @LeadId",
+            new { Number = orderNumber, LeadId = session.LeadId.Value });
+
+        if (row == null) return NotFound(new { error = "Order not found" });
+
+        if (!string.Equals((string)row.StatusCode, "draft", StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new { error = "Our team has already confirmed this order — please speak to us at the counter." });
+
+        try
+        {
+            var items = request.Items.Select(i => new CreateOrderItemRequest(
+                Barcode:       i.Barcode,
+                Size:          i.Size,
+                Colour:        i.Colour,
+                Pieces:        i.Pieces,
+                Rate:          null,
+                Customization: i.Customization,
+                ProductId:     i.ProductId)).ToList();
+
+            await _orders.UpdateOrderAsync((int)row.OrderId, new UpdateOrderRequest(items, request.Notes, null));
+
+            _logger.LogInformation("Customer edited self-service order {OrderNumber} on lead {LeadId}",
+                orderNumber, session.LeadId);
+
+            return Ok(new { success = true, order_number = orderNumber, item_count = items.Count });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
     }
 
     /// <summary>Submits the customer's own order as a pending draft for a CRR.</summary>
@@ -206,7 +345,7 @@ public class PublicOrderController : ControllerBase
     public async Task<IActionResult> SubmitOrder([FromBody] PublicOrderRequest request)
     {
         var session = await RequireSessionAsync();
-        if (session == null) return Unauthorized(new { error = "Verify your mobile number first" });
+        if (session == null) return Unauthorized(new { error = "Your session has ended — please scan the code again" });
         if (session.LeadId == null)
             return BadRequest(new { error = "Tell us who you are before ordering" });
 
@@ -220,7 +359,6 @@ public class PublicOrderController : ControllerBase
             // from the catalogue itself, which is both safer and more useful than
             // leaving it blank for the CRR to fill in.
             var items = request.Items.Select(i => new CreateOrderItemRequest(
-                ItemType:      i.ItemType,
                 Barcode:       i.Barcode,
                 Size:          i.Size,
                 Colour:        i.Colour,
@@ -254,7 +392,7 @@ public class PublicOrderController : ControllerBase
     private async Task<PublicSession?> RequireSessionAsync()
     {
         var token = Request.Headers.TryGetValue(SessionHeader, out var raw) ? raw.ToString() : null;
-        return await _otp.GetSessionAsync(token);
+        return await _sessions.GetSessionAsync(token);
     }
 
     private async Task<PublicExhibitionRow?> FindExhibitionAsync(string? token)
@@ -278,12 +416,10 @@ public class PublicOrderController : ControllerBase
 
 public record PublicLeadDto(int LeadId, string? Name, string? CompanyName);
 
-public record PublicOtpRequest(string Token, string Mobile);
-public record PublicOtpVerifyRequest(string Token, string Mobile, string Code);
+public record PublicSessionRequest(string Token, string Mobile);
 public record PublicRegisterRequest(string Name, string? CompanyName, string? Email);
 
 public record PublicOrderItemRequest(
-    string ItemType,
     string? Barcode,
     string? Size,
     string? Colour,

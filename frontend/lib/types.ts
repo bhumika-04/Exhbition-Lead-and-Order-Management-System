@@ -37,10 +37,11 @@ export interface Lead {
   primary_visitor_phone?: string;
   primary_visitor_email?: string;
   discussion_summary?: string;
+  /** Optional GST registration number, captured on the Scan form. */
+  gst_number?: string | null;
   status_code: string;
   created_at: string;
   updated_at: string;
-  segment?: string;
   priority?: string;
   city?: string | null;
   state?: string | null;
@@ -48,20 +49,39 @@ export interface Lead {
   front_image_path?: string | null;
   back_image_path?: string | null;
 
-  // Raw services JSON from list API (renamed to avoid conflict with LeadDetails.services array)
-  services_json?: string | null;
 
-  // Classification fields
-  category?: string | null;
-  turn_over?: string | null;
-  team_size?: string | null;
-  vertical?: string | null;
 
   // Joined fields
   exhibition_name?: string;
   assigned_employee_name?: string;
   source_name?: string;
   status_name?: string;
+}
+
+/**
+ * What POST /api/leads accepts. Separate from `Lead` because a lead is created
+ * with flat lists and one address, while a saved lead reads those back as
+ * parsed objects — the two shapes are genuinely different, and sharing one type
+ * was how `phones`, `websites` and the address came to be dropped on create.
+ */
+export interface CreateLeadPayload {
+  exhibition_id: number;
+  source_code?: string;
+  assigned_employee_id?: number;
+  company_name?: string;
+  primary_visitor_name?: string;
+  primary_visitor_phone?: string;
+  primary_visitor_email?: string;
+  primary_visitor_designation?: string;
+  discussion_summary?: string;
+  priority?: string;
+  gst_number?: string;
+  phones?: string[];
+  emails?: string[];
+  websites?: string[];
+  address?: string;
+  city?: string;
+  state?: string;
 }
 
 export interface LeadPerson {
@@ -121,7 +141,6 @@ export interface LeadDetails extends Lead {
   persons: LeadPerson[];
   addresses: LeadAddress[];
   websites: { lead_website_id: number; website_url: string }[];
-  services: { lead_service_id: number; service_text: string }[];
   topics: { lead_topic_id: number; topic_text: string }[];
   messages: LeadMessage[];
   brands?: LeadBrand[];
@@ -149,10 +168,8 @@ export interface CardExtractionResult {
       city?: string;
       state?: string;
     }>;
-    services: string[];
     confidence: number;
   };
-  segment?: string;
   priority?: string;
   duplicate_check?: {
     is_duplicate: boolean;
@@ -248,63 +265,47 @@ export const ALL_PERMISSIONS = [
 
 // ── Product Master ─────────────────────────────────────────────────────────
 
-export const PRODUCT_TYPES = ['Saree', 'Suit', 'Lehenga'] as const;
-export type ProductType = (typeof PRODUCT_TYPES)[number];
-
-export const PRODUCT_CATEGORIES = ['Stitched', 'Readymade'] as const;
-export type ProductCategory = (typeof PRODUCT_CATEGORIES)[number];
-
 /**
- * Which fields a product may carry:
- *   Saree          → no category, no size
- *   Suit / Lehenga → Stitched (no size) or Readymade (size required)
- * Mirrors ProductRules on the server and CK_Products_Shape in the database.
+ * A design is identified by its barcode and described by fabric, colour and
+ * size. There is no type and no category: the supplier's catalogue sheet
+ * carries neither, and the shape rules that tied them together rejected rows
+ * the real sheet contains (every row has a size, including "FREE SIZE").
  */
-export function takesCategory(type?: string | null): boolean {
-  return type === 'Suit' || type === 'Lehenga';
-}
-
-export function takesSize(type?: string | null, category?: string | null): boolean {
-  return takesCategory(type) && category === 'Readymade';
-}
-
 export interface Product {
   product_id: number;
   barcode: string;
-  product_type: string;
-  category?: string | null;
   size?: string | null;
   colour?: string | null;
   fabric?: string | null;
   price: number;
   name?: string | null;
-  image_path?: string | null;
+  image_path?: string | null;   // local file under uploads/, used by the SO PDF
+  image_url?: string | null;    // external link from the import sheet
+  // A bracketed list in the sheet ships whole rather than offering a choice,
+  // so these set the minimum pieces per combination on the order form.
+  colour_is_set: boolean;
+  size_is_set: boolean;
   is_active: boolean;
   created_at: string;
 }
 
 export interface SaveProductRequest {
   barcode: string;
-  product_type: string;
-  category?: string | null;
   size?: string | null;
   colour?: string | null;
   fabric?: string | null;
   price: number;
   name?: string | null;
+  image_url?: string | null;
+  colour_is_set?: boolean;
+  size_is_set?: boolean;
 }
 
 // ── Orders ─────────────────────────────────────────────────────────────────
 
-// Order item types mirror product types.
-export const ORDER_ITEM_TYPES = PRODUCT_TYPES;
-export type OrderItemType = ProductType;
-
 export interface OrderItem {
   order_item_id: number;
   line_number: number;
-  item_type: string;
-  category?: string | null;   // snapshot at time of order
   barcode?: string | null;
   size?: string | null;
   colour?: string | null;
@@ -314,7 +315,8 @@ export interface OrderItem {
   amount?: number | null;     // rate × pieces, computed server-side
   customization?: string | null;
   product_id?: number | null; // pointer only; the snapshot above is authoritative
-  product_image_path?: string | null;
+  product_image_path?: string | null;   // local file under uploads/
+  product_image_url?: string | null;    // external link from the import sheet
 }
 
 export interface OrderSummary {
@@ -379,7 +381,6 @@ export interface OrderDetail {
 }
 
 export interface CreateOrderItemRequest {
-  item_type: string;
   barcode?: string | null;
   size?: string | null;
   colour?: string | null;
@@ -451,11 +452,6 @@ export interface LeadMedia {
 // ── Settings ───────────────────────────────────────────────────────────────
 
 export const SETTING_KEYS = {
-  templateWelcome: 'whatsapp.template.welcome',
-  templateOrderConfirmation: 'whatsapp.template.order_confirmation',
-  templateTestimonial: 'whatsapp.template.testimonial',
-  templateOtp: 'whatsapp.template.otp',
-  welcomeAutoSend: 'whatsapp.welcome.auto_send',
   socialInstagram: 'social.instagram',
   socialFacebook: 'social.facebook',
   socialWebsite: 'social.website',

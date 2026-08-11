@@ -60,6 +60,11 @@ public class OrderService : IOrderService
                    l.PrimaryVisitorName  AS LeadName,
                    l.CompanyName         AS LeadCompanyName,
                    l.PrimaryVisitorPhone AS LeadPhone,
+                   l.PrimaryVisitorEmail AS LeadEmail,
+                   l.GstNumber           AS LeadGstNumber,
+                   JSON_VALUE(l.Addresses, '$[0].address') AS LeadAddress,
+                   JSON_VALUE(l.Addresses, '$[0].city')    AS LeadCity,
+                   JSON_VALUE(l.Addresses, '$[0].state')   AS LeadState,
                    e.Name                AS ExhibitionName
             FROM Orders o
             JOIN Leads l            ON l.LeadId = o.LeadId
@@ -69,10 +74,11 @@ public class OrderService : IOrderService
         if (order == null) return null;
 
         var items = (await conn.QueryAsync<OrderItemDto>(@"
-            SELECT oi.OrderItemId, oi.LineNumber, oi.ItemType, oi.Category, oi.Barcode,
+            SELECT oi.OrderItemId, oi.LineNumber, oi.Barcode,
                    oi.Size, oi.Colour, oi.Fabric, oi.Pieces, oi.Rate, oi.Amount,
                    oi.Customization, oi.ProductId,
-                   p.ImagePath AS ProductImagePath
+                   p.ImagePath AS ProductImagePath,
+                   p.ImageUrl  AS ProductImageUrl
             FROM OrderItems oi
             LEFT JOIN Products p ON p.ProductId = oi.ProductId
             WHERE oi.OrderId = @OrderId
@@ -87,6 +93,11 @@ public class OrderService : IOrderService
             LeadName:         order.LeadName,
             LeadCompanyName:  order.LeadCompanyName,
             LeadPhone:        order.LeadPhone,
+            LeadEmail:        order.LeadEmail,
+            LeadGstNumber:    order.LeadGstNumber,
+            LeadAddress:      order.LeadAddress,
+            LeadCity:         order.LeadCity,
+            LeadState:        order.LeadState,
             ExhibitionId:     order.ExhibitionId,
             ExhibitionName:   order.ExhibitionName,
             StatusCode:       order.StatusCode,
@@ -96,7 +107,8 @@ public class OrderService : IOrderService
             SlabBand:         order.SlabBand,
             AdvanceAmount:    order.AdvanceAmount,
             SuggestedAdvance: AdvanceCalculator.SuggestedAdvance(order.SlabBand),
-            OrderCoupons:     AdvanceCalculator.CouponsForAdvance(order.AdvanceAmount),
+            OrderCoupons:     AdvanceCalculator.CouponsFor(
+                                  order.OrderValue ?? order.OrderTotal, order.AdvanceAmount),
             Notes:            order.Notes,
             SoPdfPath:        order.SoPdfPath,
             ConfirmedAt:      order.ConfirmedAt,
@@ -158,10 +170,19 @@ public class OrderService : IOrderService
         using var conn = _db.CreateConnection();
         await conn.OpenAsync();
 
-        var exists = await conn.ExecuteScalarAsync<int?>(
-            "SELECT OrderId FROM Orders WHERE OrderId = @OrderId", new { OrderId = orderId });
-        if (exists == null)
+        var status = await conn.ExecuteScalarAsync<string?>(
+            "SELECT StatusCode FROM Orders WHERE OrderId = @OrderId", new { OrderId = orderId });
+        if (status == null)
             throw new KeyNotFoundException($"Order {orderId} not found");
+
+        // Lines are only editable while the order is a draft. Once it is
+        // confirmed a Sales Order PDF has been issued and very likely handed
+        // over, so rewriting the lines would leave the customer holding a
+        // document that no longer matches what is recorded — and it would move
+        // the order value, hence the slab, hence the coupons they were promised.
+        if (request.Items is { Count: > 0 } && !string.Equals(status, "draft", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                $"This order is {status} — its items can no longer be changed. Cancel it and raise a new one.");
 
         using var tx = conn.BeginTransaction();
         try
@@ -196,6 +217,26 @@ public class OrderService : IOrderService
             throw new ArgumentException("Order value cannot be negative");
 
         using var conn = _db.CreateConnection();
+
+        // An advance above the order's value is money the customer does not owe
+        // on this order. Checked here rather than only in the browser because it
+        // feeds the coupon count, and coupons are an entitlement — an advance
+        // typed with an extra zero would hand out lucky-draw entries that were
+        // never paid for.
+        var storedValue = await conn.ExecuteScalarAsync<decimal?>(
+            "SELECT COALESCE(OrderValue, OrderTotal) FROM Orders WHERE OrderId = @OrderId",
+            new { OrderId = orderId });
+
+        if (storedValue == null)
+            throw new KeyNotFoundException($"Order {orderId} not found");
+
+        // The request may be changing the value in the same call, so judge the
+        // advance against whichever value this order is about to have.
+        var effectiveValue = request.OrderValue ?? storedValue.Value;
+        if (effectiveValue > 0m && request.AdvanceAmount > effectiveValue)
+            throw new ArgumentException(
+                $"Advance of {request.AdvanceAmount:N2} is more than the order value of {effectiveValue:N2}");
+
         var rows = await conn.ExecuteAsync(@"
             UPDATE Orders
             SET SlabBand      = @SlabBand,
@@ -363,13 +404,15 @@ public class OrderService : IOrderService
 
         // Coupons are a lead-level figure — summing per order would over-count,
         // because two ₹6k advances earn 4 coupons together and 0 apiece.
-        var perLead = await conn.QueryAsync<decimal>($@"
-            SELECT SUM(o.AdvanceAmount)
+        // Value AND advance per lead: coupons need both, so summing advance
+        // alone would over-count every lead holding under ₹1L of orders.
+        var perLead = await conn.QueryAsync<(decimal Value, decimal Advance)>($@"
+            SELECT SUM({EffectiveValueSql}) AS Value, SUM(o.AdvanceAmount) AS Advance
             FROM Orders o JOIN Leads l ON l.LeadId = o.LeadId
             {where} AND o.{ActiveOnly}
             GROUP BY o.LeadId", args);
 
-        var couponTotal = perLead.Sum(AdvanceCalculator.CouponsForAdvance);
+        var couponTotal = perLead.Sum(r => AdvanceCalculator.CouponsFor(r.Value, r.Advance));
 
         // Counted across the whole database, not the current filter: this is the
         // work queue, and it should not disappear because someone filtered by a
@@ -416,7 +459,7 @@ public class OrderService : IOrderService
                 Phone:        r.Phone,
                 TotalValue:   r.TotalValue,
                 TotalAdvance: r.TotalAdvance,
-                Coupons:      AdvanceCalculator.CouponsForAdvance(r.TotalAdvance),
+                Coupons:      AdvanceCalculator.CouponsFor(r.TotalValue, r.TotalAdvance),
                 OrderCount:   r.OrderCount))
             .Where(c => c.Coupons > 0)
             .OrderByDescending(c => c.Coupons)
@@ -454,17 +497,24 @@ public class OrderService : IOrderService
 
         foreach (var item in items)
         {
-            if (string.IsNullOrWhiteSpace(item.ItemType))
-                throw new ArgumentException($"Line {lineNo}: item type is required");
             if (item.Pieces <= 0)
                 throw new ArgumentException($"Line {lineNo}: pieces must be greater than zero");
             if (item.Rate is < 0m)
                 throw new ArgumentException($"Line {lineNo}: rate cannot be negative");
 
             // When the line came from a scanned product, the catalogue is the
-            // authority: re-read it server-side rather than trusting details the
-            // client sent, and snapshot them onto the line so editing the product
-            // later cannot rewrite this order's history.
+            // authority for what the DESIGN is — barcode, fabric, price — so
+            // those are re-read server-side rather than trusted from the client
+            // and snapshotted here, and editing the product later cannot rewrite
+            // this order's history.
+            //
+            // Size and colour are NOT design attributes: they are the choice
+            // this line represents. Taking them from the product overwrote every
+            // line with the design's whole list, so "one M in Grey" was stored
+            // as "M, L, XL, 2XL" in "Grey, Mouse" — identical on every line of
+            // the design, unusable for picking or packing, and wrong on the
+            // Sales Order. The line's own values win; the product is only a
+            // fallback for a line that named neither.
             var line = item;
             if (item.ProductId.HasValue)
             {
@@ -476,11 +526,9 @@ public class OrderService : IOrderService
                 {
                     line = item with
                     {
-                        ItemType      = product.ProductType,
-                        Category      = product.Category,
                         Barcode       = product.Barcode,
-                        Size          = product.Size ?? item.Size,
-                        Colour        = product.Colour ?? item.Colour,
+                        Size          = item.Size   ?? product.Size,
+                        Colour        = item.Colour ?? product.Colour,
                         Fabric        = product.Fabric,
                         Rate          = item.Rate ?? product.Price,
                     };
@@ -493,16 +541,14 @@ public class OrderService : IOrderService
             total += amount ?? 0m;
 
             await conn.ExecuteAsync(@"
-                INSERT INTO OrderItems (OrderId, LineNumber, ItemType, Category, Barcode, Size,
+                INSERT INTO OrderItems (OrderId, LineNumber, Barcode, Size,
                                         Colour, Fabric, Pieces, Rate, Amount, Customization, ProductId)
-                VALUES (@OrderId, @LineNumber, @ItemType, @Category, @Barcode, @Size,
+                VALUES (@OrderId, @LineNumber, @Barcode, @Size,
                         @Colour, @Fabric, @Pieces, @Rate, @Amount, @Customization, @ProductId)",
                 new
                 {
                     OrderId = orderId,
                     LineNumber = lineNo,
-                    ItemType = line.ItemType.Trim(),
-                    line.Category,
                     line.Barcode,
                     line.Size,
                     line.Colour,

@@ -28,7 +28,6 @@ public record UserDto(
     string Email,
     string? Phone,
     string? Designation,
-    string? CompanyName,
     int? RoleId,
     string? RoleName,
     bool IsActive,
@@ -41,7 +40,6 @@ public record CreateUserRequest(
     string Password,
     string? Phone,
     string? Designation,
-    string? CompanyName,
     int? RoleId
 );
 
@@ -50,7 +48,6 @@ public record UpdateUserRequest(
     string Email,
     string? Phone,
     string? Designation,
-    string? CompanyName,
     int? RoleId,
     string? Password   // null = keep existing password
 );

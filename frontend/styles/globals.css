@@ -114,57 +114,152 @@
     @apply bg-background text-foreground;
   }
 
+  /* ─────────────────────────────────────────────────────────────────────
+     Warm Sand + Deep Rose.
+
+     Neutrals carry a deliberate warm hue (~30°) rather than being pure grey —
+     that is what separates this from default shadcn slate, and what makes the
+     rose read as considered rather than as an accent bolted onto a cold shell.
+
+     Status colours are muted on purpose. Saturated red/green next to a warm
+     neutral looks like an error state even when nothing is wrong.
+     ───────────────────────────────────────────────────────────────────── */
   :root {
-    --background: 210 40% 98%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 94%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --chart-1: 221 83% 53%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 43 74% 66%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
-    --radius: 0.75rem;
+    /* Off-white throughout — no pure #FFF anywhere in light mode.
+       The page sits a step below the card so surfaces still separate without
+       leaning on shadows; drop that gap and every card melts into the page. */
+    --background:            30 24% 96%;   /* ~#F7F4F1  warm paper   */
+    --foreground:            20 14% 15%;
+
+    --card:                  33 38% 98.5%; /* ~#FDFBF8  raised sheet */
+    --card-foreground:       20 14% 15%;
+    --popover:               33 38% 98.5%;
+    --popover-foreground:    20 14% 15%;
+
+    /* Deep rose. Dark enough that white text on it clears AA at small sizes. */
+    --primary:              345 79% 35%;
+    --primary-foreground:    30 33% 99%;
+
+    /* Sits below BOTH the page and the card, so a tab strip or hover fill reads
+       on either surface. At 96% it matched the page exactly and disappeared. */
+    --secondary:             30 18% 92.5%;
+    --secondary-foreground:  20 14% 20%;
+
+    --muted:                 30 18% 92.5%;
+    --muted-foreground:      25  9% 45%;
+
+    --accent:               345 40% 94.5%;
+    --accent-foreground:    345 79% 30%;
+
+    --destructive:            5 56% 42%;
+    --destructive-foreground: 30 33% 99%;
+
+    --success:              155 24% 39%;
+    --success-foreground:    30 33% 99%;
+    --warning:               32 94% 37%;
+    --warning-foreground:    30 33% 99%;
+
+    --border:                28 22% 90%;
+    --input:                 28 22% 88%;
+    --ring:                 345 79% 35%;
+
+    /* Categorical, not a ramp — these label kinds of thing, not magnitudes. */
+    --chart-1: 345 79% 40%;
+    --chart-2: 155 24% 42%;
+    --chart-3:  32 70% 48%;
+    --chart-4:  25 30% 45%;
+    --chart-5: 310 25% 48%;
+    --chart-6: 200 30% 42%;
+
+    --radius: 0.625rem;
   }
+
   .dark {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 14.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
+    --background:            20 14%  8%;
+    --foreground:            30 20% 94%;
+
+    --card:                  20 13% 11%;
+    --card-foreground:       30 20% 94%;
+    --popover:               20 13% 11%;
+    --popover-foreground:    30 20% 94%;
+
+    /* Lifted well above the light-mode value — 35% lightness on a dark
+       surface is close to unreadable. */
+    --primary:              345 65% 58%;
+    --primary-foreground:    20 14%  8%;
+
+    --secondary:             20 10% 17%;
+    --secondary-foreground:  30 20% 94%;
+
+    --muted:                 20 10% 17%;
+    --muted-foreground:      25  8% 62%;
+
+    --accent:                20 12% 20%;
+    --accent-foreground:    345 65% 70%;
+
+    --destructive:            5 55% 52%;
+    --destructive-foreground: 30 20% 94%;
+
+    --success:              155 26% 50%;
+    --success-foreground:    20 14%  8%;
+    --warning:               32 75% 52%;
+    --warning-foreground:    20 14%  8%;
+
+    --border:                20 10% 20%;
+    --input:                 20 10% 22%;
+    --ring:                 345 65% 58%;
+
+    --chart-1: 345 65% 60%;
+    --chart-2: 155 30% 52%;
+    --chart-3:  32 70% 55%;
+    --chart-4:  25 30% 58%;
+    --chart-5: 310 30% 60%;
+    --chart-6: 200 35% 55%;
+  }
+}
+
+@layer base {
+  /* Tabular figures wherever money is compared down a column — proportional
+     digits make ₹1,11,000 and ₹99,000 impossible to scan against each other. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+  }
+
+  /* ── Mobile keyboard handling ─────────────────────────────────────────────
+
+     iOS Safari zooms the whole page when a focused control's font is under
+     16px, and does not zoom back out — the operator is left scrolling a
+     magnified form one-handed at a busy stall. The usual workaround is
+     maximum-scale=1, which also kills pinch-zoom; setting the font is the fix
+     that does not cost accessibility.
+
+     Applied below sm only, so dense desktop controls keep their smaller type. */
+  @media (max-width: 639px) {
+    input:not([type='checkbox']):not([type='radio']):not([type='range']),
+    select,
+    textarea {
+      font-size: 16px;
+    }
+  }
+
+  /* When the browser scrolls a focused field into view it aims for the nearest
+     edge, which on these screens lands underneath the sticky header or behind
+     the on-screen keyboard. These margins reserve room on both sides. */
+  input, select, textarea {
+    scroll-margin-top: 5rem;
+    scroll-margin-bottom: 8rem;
+  }
+
+  /* Number inputs: the spinners are useless on touch and steal width from a
+     46px quantity cell. */
+  input[type='number'] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
   }
 }

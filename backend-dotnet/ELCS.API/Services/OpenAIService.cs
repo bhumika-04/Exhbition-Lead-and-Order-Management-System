@@ -104,7 +104,6 @@ public class OpenAIService : IOpenAIService
                     Country: a.Country,
                     PinCode: a.PinCode
                 )).ToList() ?? new List<AddressData>(),
-                Services: result.Services ?? new List<string>(),
                 Brands: result.Brands?.Select(b => new BrandData(
                     BrandName: b.BrandName ?? "",
                     Relationship: b.Relationship
@@ -157,7 +156,6 @@ public class OpenAIService : IOpenAIService
             Emails: new List<string>(),
             Websites: new List<string>(),
             Addresses: new List<AddressData>(),
-            Services: new List<string>(),
             Brands: new List<BrandData>(),
             Confidence: 0,
             RawFrontText: null,
@@ -175,7 +173,6 @@ Return JSON with fields:
   ""emails"": [string],
   ""websites"": [string],
   ""addresses"": [{ ""address_type"": string|null, ""address"": string, ""city"": string|null, ""state"": ""infer from city if not printed"", ""country"": string|null, ""pin_code"": string|null }],
-  ""services"": [string],
   ""brands"": [{ ""brand_name"": string, ""relationship"": string|null }],
   ""confidence"": 0.0 - 1.0
 }";
@@ -251,8 +248,6 @@ Return STRICT JSON only.";
         [JsonPropertyName("addresses")]
         public List<AddressJsonResult>? Addresses { get; set; }
 
-        [JsonPropertyName("services")]
-        public List<string>? Services { get; set; }
 
         [JsonPropertyName("brands")]
         public List<BrandJsonResult>? Brands { get; set; }

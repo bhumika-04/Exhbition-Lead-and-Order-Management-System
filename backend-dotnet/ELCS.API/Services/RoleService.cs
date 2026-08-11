@@ -91,7 +91,7 @@ public class RoleService : IRoleService
     {
         using var conn = _db.CreateConnection();
         var rows = await conn.QueryAsync<dynamic>(@"
-            SELECT e.EmployeeId, e.FullName, e.Email, e.Phone, e.Designation, e.CompanyName,
+            SELECT e.EmployeeId, e.FullName, e.Email, e.Phone, e.Designation,
                    e.RoleId, r.RoleName, e.IsActive, e.CreatedAt
             FROM Employees e
             LEFT JOIN Roles r ON r.RoleId = e.RoleId
@@ -104,7 +104,7 @@ public class RoleService : IRoleService
     {
         using var conn = _db.CreateConnection();
         var r = await conn.QueryFirstOrDefaultAsync<dynamic>(@"
-            SELECT e.EmployeeId, e.FullName, e.Email, e.Phone, e.Designation, e.CompanyName,
+            SELECT e.EmployeeId, e.FullName, e.Email, e.Phone, e.Designation,
                    e.RoleId, r.RoleName, e.IsActive, e.CreatedAt
             FROM Employees e
             LEFT JOIN Roles r ON r.RoleId = e.RoleId
@@ -118,9 +118,9 @@ public class RoleService : IRoleService
         using var conn = _db.CreateConnection();
         var hash = HashPassword(request.Password);
         return await conn.ExecuteScalarAsync<int>(@"
-            INSERT INTO Employees (FullName, Email, PasswordHash, Phone, Designation, CompanyName, RoleId, IsActive, CreatedAt)
+            INSERT INTO Employees (FullName, Email, PasswordHash, Phone, Designation, RoleId, IsActive, CreatedAt)
             OUTPUT INSERTED.EmployeeId
-            VALUES (@FullName, @Email, @PasswordHash, @Phone, @Designation, @CompanyName, @RoleId, 1, GETUTCDATE())",
+            VALUES (@FullName, @Email, @PasswordHash, @Phone, @Designation, @RoleId, 1, GETUTCDATE())",
             new
             {
                 FullName    = request.FullName,
@@ -128,7 +128,6 @@ public class RoleService : IRoleService
                 PasswordHash = hash,
                 Phone       = request.Phone,
                 Designation = request.Designation,
-                CompanyName = request.CompanyName,
                 RoleId      = request.RoleId,
             });
     }
@@ -142,7 +141,7 @@ public class RoleService : IRoleService
             var rows = await conn.ExecuteAsync(@"
                 UPDATE Employees
                 SET FullName = @FullName, Email = @Email, Phone = @Phone,
-                    Designation = @Designation, CompanyName = @CompanyName,
+                    Designation = @Designation,
                     RoleId = @RoleId, PasswordHash = @PasswordHash
                 WHERE EmployeeId = @EmployeeId AND IsActive = 1",
                 new
@@ -151,7 +150,6 @@ public class RoleService : IRoleService
                     Email        = request.Email,
                     Phone        = request.Phone,
                     Designation  = request.Designation,
-                    CompanyName  = request.CompanyName,
                     RoleId       = request.RoleId,
                     PasswordHash = hash,
                     EmployeeId   = employeeId,
@@ -163,7 +161,7 @@ public class RoleService : IRoleService
             var rows = await conn.ExecuteAsync(@"
                 UPDATE Employees
                 SET FullName = @FullName, Email = @Email, Phone = @Phone,
-                    Designation = @Designation, CompanyName = @CompanyName,
+                    Designation = @Designation,
                     RoleId = @RoleId
                 WHERE EmployeeId = @EmployeeId AND IsActive = 1",
                 new
@@ -172,7 +170,6 @@ public class RoleService : IRoleService
                     Email       = request.Email,
                     Phone       = request.Phone,
                     Designation = request.Designation,
-                    CompanyName = request.CompanyName,
                     RoleId      = request.RoleId,
                     EmployeeId  = employeeId,
                 });
@@ -208,7 +205,6 @@ public class RoleService : IRoleService
         Email:       (string)r.Email,
         Phone:       (string?)r.Phone,
         Designation: (string?)r.Designation,
-        CompanyName: (string?)r.CompanyName,
         RoleId:      (int?)r.RoleId,
         RoleName:    (string?)r.RoleName,
         IsActive:    (bool)r.IsActive,

@@ -14,7 +14,7 @@ public class Lead
     public string? PrimaryVisitorDesignation { get; set; }
     public string? PrimaryVisitorPhone { get; set; }
     public string? PrimaryVisitorEmail { get; set; }
-    public string? Segment { get; set; }
+    public string? GstNumber { get; set; }          // optional; 15-char GSTIN, stored as entered
     public string? Priority { get; set; }
     public string? DiscussionSummary { get; set; }
     public string? RawCardJson { get; set; }
@@ -29,17 +29,11 @@ public class Lead
     public string? EmailAddresses { get; set; }     // JSON array of all email addresses
     public string? Addresses { get; set; }          // JSON array of addresses
     public string? Websites { get; set; }           // JSON array of website URLs
-    public string? Services { get; set; }           // JSON array of services/products
     public string? Brands { get; set; }             // JSON array of brands
     public string? Topics { get; set; }             // JSON array of discussion topics
     public string? FrontImagePath { get; set; }
     public string? BackImagePath { get; set; }
 
-    // Additional classification fields
-    public string? Category { get; set; }
-    public string? TurnOver { get; set; }
-    public string? TeamSize { get; set; }
-    public string? Vertical { get; set; }
 }
 
 public class LeadPerson

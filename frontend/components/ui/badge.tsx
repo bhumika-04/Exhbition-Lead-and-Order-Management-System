@@ -3,18 +3,32 @@ import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * Status pills.
+ *
+ * Tinted rather than solid: a row of saturated blocks fights the data for
+ * attention, and these sit inline with text. `solid` exists for the one or two
+ * places that genuinely need to shout.
+ */
 const badgeVariants = cva(
-  "inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+  "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide " +
+    "transition-colors focus:outline-none focus:ring-2 focus:ring-ring/40",
   {
     variants: {
       variant: {
-        default:
-          "border-transparent bg-primary text-primary-foreground shadow hover:bg-primary/80",
-        secondary:
-          "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        destructive:
-          "border-transparent bg-destructive text-destructive-foreground shadow hover:bg-destructive/80",
-        outline: "text-foreground",
+        default:   "border-border bg-secondary text-muted-foreground",
+        primary:   "border-primary/15 bg-primary/10 text-primary",
+        success:   "border-success/20 bg-success/10 text-success",
+        warning:   "border-warning/20 bg-warning/10 text-warning",
+        danger:    "border-destructive/20 bg-destructive/10 text-destructive",
+        outline:   "border-border bg-transparent text-muted-foreground",
+        solid:     "border-transparent bg-primary text-primary-foreground",
+
+        // Kept for screens outside the redesign pilot that already use the
+        // stock shadcn names. `danger` is the preferred spelling going forward;
+        // these two can go once every caller has moved.
+        secondary:   "border-border bg-secondary text-secondary-foreground",
+        destructive: "border-destructive/20 bg-destructive/10 text-destructive",
       },
     },
     defaultVariants: {

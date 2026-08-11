@@ -25,6 +25,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import CameraDialog from '@/components/CameraDialog';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { apiErrorMessage } from '@/lib/apiError';
+import {
+  INDIAN_STATES, INDIAN_UNION_TERRITORIES,
+  normaliseIndianState, isKnownIndianState,
+} from '@/lib/indianStates';
 
 interface FormState {
   company_name: string;
@@ -36,11 +40,7 @@ interface FormState {
   city: string;
   state: string;
   websites: string[];
-  services: string[];
-  category: string;
-  vertical: string;
-  turn_over: string;
-  team_size: string;
+  gst_number: string;
   discussion_summary: string;
 }
 
@@ -54,11 +54,7 @@ const blank = (): FormState => ({
   city: '',
   state: '',
   websites: [],
-  services: [],
-  category: '',
-  vertical: '',
-  turn_over: '',
-  team_size: '',
+  gst_number: '',
   discussion_summary: '',
 });
 
@@ -90,7 +86,6 @@ export default function ScanPage() {
 
   const [extracting, setExtracting] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [showClassification, setShowClassification] = useState(false);
 
   const [hasTeamPhoto, setHasTeamPhoto] = useState(false);
   const [teamPhoto, setTeamPhoto] = useState<File | null>(null);
@@ -147,6 +142,27 @@ export default function ScanPage() {
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm(f => ({ ...f, [key]: value }));
 
+  /**
+   * Text sitting in a ChipInput that was never committed with "+" or Enter.
+   *
+   * A ref rather than state because save() has to read it synchronously — a
+   * setState from the input's blur would not have landed by the time the click
+   * handler runs, and at a stall the operator types a number and hits Save
+   * without ever reaching for "+". Losing it was silent, which is the worst
+   * kind of data loss: the lead saves, just without a phone number.
+   */
+  type ChipField = 'phones' | 'emails' | 'websites';
+  const chipDrafts = useRef<Record<ChipField, string>>({ phones: '', emails: '', websites: '' });
+
+  const withPendingChips = (f: FormState): FormState => {
+    const out = { ...f };
+    (['phones', 'emails', 'websites'] as const).forEach(key => {
+      const pending = chipDrafts.current[key].trim();
+      if (pending && !out[key].includes(pending)) out[key] = [...out[key], pending];
+    });
+    return out;
+  };
+
   /** Extraction runs against the images and pre-fills the form in place. */
   const runExtraction = useCallback(async (front: File, back: File | null) => {
     if (!exhibition) { toast.error('Choose an exhibition first'); return; }
@@ -173,9 +189,15 @@ export default function ScanPage() {
         emails: ex.emails?.length ? ex.emails : f.emails,
         address: addr?.address ?? f.address,
         city: addr?.city ?? f.city,
-        state: addr?.state ?? f.state,
+        // Mapped to an official name where possible ("MH", "Maharastra", "Orissa"
+        // all land correctly). An unrecognised value is passed through rather
+        // than dropped — StateSelect keeps it selectable and flags it.
+        state: addr?.state
+          ? (normaliseIndianState(addr.state) ?? addr.state)
+          : f.state,
         websites: ex.websites?.length ? ex.websites : f.websites,
-        services: ex.services?.length ? ex.services : f.services,
+        // Services/products is no longer captured, so anything the card
+        // extraction read for it is deliberately discarded.
       }));
 
       // Low confidence points the operator at the risky fields instead of
@@ -220,14 +242,20 @@ export default function ScanPage() {
   const resetAll = () => {
     clearCard();
     setForm(blank());
+    chipDrafts.current = { phones: '', emails: '', websites: '' };
     setHasTeamPhoto(false);
     setTeamPhoto(null);
     setTeamPreview(null);
   };
 
   const save = async () => {
+    // Fold in anything still sitting in a chip input before reading the form,
+    // so a number typed but not committed with "+" is not silently dropped.
+    const entered = withPendingChips(form);
+    setForm(entered);
+
     if (!exhibition) { toast.error('Choose an exhibition'); return; }
-    if (!form.primary_visitor_name.trim() && !form.company_name.trim()) {
+    if (!entered.primary_visitor_name.trim() && !entered.company_name.trim()) {
       toast.error('Enter at least a name or a company'); return;
     }
     // The checkbox is a promise the operator made — hold Save until it's kept.
@@ -248,24 +276,28 @@ export default function ScanPage() {
         // tolerated omission. `emails` is a LIST on a person, not a string.
         const merged = {
           ...extraction,
-          company_name: form.company_name || null,
+          company_name: entered.company_name || null,
           persons: [{
-            name: form.primary_visitor_name || null,
-            designation: form.primary_visitor_designation || null,
-            phones: form.phones,
-            emails: form.emails,
+            name: entered.primary_visitor_name || null,
+            designation: entered.primary_visitor_designation || null,
+            phones: entered.phones,
+            emails: entered.emails,
             is_primary: true,
           }],
-          phones: form.phones,
-          emails: form.emails,
-          websites: form.websites,
-          services: form.services,
-          addresses: (form.address || form.city || form.state)
+          phones: entered.phones,
+          emails: entered.emails,
+          websites: entered.websites,
+          // The Services/products field is gone from the form, but the API
+          // contract still requires the key — send it empty rather than
+          // dropping it and failing validation.
+          services: [],
+          gst_number: entered.gst_number.trim() || null,
+          addresses: (entered.address || entered.city || entered.state)
             ? [{
                 address_type: null,
-                address: form.address || null,
-                city: form.city || null,
-                state: form.state || null,
+                address: entered.address || null,
+                city: entered.city || null,
+                state: entered.state || null,
                 country: null,
                 pin_code: null,
               }]
@@ -289,22 +321,23 @@ export default function ScanPage() {
           exhibition_id: exhibition.exhibition_id,
           source_code: 'manual_entry',
           assigned_employee_id: employee?.employee_id,
-          company_name: form.company_name || undefined,
-          primary_visitor_name: form.primary_visitor_name || undefined,
-          primary_visitor_phone: form.phones[0],
-          primary_visitor_email: form.emails[0],
-          primary_visitor_designation: form.primary_visitor_designation || undefined,
-          discussion_summary: form.discussion_summary || undefined,
+          company_name: entered.company_name || undefined,
+          primary_visitor_name: entered.primary_visitor_name || undefined,
+          primary_visitor_phone: entered.phones[0],
+          primary_visitor_email: entered.emails[0],
+          primary_visitor_designation: entered.primary_visitor_designation || undefined,
+          discussion_summary: entered.discussion_summary || undefined,
+          gst_number: entered.gst_number.trim() || undefined,
+          // These used to go nowhere: the create call dropped them and the
+          // follow-up update was an empty object.
+          phones: entered.phones,
+          emails: entered.emails,
+          websites: entered.websites,
+          address: entered.address || undefined,
+          city: entered.city || undefined,
+          state: entered.state || undefined,
         });
         leadId = res.lead_id;
-
-        await api.updateLead(leadId, {
-          services: form.services,
-          category: form.category || undefined,
-          vertical: form.vertical || undefined,
-          turn_over: form.turn_over || undefined,
-          team_size: form.team_size || undefined,
-        } as any);
       }
 
       // Photo goes up after the lead exists. If it fails the lead still stands
@@ -328,35 +361,35 @@ export default function ScanPage() {
   };
 
   const flagged = (field: string) =>
-    lowConfidence.has(field) ? 'border-l-4 border-l-amber-400' : '';
+    lowConfidence.has(field) ? 'border-l-4 border-l-warning' : '';
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-slate-50">
+    <div className="flex-1 flex flex-col min-h-0 bg-background">
       {/* Exhibition bar */}
-      <div className="bg-white border-b border-slate-200 px-4 md:px-6 py-2.5 flex items-center gap-2 shrink-0">
+      <div className="bg-card border-b border-border px-4 md:px-6 py-2.5 flex items-center gap-2 shrink-0">
         <button
           onClick={() => setShowPicker(true)}
-          className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg px-2.5 py-1.5 transition-colors min-w-0"
+          className="flex items-center gap-1.5 text-xs font-semibold text-foreground bg-secondary hover:bg-secondary rounded-lg px-2.5 py-1.5 transition-colors min-w-0"
         >
           <span className="truncate max-w-[180px]">{exhibition?.name ?? 'Choose exhibition'}</span>
-          <ChevronDown className="w-3 h-3 shrink-0 text-slate-400" />
+          <ChevronDown className="w-3 h-3 shrink-0 text-muted-foreground" />
         </button>
         <div className="flex-1" />
-        <button onClick={resetAll} className="text-[11px] text-slate-400 hover:text-slate-600 flex items-center gap-1">
+        <button onClick={resetAll} className="text-[11px] text-muted-foreground hover:text-muted-foreground flex items-center gap-1">
           <RotateCcw className="w-3 h-3" /> Clear
         </button>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4 space-y-3">
         {/* Card capture */}
-        <Card className="border-slate-200">
+        <Card className="border-border">
           <CardContent className="p-4 space-y-3">
             <div className="flex items-center gap-2">
-              <ScanLine className="w-4 h-4 text-blue-600" />
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <ScanLine className="w-4 h-4 text-primary" />
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Visiting card
               </span>
-              <span className="text-[10px] text-slate-400 ml-auto">optional</span>
+              <span className="text-[10px] text-muted-foreground ml-auto">optional</span>
             </div>
 
             {!frontPreview ? (
@@ -378,7 +411,7 @@ export default function ScanPage() {
                            onRemove={() => { setBackFile(null); setBackPreview(null); }} />
                   : (
                     <button onClick={() => takePhoto('back')} disabled={extracting}
-                            className="w-20 h-24 rounded-lg border border-dashed border-slate-300 flex flex-col items-center justify-center gap-1 text-slate-400 hover:bg-slate-50">
+                            className="w-20 h-24 rounded-lg border border-dashed border-input flex flex-col items-center justify-center gap-1 text-muted-foreground hover:bg-secondary/60">
                       <Plus className="w-4 h-4" />
                       <span className="text-[9px]">Back</span>
                     </button>
@@ -387,7 +420,7 @@ export default function ScanPage() {
             )}
 
             {extracting && (
-              <div className="flex items-center gap-2 text-xs text-blue-700 bg-blue-50 rounded-lg px-3 py-2">
+              <div className="flex items-center gap-2 text-xs text-primary bg-primary/[0.07] rounded-lg px-3 py-2">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 Reading the card…
               </div>
@@ -406,30 +439,30 @@ export default function ScanPage() {
 
         {/* Duplicates — a warning to overrule, not a blocker */}
         {duplicates.length > 0 && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-1.5">
-            <p className="text-xs font-semibold text-amber-900 flex items-center gap-1.5">
+          <div className="rounded-xl border border-warning/25 bg-warning/[0.07] p-3 space-y-1.5">
+            <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
               <AlertTriangle className="w-3.5 h-3.5" />
               {duplicates.length} possible duplicate{duplicates.length === 1 ? '' : 's'}
             </p>
             {duplicates.slice(0, 3).map(d => (
               <button key={d.lead_id} onClick={() => router.push(`/leads/${d.lead_id}`)}
-                      className="block w-full text-left text-[11px] text-amber-800 hover:underline">
+                      className="block w-full text-left text-[11px] text-warning hover:underline">
                 {d.visitor_name || 'Unknown'}{d.company_name ? ` · ${d.company_name}` : ''}
                 {d.phone ? ` · ${d.phone}` : ''} ({d.similarity_score}% match)
               </button>
             ))}
-            <p className="text-[10px] text-amber-700">You can still save — this is only a warning.</p>
+            <p className="text-[10px] text-warning">You can still save — this is only a warning.</p>
           </div>
         )}
 
         {/* Details */}
-        <Card className="border-slate-200">
+        <Card className="border-border">
           <CardContent className="p-4 space-y-3">
             <div className="flex items-center gap-2">
-              <Users className="w-4 h-4 text-slate-400" />
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Details</span>
+              <Users className="w-4 h-4 text-muted-foreground" />
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Details</span>
               {lowConfidence.size > 0 && (
-                <span className="text-[10px] text-amber-700 ml-auto flex items-center gap-1">
+                <span className="text-[10px] text-warning ml-auto flex items-center gap-1">
                   <Sparkles className="w-3 h-3" /> check highlighted fields
                 </span>
               )}
@@ -440,60 +473,43 @@ export default function ScanPage() {
             <div className="grid grid-cols-2 gap-3">
               <Input label="Designation" value={form.primary_visitor_designation}
                      onChange={v => set('primary_visitor_designation', v)} />
-              <Input label="Company" value={form.company_name} className={flagged('company_name')}
+              {/* Labelled Agency in the UI; the field is still company_name
+                  everywhere below this line, so the API is untouched. */}
+              <Input label="Agency" value={form.company_name} className={flagged('company_name')}
                      onChange={v => set('company_name', v)} />
             </div>
 
             <ChipInput label="Phone numbers" values={form.phones}
-                       onChange={v => set('phones', v)} placeholder="Add a number" inputMode="tel" />
+                       onChange={v => set('phones', v)}
+                       onDraft={v => { chipDrafts.current.phones = v; }}
+                       placeholder="Add a number" inputMode="tel" />
             <ChipInput label="Emails" values={form.emails}
-                       onChange={v => set('emails', v)} placeholder="Add an email" />
+                       onChange={v => set('emails', v)}
+                       onDraft={v => { chipDrafts.current.emails = v; }}
+                       placeholder="Add an email" />
 
             <Input label="Address" value={form.address} onChange={v => set('address', v)} />
             <div className="grid grid-cols-2 gap-3">
               <Input label="City"  value={form.city}  onChange={v => set('city', v)} />
-              <Input label="State" value={form.state} onChange={v => set('state', v)} />
+              <StateSelect value={form.state} onChange={v => set('state', v)} />
             </div>
 
             <ChipInput label="Websites" values={form.websites}
-                       onChange={v => set('websites', v)} placeholder="Add a website" />
+                       onChange={v => set('websites', v)}
+                       onDraft={v => { chipDrafts.current.websites = v; }}
+                       placeholder="Add a website" />
 
-            <ChipInput label="Services / products" values={form.services}
-                       onChange={v => set('services', v)}
-                       placeholder="Add a service or product" />
+            <Input label="GST number (optional)" value={form.gst_number}
+                   onChange={v => set('gst_number', v.toUpperCase())} />
 
             <Input label="Discussion notes" value={form.discussion_summary}
                    onChange={v => set('discussion_summary', v)} />
 
-            {/* Rarely known at the counter — collapsed by default */}
-            <button onClick={() => setShowClassification(s => !s)}
-                    className="text-[11px] text-slate-500 hover:text-slate-700 flex items-center gap-1">
-              <ChevronDown className={`w-3 h-3 transition-transform ${showClassification ? 'rotate-180' : ''}`} />
-              Classification (optional)
-            </button>
-
-            <AnimatePresence>
-              {showClassification && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  className="overflow-hidden"
-                >
-                  <div className="grid grid-cols-2 gap-3 pt-1">
-                    <Input label="Category"  value={form.category}  onChange={v => set('category', v)} />
-                    <Input label="Vertical"  value={form.vertical}  onChange={v => set('vertical', v)} />
-                    <Input label="Turn-over" value={form.turn_over} onChange={v => set('turn_over', v)} />
-                    <Input label="Team size" value={form.team_size} onChange={v => set('team_size', v)} />
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
           </CardContent>
         </Card>
 
         {/* Team photo */}
-        <Card className="border-slate-200">
+        <Card className="border-border">
           <CardContent className="p-4 space-y-3">
             <label className="flex items-center gap-2.5 cursor-pointer">
               <input
@@ -503,9 +519,9 @@ export default function ScanPage() {
                   setHasTeamPhoto(e.target.checked);
                   if (!e.target.checked) { setTeamPhoto(null); setTeamPreview(null); }
                 }}
-                className="w-4 h-4 rounded border-slate-300"
+                className="w-4 h-4 rounded border-input"
               />
-              <span className="text-sm font-medium text-slate-700">
+              <span className="text-sm font-medium text-foreground">
                 Lead has a photo with the team
               </span>
             </label>
@@ -535,7 +551,7 @@ export default function ScanPage() {
                       </Button>
                     </div>
                   )}
-                  <p className="text-[10px] text-slate-400 mt-1.5">
+                  <p className="text-[10px] text-muted-foreground mt-1.5">
                     Not now? Untick and add it later from the lead page.
                   </p>
                 </motion.div>
@@ -591,12 +607,12 @@ export default function ScanPage() {
             <motion.div
               initial={{ scale: 0.96, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.96 }}
               onClick={e => e.stopPropagation()}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-sm max-h-[70vh] overflow-y-auto"
+              className="bg-card rounded-2xl shadow-2xl w-full max-w-sm max-h-[70vh] overflow-y-auto"
             >
-              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-                <p className="text-sm font-bold text-slate-900">Choose exhibition</p>
-                <button onClick={() => setShowPicker(false)} className="p-1 rounded-lg hover:bg-slate-100">
-                  <X className="w-4 h-4 text-slate-400" />
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+                <p className="text-sm font-bold text-foreground">Choose exhibition</p>
+                <button onClick={() => setShowPicker(false)} className="p-1 rounded-lg hover:bg-secondary">
+                  <X className="w-4 h-4 text-muted-foreground" />
                 </button>
               </div>
               <div className="p-2">
@@ -604,10 +620,10 @@ export default function ScanPage() {
                   <button key={ex.exhibition_id} onClick={() => chooseExhibition(ex)}
                           className={`w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors ${
                             exhibition?.exhibition_id === ex.exhibition_id
-                              ? 'bg-blue-50 text-blue-700 font-semibold'
-                              : 'hover:bg-slate-50 text-slate-700'}`}>
+                              ? 'bg-primary/[0.07] text-primary font-semibold'
+                              : 'hover:bg-secondary/60 text-foreground'}`}>
                     {ex.name}
-                    {ex.location && <span className="block text-[11px] text-slate-400">{ex.location}</span>}
+                    {ex.location && <span className="block text-[11px] text-muted-foreground">{ex.location}</span>}
                   </button>
                 ))}
               </div>
@@ -622,15 +638,55 @@ export default function ScanPage() {
 function Thumb({ src, label, onRemove }: { src: string; label: string; onRemove: () => void }) {
   return (
     <div className="relative w-20 h-24 shrink-0">
-      <img src={src} alt={label} className="w-full h-full object-cover rounded-lg border border-slate-200" />
+      <img src={src} alt={label} className="w-full h-full object-cover rounded-lg border border-border" />
       <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[9px] text-center py-0.5 rounded-b-lg">
         {label}
       </span>
       <button onClick={onRemove} aria-label={`Remove ${label}`}
-              className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-white border border-slate-200 flex items-center justify-center shadow-sm">
-        <X className="w-3 h-3 text-rose-500" />
+              className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-card border border-border flex items-center justify-center shadow-sm">
+        <X className="w-3 h-3 text-destructive" />
       </button>
     </div>
+  );
+}
+
+/**
+ * State picker.
+ *
+ * Card extraction writes here too, and GPT does not always return an official
+ * name. Anything it cannot match is kept as a selectable option rather than
+ * discarded — a <select> whose value is not among its options renders blank,
+ * which would quietly lose what was read off the card.
+ */
+function StateSelect({ value, onChange }: {
+  value: string; onChange: (v: string) => void;
+}) {
+  const unmatched = value && !isKnownIndianState(value);
+
+  return (
+    <label className="block text-xs">
+      <span className="text-muted-foreground font-medium">State</span>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className={`mt-1 w-full h-10 px-3 rounded-lg border bg-card text-sm ${
+          unmatched ? 'border-warning/40' : 'border-border'
+        } ${value ? 'text-foreground' : 'text-muted-foreground'}`}
+      >
+        <option value="">Select a state</option>
+
+        {unmatched && (
+          <option value={value}>{value} — from the card, not recognised</option>
+        )}
+
+        <optgroup label="States">
+          {INDIAN_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+        </optgroup>
+        <optgroup label="Union Territories">
+          {INDIAN_UNION_TERRITORIES.map(s => <option key={s} value={s}>{s}</option>)}
+        </optgroup>
+      </select>
+    </label>
   );
 }
 
@@ -639,38 +695,48 @@ function Input({ label, value, onChange, className = '' }: {
 }) {
   return (
     <label className="block text-xs">
-      <span className="text-slate-500 font-medium">{label}</span>
+      <span className="text-muted-foreground font-medium">{label}</span>
       <input
         value={value}
         onChange={e => onChange(e.target.value)}
-        className={`mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm ${className}`}
+        className={`mt-1 w-full h-10 px-3 rounded-lg border border-border bg-card text-sm ${className}`}
       />
     </label>
   );
 }
 
-/** Repeatable values as chips — phones, emails, websites and services. */
-function ChipInput({ label, values, onChange, placeholder, inputMode }: {
+/**
+ * Repeatable values as chips — phones, emails, websites.
+ *
+ * The pending text is mirrored to the parent through `onDraft` on every
+ * keystroke, and committed on blur as well as on Enter / "+". Between them the
+ * value survives every way out of the field: tabbing away, tapping Save, or
+ * hitting Save with the caret still in the box.
+ */
+function ChipInput({ label, values, onChange, onDraft, placeholder, inputMode }: {
   label: string; values: string[]; onChange: (v: string[]) => void;
+  onDraft?: (v: string) => void;
   placeholder: string; inputMode?: 'tel';
 }) {
   const [draft, setDraft] = useState('');
 
+  const edit = (v: string) => { setDraft(v); onDraft?.(v); };
+
   const add = () => {
     const v = draft.trim();
     if (v && !values.includes(v)) onChange([...values, v]);
-    setDraft('');
+    edit('');
   };
 
   return (
     <div className="text-xs">
-      <span className="text-slate-500 font-medium">{label}</span>
+      <span className="text-muted-foreground font-medium">{label}</span>
       <div className="flex flex-wrap gap-1.5 mt-1">
         {values.map(v => (
-          <span key={v} className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 rounded-lg pl-2.5 pr-1 py-1 text-[11px]">
+          <span key={v} className="inline-flex items-center gap-1 bg-secondary text-foreground rounded-lg pl-2.5 pr-1 py-1 text-[11px]">
             {v}
             <button onClick={() => onChange(values.filter(x => x !== v))} aria-label={`Remove ${v}`}
-                    className="p-0.5 hover:text-rose-500">
+                    className="p-0.5 hover:text-destructive">
               <X className="w-3 h-3" />
             </button>
           </span>
@@ -680,14 +746,15 @@ function ChipInput({ label, values, onChange, placeholder, inputMode }: {
         <input
           value={draft}
           inputMode={inputMode}
-          onChange={e => setDraft(e.target.value)}
+          onChange={e => edit(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
+          onBlur={add}
           placeholder={placeholder}
-          className="flex-1 h-9 px-3 rounded-lg border border-slate-200 bg-white text-sm"
+          className="flex-1 h-9 px-3 rounded-lg border border-border bg-card text-sm"
         />
         <button onClick={add}
-                className="h-9 w-9 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center shrink-0">
-          <Plus className="w-4 h-4 text-slate-600" />
+                className="h-9 w-9 rounded-lg bg-secondary hover:bg-secondary flex items-center justify-center shrink-0">
+          <Plus className="w-4 h-4 text-muted-foreground" />
         </button>
       </div>
     </div>

@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -24,54 +23,56 @@ public class InteraktWhatsAppService : IWhatsAppService
     private readonly IHttpClientFactory _httpFactory;
     private readonly IConfiguration _config;
     private readonly IDbConnection _db;
-    private readonly ISettingsService _settings;
 
-    private static readonly CultureInfo Inr = CultureInfo.GetCultureInfo("en-IN");
 
     public InteraktWhatsAppService(
         ILogger<InteraktWhatsAppService> logger,
         IHttpClientFactory httpFactory,
         IConfiguration config,
-        IDbConnection db,
-        ISettingsService settings)
+        IDbConnection db)
     {
         _logger = logger;
         _httpFactory = httpFactory;
         _config = config;
         _db = db;
-        _settings = settings;
     }
 
     /// <summary>
-    /// Template names come from Settings first so an approved name can change
-    /// without a deploy, falling back to appsettings.json for a fresh install.
+    /// Every WhatsApp touchpoint. Template names come from appsettings.json —
+    /// see Template() below for why they are not editable at runtime.
     /// </summary>
-    private async Task<string?> TemplateAsync(string settingKey, string configKey)
-    {
-        var fromDb = await _settings.GetAsync(settingKey);
-        return !string.IsNullOrWhiteSpace(fromDb) ? fromDb : _config[configKey];
-    }
+    /// <summary>
+    /// The approved template name, from configuration.
+    ///
+    /// Read only from appsettings, deliberately. These change when Meta approves
+    /// a new template — rarely, and never during an exhibition — so a database
+    /// row editable from a Settings screen bought nothing but a second place for
+    /// the name to be wrong, and an allow-list that silently dropped whichever
+    /// key was missing from it.
+    /// </summary>
+    private string? Template(string configKey) => _config[configKey];
 
-    private async Task<string> SocialLinksAsync()
-    {
-        var all = await _settings.GetAllAsync();
-        var links = new[]
-        {
-            all.GetValueOrDefault(SettingKeys.SocialWebsite),
-            all.GetValueOrDefault(SettingKeys.SocialInstagram),
-            all.GetValueOrDefault(SettingKeys.SocialFacebook),
-            all.GetValueOrDefault(SettingKeys.SocialYoutube),
-        }.Where(v => !string.IsNullOrWhiteSpace(v));
-
-        return string.Join("  ", links);
-    }
 
     public async Task<WhatsAppSendResult> SendWelcomeAsync(
         int leadId, string? name, string? phone, string? photoUrl)
     {
         var apiKey       = _config["Interakt:ApiKey"];
         var baseUrl      = _config["Interakt:BaseUrl"] ?? "https://api.interakt.ai/v1/public/message/";
-        var templateName = await TemplateAsync(SettingKeys.TemplateWelcome, "Interakt:Templates:Welcome");
+        // Two templates, chosen by whether there is a photograph to attach.
+        //
+        // A WhatsApp template's header is fixed at approval: one declaring an
+        // IMAGE header fails outright when no media is supplied. The welcome
+        // fires from two places — self-registration at the QR, where there is
+        // no photo, and the lead screen after the team photo is taken — so a
+        // single template could only ever serve one of them.
+        //
+        // With a photo it sends the meeting-photo template, which carries the
+        // picture in its header; without one, the plain welcome. Both take the
+        // lead's name as their only body variable.
+        var hasPhoto = !string.IsNullOrWhiteSpace(photoUrl);
+        var templateName = hasPhoto
+            ? Template("Interakt:Templates:MeetingPhoto")
+            : Template("Interakt:Templates:Welcome");
         var languageCode = _config["Interakt:LanguageCode"] ?? "en";
         var countryCode  = _config["Interakt:DefaultCountryCode"] ?? "+91";
 
@@ -79,7 +80,9 @@ public class InteraktWhatsAppService : IWhatsAppService
         WhatsAppSendResult result;
 
         if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(templateName))
-            result = WhatsAppSendResult.Skipped("Welcome template is not configured");
+            result = WhatsAppSendResult.Skipped(
+                hasPhoto ? "Meeting-photo template is not configured"
+                         : "Welcome template is not configured");
         else if (target == null)
             result = WhatsAppSendResult.Skipped("Lead has no usable phone number");
         else
@@ -87,11 +90,51 @@ public class InteraktWhatsAppService : IWhatsAppService
                 apiKey, baseUrl, templateName, languageCode,
                 target.Value.CountryCode, target.Value.Number,
                 headerMediaUrl: photoUrl,
-                bodyValues: new[] { name ?? "there", await SocialLinksAsync() },
+                // One variable only. The links that used to be a second body
+                // value are URL buttons on the template now, which read better
+                // and are tappable — and the count here must match the template
+                // exactly or Meta rejects every send.
+                bodyValues: new[] { name ?? "there" },
                 fileName: null);
 
         await LogAsync(leadId, null, WhatsAppTouchpoints.Welcome,
             target?.Full, templateName, photoUrl, result);
+
+        return result;
+    }
+
+    /// <summary>
+    /// Touchpoint #4 — the showroom invitation.
+    ///
+    /// No header and one body variable, matching tejoo_showroom_invite. Sent by
+    /// hand rather than on a trigger: it is meant to follow the exhibition, and
+    /// only a person knows when that is.
+    /// </summary>
+    public async Task<WhatsAppSendResult> SendShowroomInviteAsync(int leadId, string? name, string? phone)
+    {
+        var apiKey       = _config["Interakt:ApiKey"];
+        var baseUrl      = _config["Interakt:BaseUrl"] ?? "https://api.interakt.ai/v1/public/message/";
+        var templateName = Template("Interakt:Templates:ShowroomInvite");
+        var languageCode = _config["Interakt:LanguageCode"] ?? "en";
+        var countryCode  = _config["Interakt:DefaultCountryCode"] ?? "+91";
+
+        var target = NormalisePhone(phone, countryCode);
+        WhatsAppSendResult result;
+
+        if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(templateName))
+            result = WhatsAppSendResult.Skipped("Showroom-invite template is not configured");
+        else if (target == null)
+            result = WhatsAppSendResult.Skipped("Lead has no usable phone number");
+        else
+            result = await SendTemplateAsync(
+                apiKey, baseUrl, templateName, languageCode,
+                target.Value.CountryCode, target.Value.Number,
+                headerMediaUrl: null,
+                bodyValues: new[] { name ?? "there" },
+                fileName: null);
+
+        await LogAsync(leadId, null, WhatsAppTouchpoints.ShowroomInvite,
+            target?.Full, templateName, null, result);
 
         return result;
     }
@@ -101,7 +144,7 @@ public class InteraktWhatsAppService : IWhatsAppService
     {
         var apiKey       = _config["Interakt:ApiKey"];
         var baseUrl      = _config["Interakt:BaseUrl"] ?? "https://api.interakt.ai/v1/public/message/";
-        var templateName = await TemplateAsync(SettingKeys.TemplateTestimonial, "Interakt:Templates:Testimonial");
+        var templateName = Template("Interakt:Templates:Testimonial");
         var languageCode = _config["Interakt:LanguageCode"] ?? "en";
         var countryCode  = _config["Interakt:DefaultCountryCode"] ?? "+91";
 
@@ -130,7 +173,7 @@ public class InteraktWhatsAppService : IWhatsAppService
     {
         var apiKey       = _config["Interakt:ApiKey"];
         var baseUrl      = _config["Interakt:BaseUrl"] ?? "https://api.interakt.ai/v1/public/message/";
-        var templateName = await TemplateAsync(SettingKeys.TemplateOrderConfirmation, "Interakt:Templates:OrderConfirmation");
+        var templateName = Template("Interakt:Templates:OrderConfirmation");
         var languageCode = _config["Interakt:LanguageCode"] ?? "en";
         var countryCode  = _config["Interakt:DefaultCountryCode"] ?? "+91";
 
@@ -156,14 +199,11 @@ public class InteraktWhatsAppService : IWhatsAppService
                 apiKey, baseUrl, templateName, languageCode,
                 phone.Value.CountryCode, phone.Value.Number,
                 headerMediaUrl: soPdfUrl,
-                bodyValues: new[]
-                {
-                    order.LeadName ?? "Customer",
-                    order.OrderNumber,
-                    Money(order.LeadSummary.LeadTotal),
-                    Money(order.LeadSummary.TotalAdvance),
-                    Money(order.LeadSummary.Balance),
-                },
+                // No body variables: the approved template is fixed copy and
+                // carries no placeholders. The figures live in the attached
+                // Sales Order instead, and the count sent here must match the
+                // template exactly or Meta rejects every send.
+                bodyValues: Array.Empty<string>(),
                 fileName: $"{order.OrderNumber}.pdf");
         }
 
@@ -171,31 +211,6 @@ public class InteraktWhatsAppService : IWhatsAppService
             phone?.Full, templateName, soPdfUrl, result);
 
         return result;
-    }
-
-    public async Task<WhatsAppSendResult> SendOtpAsync(string mobile10, string code, int expiryMinutes)
-    {
-        var apiKey       = _config["Interakt:ApiKey"];
-        var baseUrl      = _config["Interakt:BaseUrl"] ?? "https://api.interakt.ai/v1/public/message/";
-        var templateName = await TemplateAsync(SettingKeys.TemplateOtp, "Interakt:Templates:Otp");
-        var languageCode = _config["Interakt:LanguageCode"] ?? "en";
-        var countryCode  = _config["Interakt:DefaultCountryCode"] ?? "+91";
-
-        if (string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(templateName))
-            return WhatsAppSendResult.Skipped("Interakt OTP template is not configured");
-
-        var cc = countryCode.StartsWith('+') ? countryCode : "+" + countryCode;
-
-        // Deliberately NOT written to WhatsAppMessages: that table is keyed to a
-        // lead by foreign key and an OTP is sent before any lead is known. The
-        // attempt is already recorded in OtpChallenges, and logging it twice
-        // would mean storing the customer's number in a second place.
-        return await SendTemplateAsync(
-            apiKey, baseUrl, templateName, languageCode, cc, mobile10,
-            headerMediaUrl: null,
-            bodyValues: new[] { code, expiryMinutes.ToString() },
-            fileName: null,
-            buttonValues: new[] { code });   // WhatsApp copy-code button, when the template has one
     }
 
     private async Task<WhatsAppSendResult> SendTemplateAsync(
@@ -330,7 +345,6 @@ public class InteraktWhatsAppService : IWhatsAppService
         return (cc, digits, cc + digits);
     }
 
-    private static string Money(decimal value) => "₹" + value.ToString("N2", Inr);
 
     private static string Truncate(string value, int max) =>
         value.Length <= max ? value : value[..max] + "…";

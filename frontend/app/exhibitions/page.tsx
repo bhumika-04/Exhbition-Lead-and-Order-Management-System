@@ -6,23 +6,26 @@ import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { api } from '@/lib/api';
 import { isAuthenticated, hasPermission } from '@/lib/auth';
+import { usePermission } from '@/lib/usePermission';
 import type { Exhibition } from '@/lib/types';
-import { MapPin, Calendar, Plus, CheckCircle2, X, Edit2, Trash2, Loader2, Building2 } from 'lucide-react';
+import { MapPin, Calendar, Plus, CheckCircle2, X, Edit2, Trash2, Loader2, Building2, QrCode } from 'lucide-react';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { AnimatedList, AnimatedListItem } from '@/components/ui/animated-list';
-import SelfServiceQrCard from '@/components/SelfServiceQrCard';
+import SelfServiceQrCard, { SelfServiceQrInline } from '@/components/SelfServiceQrCard';
 import { cn } from '@/lib/utils';
 
+// One hue, varied in weight. Six unrelated gradients made a list of
+// exhibitions look like a list of different products.
 const EXHIBITION_GRADIENTS = [
-  'from-blue-500 to-blue-700',
-  'from-violet-500 to-purple-700',
-  'from-emerald-500 to-teal-700',
-  'from-amber-500 to-orange-600',
-  'from-rose-500 to-pink-700',
-  'from-cyan-500 to-sky-700',
+  'from-primary to-primary',
+  'from-primary/90 to-primary',
+  'from-primary/80 to-primary/95',
+  'from-primary/70 to-primary/90',
+  'from-primary/85 to-primary',
+  'from-primary/75 to-primary/95',
 ];
 
 export default function ExhibitionsPage() {
@@ -39,12 +42,14 @@ export default function ExhibitionsPage() {
   const [deleting, setDeleting] = useState(false);
   const [editingExhibition, setEditingExhibition] = useState<Exhibition | null>(null);
   const [deletingExhibition, setDeletingExhibition] = useState<Exhibition | null>(null);
+  /** Exhibition whose full printable QR is open, if any. */
+  const [qrFor, setQrFor] = useState<Exhibition | null>(null);
 
   const [formData, setFormData] = useState({
     name: '', location: '', start_date: '', end_date: '', description: '',
   });
 
-  const canManage = hasPermission('manage_exhibitions');
+  const canManage = usePermission('manage_exhibitions');
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -156,46 +161,46 @@ export default function ExhibitionsPage() {
 
   if (loading) {
     return (
-      <div className="flex flex-col flex-1 overflow-hidden bg-slate-50">
+      <div className="flex flex-col flex-1 overflow-hidden bg-background">
         <div className="flex-1 flex items-center justify-center">
           <div className="flex flex-col items-center gap-3">
-            <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-            <p className="text-sm text-slate-500 font-medium">Loading exhibitions…</p>
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground font-medium">Loading exhibitions…</p>
           </div>
         </div>
       </div>
     );
   }
 
-  const inputCls = 'w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 bg-white transition';
+  const inputCls = 'w-full px-3 py-2 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-ring/30 bg-card transition';
 
   // Inline form fields — do NOT extract as a sub-component here (causes focus loss on each keystroke)
   const formFields = (
     <div className="space-y-3.5">
       <div>
-        <label className="text-xs font-semibold text-slate-600 mb-1 block">Name <span className="text-red-400">*</span></label>
+        <label className="text-xs font-semibold text-muted-foreground mb-1 block">Name <span className="text-destructive/70">*</span></label>
         <input type="text" value={formData.name} onChange={e => setFormData(p => ({ ...p, name: e.target.value }))}
           className={inputCls} placeholder="Tech Summit 2025" />
       </div>
       <div>
-        <label className="text-xs font-semibold text-slate-600 mb-1 block">Location</label>
+        <label className="text-xs font-semibold text-muted-foreground mb-1 block">Location</label>
         <input type="text" value={formData.location} onChange={e => setFormData(p => ({ ...p, location: e.target.value }))}
           className={inputCls} placeholder="Mumbai Convention Center" />
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="text-xs font-semibold text-slate-600 mb-1 block">Start Date <span className="text-red-400">*</span></label>
+          <label className="text-xs font-semibold text-muted-foreground mb-1 block">Start Date <span className="text-destructive/70">*</span></label>
           <input type="date" value={formData.start_date} onChange={e => setFormData(p => ({ ...p, start_date: e.target.value }))}
             className={inputCls} />
         </div>
         <div>
-          <label className="text-xs font-semibold text-slate-600 mb-1 block">End Date <span className="text-red-400">*</span></label>
+          <label className="text-xs font-semibold text-muted-foreground mb-1 block">End Date <span className="text-destructive/70">*</span></label>
           <input type="date" value={formData.end_date} min={formData.start_date} onChange={e => setFormData(p => ({ ...p, end_date: e.target.value }))}
             className={inputCls} />
         </div>
       </div>
       <div>
-        <label className="text-xs font-semibold text-slate-600 mb-1 block">Description</label>
+        <label className="text-xs font-semibold text-muted-foreground mb-1 block">Description</label>
         <textarea value={formData.description} onChange={e => setFormData(p => ({ ...p, description: e.target.value }))}
           rows={3} className={inputCls} placeholder="Brief description…" />
       </div>
@@ -203,19 +208,19 @@ export default function ExhibitionsPage() {
   );
 
   return (
-    <div className="flex flex-col flex-1 overflow-hidden bg-slate-50">
+    <div className="flex flex-col flex-1 overflow-hidden bg-background">
 
       {/* ── Header ── */}
-      <div className="bg-white/80 backdrop-blur-sm border-b border-slate-200 px-4 md:px-6 py-4 md:py-0 shrink-0 md:min-h-[65px] flex items-center">
+      <div className="bg-card/80 backdrop-blur-sm border-b border-border px-4 md:px-6 py-4 md:py-0 shrink-0 md:min-h-[65px] flex items-center">
         <div className="flex items-center justify-between w-full">
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-lg font-bold text-slate-900">Exhibitions</h1>
-              <span className="bg-blue-100 text-blue-700 text-xs font-bold rounded-full px-2 py-0.5">
+              <h1 className="text-lg font-bold text-foreground">Exhibitions</h1>
+              <span className="bg-primary/12 text-primary text-xs font-bold rounded-full px-2 py-0.5">
                 {exhibitions.length}
               </span>
             </div>
-            <p className="text-[11px] text-slate-400">Select active exhibition to scan cards</p>
+            <p className="text-[11px] text-muted-foreground">Select active exhibition to scan cards</p>
           </div>
           {canManage && (
             <Button size="sm" onClick={() => setShowCreateModal(true)} className="gap-1.5 h-8 text-xs px-3">
@@ -233,11 +238,11 @@ export default function ExhibitionsPage() {
             animate={{ opacity: 1, y: 0 }}
             className="flex flex-col items-center justify-center py-20"
           >
-            <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
-              <Building2 className="w-8 h-8 text-slate-300" />
+            <div className="w-16 h-16 bg-secondary rounded-2xl flex items-center justify-center mb-4">
+              <Building2 className="w-8 h-8 text-muted-foreground/50" />
             </div>
-            <p className="font-semibold text-slate-700 mb-1">No exhibitions yet</p>
-            <p className="text-sm text-slate-400 mb-5">Create your first exhibition to get started</p>
+            <p className="font-semibold text-foreground mb-1">No exhibitions yet</p>
+            <p className="text-sm text-muted-foreground mb-5">Create your first exhibition to get started</p>
             {canManage && (
               <Button size="sm" onClick={() => setShowCreateModal(true)}>
                 <Plus className="w-4 h-4 mr-1.5" />Create Exhibition
@@ -261,12 +266,12 @@ export default function ExhibitionsPage() {
                     transition={{ duration: 0.15 }}
                     onClick={() => selectExhibition(ex.exhibition_id)}
                     className={cn(
-                      'bg-white rounded-2xl border shadow-sm cursor-pointer group relative overflow-hidden transition-all',
-                      isSelected ? 'border-blue-300 ring-2 ring-blue-100' : 'border-slate-100'
+                      'bg-card rounded-2xl border shadow-sm cursor-pointer group relative overflow-hidden transition-all',
+                      isSelected ? 'border-primary/30 ring-2 ring-ring/30' : 'border-border'
                     )}
                   >
                     {/* Selected accent */}
-                    {isSelected && <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500" />}
+                    {isSelected && <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary" />}
 
                     <div className={cn('px-4 py-4', isSelected && 'pl-5')}>
                       <div className="flex items-start gap-3">
@@ -277,45 +282,45 @@ export default function ExhibitionsPage() {
 
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className="text-sm font-semibold text-slate-900 truncate">{ex.name}</h3>
+                            <h3 className="text-sm font-semibold text-foreground truncate">{ex.name}</h3>
                             {ex.is_active && (
-                              <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px] h-4 py-0">
+                              <Badge className="bg-success/15 text-success border-success/25 text-[10px] h-4 py-0">
                                 Active
                               </Badge>
                             )}
                             {isSelected && (
-                              <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-[10px] h-4 py-0">
+                              <Badge className="bg-primary/12 text-primary border-primary/30 text-[10px] h-4 py-0">
                                 Selected
                               </Badge>
                             )}
                           </div>
                           {ex.location && (
-                            <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
-                              <MapPin className="w-3 h-3 shrink-0 text-slate-300" />{ex.location}
+                            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                              <MapPin className="w-3 h-3 shrink-0 text-muted-foreground/50" />{ex.location}
                             </p>
                           )}
                           {validDates && (
-                            <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
-                              <Calendar className="w-3 h-3 shrink-0 text-slate-300" />
+                            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                              <Calendar className="w-3 h-3 shrink-0 text-muted-foreground/50" />
                               {format(startDate, 'MMM d')} — {format(endDate, 'MMM d, yyyy')}
                             </p>
                           )}
                         </div>
 
                         <div className="flex items-center gap-1 shrink-0">
-                          {isSelected && <CheckCircle2 className="w-4 h-4 text-blue-500 mr-1" />}
+                          {isSelected && <CheckCircle2 className="w-4 h-4 text-primary mr-1" />}
                           {canManage && (
                             <>
                               <button
                                 onClick={e => openEditModal(ex, e)}
-                                className="p-1.5 rounded-lg text-slate-300 hover:text-blue-500 hover:bg-blue-50 transition opacity-0 group-hover:opacity-100"
+                                className="p-1.5 rounded-lg text-muted-foreground/50 hover:text-primary hover:bg-primary/10 transition opacity-0 group-hover:opacity-100"
                                 title="Edit"
                               >
                                 <Edit2 className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 onClick={e => openDeleteConfirm(ex, e)}
-                                className="p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition opacity-0 group-hover:opacity-100"
+                                className="p-1.5 rounded-lg text-muted-foreground/50 hover:text-destructive hover:bg-destructive/[0.07] transition opacity-0 group-hover:opacity-100"
                                 title="Delete"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -325,15 +330,18 @@ export default function ExhibitionsPage() {
                         </div>
                       </div>
 
-                      {/* Self-service QR — shown on the selected exhibition so the
-                          list stays readable when several events are running. */}
-                      {isSelected && canManage && (
-                        <div className="mt-3 pt-3 border-t border-slate-100" onClick={e => e.stopPropagation()}>
-                          <SelfServiceQrCard
+                      {/* Ordering QR on EVERY exhibition, not just the selected
+                          one — it was effectively hidden before, since nothing
+                          on the card suggested selecting it would reveal one.
+                          Kept to a single compact strip so a long list stays
+                          scannable; the full printable code opens in a dialog. */}
+                      {canManage && (
+                        <div className="mt-3 pt-3 border-t border-border" onClick={e => e.stopPropagation()}>
+                          <SelfServiceQrInline
                             exhibitionId={ex.exhibition_id}
-                            exhibitionName={ex.name}
                             enabled={!!ex.self_service_enabled}
                             token={ex.public_token}
+                            onExpand={() => setQrFor(ex)}
                             onChange={(enabled, token) =>
                               setExhibitions(list => list.map(e =>
                                 e.exhibition_id === ex.exhibition_id
@@ -363,21 +371,21 @@ export default function ExhibitionsPage() {
               initial={{ scale: 0.95, opacity: 0, y: 10 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl shadow-2xl max-w-md w-full"
+              className="bg-card rounded-2xl shadow-2xl max-w-md w-full"
             >
-              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-border">
                 <div>
-                  <h2 className="text-base font-bold text-slate-900">Create Exhibition</h2>
-                  <p className="text-xs text-slate-400">Add a new exhibition event</p>
+                  <h2 className="text-base font-bold text-foreground">Create Exhibition</h2>
+                  <p className="text-xs text-muted-foreground">Add a new exhibition event</p>
                 </div>
-                <button onClick={() => setShowCreateModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition">
+                <button onClick={() => setShowCreateModal(false)} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground hover:text-muted-foreground transition">
                   <X className="w-4 h-4" />
                 </button>
               </div>
               <div className="px-6 py-5">
                 {formFields}
               </div>
-              <div className="flex gap-2 px-6 py-4 border-t border-slate-100">
+              <div className="flex gap-2 px-6 py-4 border-t border-border">
                 <Button variant="outline" className="flex-1" onClick={() => setShowCreateModal(false)} disabled={creating}>Cancel</Button>
                 <Button className="flex-1" onClick={handleCreateExhibition} disabled={creating || !formData.name || !formData.start_date || !formData.end_date}>
                   {creating ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />Creating…</> : <>Create</>}
@@ -399,22 +407,22 @@ export default function ExhibitionsPage() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl shadow-2xl max-w-md w-full"
+              className="bg-card rounded-2xl shadow-2xl max-w-md w-full"
             >
-              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-border">
                 <div>
-                  <h2 className="text-base font-bold text-slate-900">Edit Exhibition</h2>
-                  <p className="text-xs text-slate-400 truncate max-w-[200px]">{editingExhibition.name}</p>
+                  <h2 className="text-base font-bold text-foreground">Edit Exhibition</h2>
+                  <p className="text-xs text-muted-foreground truncate max-w-[200px]">{editingExhibition.name}</p>
                 </div>
                 <button onClick={() => { setShowEditModal(false); setEditingExhibition(null); setFormData({ name: '', location: '', start_date: '', end_date: '', description: '' }); }}
-                  className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition">
+                  className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground hover:text-muted-foreground transition">
                   <X className="w-4 h-4" />
                 </button>
               </div>
               <div className="px-6 py-5">
                 {formFields}
               </div>
-              <div className="flex gap-2 px-6 py-4 border-t border-slate-100">
+              <div className="flex gap-2 px-6 py-4 border-t border-border">
                 <Button variant="outline" className="flex-1" onClick={() => { setShowEditModal(false); setEditingExhibition(null); setFormData({ name: '', location: '', start_date: '', end_date: '', description: '' }); }} disabled={updating}>Cancel</Button>
                 <Button className="flex-1" onClick={handleUpdateExhibition} disabled={updating || !formData.name || !formData.start_date || !formData.end_date}>
                   {updating ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />Updating…</> : <>Update</>}
@@ -436,20 +444,20 @@ export default function ExhibitionsPage() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6"
+              className="bg-card rounded-2xl shadow-2xl max-w-sm w-full p-6"
             >
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-11 h-11 bg-red-100 rounded-xl flex items-center justify-center shrink-0">
-                  <Trash2 className="w-5 h-5 text-red-500" />
+                <div className="w-11 h-11 bg-destructive/12 rounded-xl flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5 text-destructive" />
                 </div>
                 <div>
-                  <h3 className="text-base font-semibold text-slate-900">Delete Exhibition?</h3>
-                  <p className="text-xs text-slate-500">This cannot be undone</p>
+                  <h3 className="text-base font-semibold text-foreground">Delete Exhibition?</h3>
+                  <p className="text-xs text-muted-foreground">This cannot be undone</p>
                 </div>
               </div>
-              <div className="bg-slate-50 rounded-xl p-3 mb-5 border border-slate-100">
-                <p className="text-sm font-semibold text-slate-800">{deletingExhibition.name}</p>
-                {deletingExhibition.location && <p className="text-xs text-slate-400">{deletingExhibition.location}</p>}
+              <div className="bg-secondary/50 rounded-xl p-3 mb-5 border border-border">
+                <p className="text-sm font-semibold text-foreground">{deletingExhibition.name}</p>
+                {deletingExhibition.location && <p className="text-xs text-muted-foreground">{deletingExhibition.location}</p>}
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" className="flex-1" onClick={() => { setShowDeleteConfirm(false); setDeletingExhibition(null); }} disabled={deleting}>Cancel</Button>
@@ -457,6 +465,53 @@ export default function ExhibitionsPage() {
                   {deleting ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />Deleting…</> : 'Delete'}
                 </Button>
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* Full printable ordering QR */}
+        {qrFor && (
+          <motion.div
+            key="qr-dialog"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={() => setQrFor(null)}
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.96, opacity: 0, y: 8 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.96, opacity: 0 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-card rounded-xl shadow-lg border border-border max-w-sm w-full
+                         max-h-[90vh] overflow-y-auto"
+            >
+              <div className="flex items-center gap-2 px-4 py-3 border-b border-border sticky top-0 bg-card">
+                <QrCode className="w-4 h-4 text-primary shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-semibold text-foreground truncate">Ordering QR</h3>
+                  <p className="text-[11px] text-muted-foreground truncate">{qrFor.name}</p>
+                </div>
+                <button onClick={() => setQrFor(null)} aria-label="Close"
+                        className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground shrink-0">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <SelfServiceQrCard
+                exhibitionId={qrFor.exhibition_id}
+                exhibitionName={qrFor.name}
+                enabled={!!qrFor.self_service_enabled}
+                token={qrFor.public_token}
+                onChange={(enabled, token) => {
+                  setExhibitions(list => list.map(e =>
+                    e.exhibition_id === qrFor.exhibition_id
+                      ? { ...e, self_service_enabled: enabled, public_token: token }
+                      : e));
+                  // Keep the open dialog in step, otherwise disabling leaves it
+                  // showing a code that no longer resolves.
+                  setQrFor(prev => prev && { ...prev, self_service_enabled: enabled, public_token: token });
+                }}
+              />
             </motion.div>
           </motion.div>
         )}

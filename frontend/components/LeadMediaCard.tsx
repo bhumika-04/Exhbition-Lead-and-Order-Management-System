@@ -32,6 +32,15 @@ export default function LeadMediaCard({ leadId }: { leadId: number }) {
   const [showCamera, setShowCamera] = useState(false);
   const [photoLink, setPhotoLink] = useState('');
   const isMobile = useIsMobile();
+  // Resolved after mount: `navigator` does not exist during SSR, and reading it
+  // inline would produce a hydration mismatch.
+  const [webcamAvailable, setWebcamAvailable] = useState(false);
+  useEffect(() => {
+    setWebcamAvailable(
+      typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia
+    );
+  }, []);
+  const useNativeCamera = isMobile || !webcamAvailable;
   const camRef = useRef<HTMLInputElement>(null);
   const [showTestimonial, setShowTestimonial] = useState(false);
   const [testimonialUrl, setTestimonialUrl] = useState('');
@@ -56,8 +65,18 @@ export default function LeadMediaCard({ leadId }: { leadId: number }) {
   const uploadPhoto = async (file: File) => {
     setBusy(true);
     try {
-      await api.uploadLeadPhoto(leadId, file);
-      toast.success('Photo added');
+      const res = await api.uploadLeadPhoto(leadId, file);
+
+      // Say what actually happened. The first photo also sends the customer
+      // their meeting-photo message, and "Photo added" alone would leave the
+      // operator unsure whether it went — or worse, send it again by hand.
+      if (res.whatsapp_sent) toast.success('Photo added · sent to the customer');
+      else if (res.whatsapp_error) {
+        toast.success('Photo added');
+        toast(`Not sent — ${res.whatsapp_error}`, { icon: 'ℹ️' });
+      } else {
+        toast.success('Photo added');
+      }
       await load();
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Could not upload the photo');
@@ -98,12 +117,14 @@ export default function LeadMediaCard({ leadId }: { leadId: number }) {
     } finally { setBusy(false); }
   };
 
-  const sendWhatsApp = async (which: 'welcome' | 'testimonial') => {
+  const sendWhatsApp = async (which: 'welcome' | 'testimonial' | 'showroom') => {
     setBusy(true);
     try {
       const res = which === 'welcome'
         ? await api.sendWelcomeWhatsApp(leadId)
-        : await api.sendTestimonialWhatsApp(leadId);
+        : which === 'showroom'
+          ? await api.sendShowroomInviteWhatsApp(leadId)
+          : await api.sendTestimonialWhatsApp(leadId);
 
       // Skipped is not a failure — it means WhatsApp isn't configured yet.
       if (res.sent) toast.success('WhatsApp sent');
@@ -121,7 +142,7 @@ export default function LeadMediaCard({ leadId }: { leadId: number }) {
 
   return (
     <>
-      <Card className="shadow-sm border-slate-100">
+      <Card className="shadow-sm border-border">
         <CardContent className="px-5 py-4 space-y-3">
           {/* Three primary actions */}
           <div className="grid grid-cols-3 gap-2">
@@ -156,14 +177,14 @@ export default function LeadMediaCard({ leadId }: { leadId: number }) {
 
           {/* Media strip — card images, team photos, testimonial in one place */}
           {loading ? (
-            <div className="flex justify-center py-3"><Loader2 className="w-4 h-4 animate-spin text-slate-300" /></div>
+            <div className="flex justify-center py-3"><Loader2 className="w-4 h-4 animate-spin text-muted-foreground/50" /></div>
           ) : (
             <>
               {(cardImages.length > 0 || (media?.photos.length ?? 0) > 0) && (
                 <div className="flex gap-2 overflow-x-auto pt-1 pb-1">
                   {cardImages.map(path => (
                     <button key={path} onClick={() => setLightbox(api.uploadUrl(path))}
-                            className="w-16 h-16 rounded-lg overflow-hidden bg-slate-100 shrink-0 relative group">
+                            className="w-16 h-16 rounded-lg overflow-hidden bg-secondary shrink-0 relative group">
                       <img src={api.uploadUrl(path)} alt="Visiting card" className="w-full h-full object-cover" />
                       <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[8px] text-center py-0.5">
                         Card
@@ -175,22 +196,22 @@ export default function LeadMediaCard({ leadId }: { leadId: number }) {
                     <div key={p.lead_photo_id} className="relative shrink-0 group">
                       {p.source_type === 'file' ? (
                         <button onClick={() => setLightbox(photoUrl(p))}
-                                className="w-16 h-16 rounded-lg overflow-hidden bg-slate-100 block">
+                                className="w-16 h-16 rounded-lg overflow-hidden bg-secondary block">
                           <img src={photoUrl(p)} alt="Team" className="w-full h-full object-cover" />
                         </button>
                       ) : (
                         <a href={photoUrl(p)} target="_blank" rel="noopener noreferrer"
-                           className="w-16 h-16 rounded-lg bg-slate-100 flex flex-col items-center justify-center gap-0.5">
-                          <Link2 className="w-4 h-4 text-slate-400" />
-                          <span className="text-[8px] text-slate-400">Drive</span>
+                           className="w-16 h-16 rounded-lg bg-secondary flex flex-col items-center justify-center gap-0.5">
+                          <Link2 className="w-4 h-4 text-muted-foreground" />
+                          <span className="text-[8px] text-muted-foreground">Drive</span>
                         </a>
                       )}
                       <button
                         onClick={() => removePhoto(p)}
                         aria-label="Remove photo"
-                        className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-white border border-slate-200 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-card border border-border flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                       >
-                        <X className="w-2.5 h-2.5 text-rose-500" />
+                        <X className="w-2.5 h-2.5 text-destructive" />
                       </button>
                     </div>
                   ))}
@@ -198,28 +219,35 @@ export default function LeadMediaCard({ leadId }: { leadId: number }) {
               )}
 
               {media?.testimonial_url && (
-                <div className="flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2">
-                  <Video className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <div className="flex items-center gap-2 rounded-lg bg-success/[0.07] border border-success/25 px-3 py-2">
+                  <Video className="w-3.5 h-3.5 text-success shrink-0" />
                   <a href={media.testimonial_url} target="_blank" rel="noopener noreferrer"
-                     className="text-[11px] text-emerald-800 truncate flex-1 hover:underline">
+                     className="text-[11px] text-success truncate flex-1 hover:underline">
                     Testimonial link
                   </a>
-                  <ExternalLink className="w-3 h-3 text-emerald-500 shrink-0" />
+                  <ExternalLink className="w-3 h-3 text-success shrink-0" />
                 </div>
               )}
             </>
           )}
 
-          {/* WhatsApp touchpoints */}
-          <div className="flex gap-2 pt-1 border-t border-slate-100">
+          {/* WhatsApp touchpoints. Welcome sends the meeting-photo template
+              once a team photo exists and the plain welcome before that — the
+              server picks, because only it knows whether the photo is there. */}
+          <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border">
             <Button variant="outline" size="sm" disabled={busy}
                     onClick={() => sendWhatsApp('welcome')}
-                    className="flex-1 h-8 gap-1.5 text-[11px]">
+                    className="h-8 gap-1.5 text-[11px]">
               <Send className="w-3 h-3" /> Welcome
+            </Button>
+            <Button variant="outline" size="sm" disabled={busy}
+                    onClick={() => sendWhatsApp('showroom')}
+                    className="h-8 gap-1.5 text-[11px]">
+              <Send className="w-3 h-3" /> Showroom
             </Button>
             <Button variant="outline" size="sm" disabled={busy || !media?.testimonial_url}
                     onClick={() => sendWhatsApp('testimonial')}
-                    className="flex-1 h-8 gap-1.5 text-[11px]">
+                    className="h-8 gap-1.5 text-[11px]">
               <Send className="w-3 h-3" /> Testimonial
             </Button>
           </div>
@@ -232,10 +260,14 @@ export default function LeadMediaCard({ leadId }: { leadId: number }) {
           <div className="flex flex-col gap-2">
             <ChoiceRow
               icon={Camera} label="Take photo"
-              hint={isMobile ? 'Opens your camera' : 'Opens your webcam'}
+              hint={useNativeCamera ? 'Opens your camera' : 'Opens your webcam'}
               onClick={() => {
                 setShowPhotoChoice(false);
-                if (isMobile) camRef.current?.click(); else setShowCamera(true);
+                // The native capture input works on any origin. The in-page
+                // webcam needs getUserMedia, which browsers withhold outside a
+                // secure context — so over http://192.168.x.x it is unavailable
+                // and the file input is the only path that works.
+                if (useNativeCamera) camRef.current?.click(); else setShowCamera(true);
               }}
             />
             <ChoiceRow
@@ -264,9 +296,9 @@ export default function LeadMediaCard({ leadId }: { leadId: number }) {
             value={photoLink}
             onChange={e => setPhotoLink(e.target.value)}
             placeholder="https://drive.google.com/..."
-            className="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm"
+            className="w-full h-10 px-3 rounded-lg border border-border text-sm"
           />
-          <p className="text-[10px] text-slate-400 mt-1">
+          <p className="text-[10px] text-muted-foreground mt-1">
             For WhatsApp to attach it, the file must be shared publicly on Drive.
           </p>
           <div className="flex gap-2 mt-3">
@@ -287,9 +319,9 @@ export default function LeadMediaCard({ leadId }: { leadId: number }) {
             value={testimonialUrl}
             onChange={e => setTestimonialUrl(e.target.value)}
             placeholder="https://drive.google.com/..."
-            className="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm"
+            className="w-full h-10 px-3 rounded-lg border border-border text-sm"
           />
-          <p className="text-[10px] text-slate-400 mt-1">
+          <p className="text-[10px] text-muted-foreground mt-1">
             Paste the Drive link to the testimonial video. Clear the box to remove it.
           </p>
           <div className="flex gap-2 mt-3">
@@ -319,14 +351,14 @@ function ChoiceRow({ icon: Icon, label, hint, onClick }: {
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-3 px-3 py-3 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors text-left"
+      className="flex items-center gap-3 px-3 py-3 rounded-xl bg-secondary/50 hover:bg-secondary transition-colors text-left"
     >
-      <span className="w-9 h-9 rounded-lg bg-white flex items-center justify-center shrink-0">
-        <Icon className="w-4 h-4 text-slate-600" />
+      <span className="w-9 h-9 rounded-lg bg-card flex items-center justify-center shrink-0">
+        <Icon className="w-4 h-4 text-muted-foreground" />
       </span>
       <span className="min-w-0">
-        <span className="block text-sm font-semibold text-slate-800">{label}</span>
-        <span className="block text-[11px] text-slate-400">{hint}</span>
+        <span className="block text-sm font-semibold text-foreground">{label}</span>
+        <span className="block text-[11px] text-muted-foreground">{hint}</span>
       </span>
     </button>
   );
@@ -337,10 +369,10 @@ function ActionButton({ icon: Icon, label, tone, badge, onClick }: {
   badge?: number; onClick: () => void;
 }) {
   const tones = {
-    blue: 'bg-blue-50 text-blue-700 hover:bg-blue-100',
-    violet: 'bg-violet-50 text-violet-700 hover:bg-violet-100',
-    emerald: 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100',
-    slate: 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+    blue: 'bg-primary/[0.07] text-primary hover:bg-primary/15',
+    violet: 'bg-primary/[0.07] text-primary hover:bg-primary/12',
+    emerald: 'bg-success/[0.07] text-success hover:bg-success/15',
+    slate: 'bg-secondary text-muted-foreground hover:bg-secondary',
   };
   return (
     <button
@@ -350,7 +382,7 @@ function ActionButton({ icon: Icon, label, tone, badge, onClick }: {
       <Icon className="w-4 h-4" />
       {label}
       {badge !== undefined && badge > 0 && (
-        <span className="absolute top-1 right-1 min-w-4 h-4 px-1 rounded-full bg-white text-[9px] font-bold flex items-center justify-center shadow-sm">
+        <span className="absolute top-1 right-1 min-w-4 h-4 px-1 rounded-full bg-card text-[9px] font-bold flex items-center justify-center shadow-sm">
           {badge}
         </span>
       )}
@@ -363,11 +395,11 @@ function Modal({ title, children, onClose }: {
 }) {
   return (
     <div onClick={onClose} className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5">
+      <div onClick={e => e.stopPropagation()} className="bg-card rounded-2xl shadow-2xl w-full max-w-sm p-5">
         <div className="flex items-center justify-between mb-3">
-          <p className="text-sm font-bold text-slate-900">{title}</p>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100">
-            <X className="w-4 h-4 text-slate-400" />
+          <p className="text-sm font-bold text-foreground">{title}</p>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-secondary">
+            <X className="w-4 h-4 text-muted-foreground" />
           </button>
         </div>
         {children}

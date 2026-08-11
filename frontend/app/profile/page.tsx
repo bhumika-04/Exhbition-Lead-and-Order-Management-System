@@ -121,8 +121,8 @@ export default function ProfilePage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-50">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
   }
@@ -132,11 +132,11 @@ export default function ProfilePage() {
     : '?';
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-24 md:pb-8">
+    <div className="min-h-screen bg-background pb-24 md:pb-8">
       {/* Header */}
-      <div className="bg-white border-b border-slate-100 px-4 py-4 md:px-8 md:min-h-[65px] flex items-center gap-4">
-        <h1 className="text-xl font-bold text-slate-800">Profile</h1>
-        <p className="text-sm text-slate-500 mt-0.5">Manage your account details</p>
+      <div className="bg-card border-b border-border px-4 py-4 md:px-8 md:min-h-[65px] flex items-center gap-4">
+        <h1 className="text-xl font-bold text-foreground">Profile</h1>
+        <p className="text-sm text-muted-foreground mt-0.5">Manage your account details</p>
       </div>
 
       <div className="max-w-lg md:max-w-none mx-auto px-4 md:px-8 py-6 space-y-4">
@@ -148,16 +148,16 @@ export default function ProfilePage() {
         >
           <Card className="border-0 shadow-sm">
             <CardContent className="flex items-center gap-4 pt-5 pb-5">
-              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xl font-bold shrink-0">
+              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-primary to-primary flex items-center justify-center text-white text-xl font-bold shrink-0">
                 {initials}
               </div>
               <div>
-                <p className="font-semibold text-slate-800 text-base">{form.full_name || '—'}</p>
+                <p className="font-semibold text-foreground text-base">{form.full_name || '—'}</p>
                 {form.designation && (
-                  <p className="text-sm text-slate-500">{form.designation}</p>
+                  <p className="text-sm text-muted-foreground">{form.designation}</p>
                 )}
                 {form.company_name && (
-                  <p className="text-sm text-blue-600 font-medium">{form.company_name}</p>
+                  <p className="text-sm text-primary font-medium">{form.company_name}</p>
                 )}
               </div>
             </CardContent>
@@ -172,71 +172,71 @@ export default function ProfilePage() {
         >
           <Card className="border-0 shadow-sm">
             <CardHeader className="pb-2 pt-5 px-5">
-              <p className="text-sm font-semibold text-slate-700 uppercase tracking-wide">Account Info</p>
+              <p className="text-sm font-semibold text-foreground uppercase tracking-wide">Account Info</p>
             </CardHeader>
             <CardContent className="px-5 pb-5">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Full Name */}
                 <Field
-                  icon={<User className="w-4 h-4 text-slate-400" />}
+                  icon={<User className="w-4 h-4 text-muted-foreground" />}
                   label="Full Name"
                 >
                   <input
                     type="text"
                     value={form.full_name}
                     onChange={(e) => setForm({ ...form, full_name: e.target.value })}
-                    className="w-full text-slate-800 bg-transparent outline-none text-sm placeholder:text-slate-400"
+                    className="w-full text-foreground bg-transparent outline-none text-sm placeholder:text-muted-foreground"
                     placeholder="Your full name"
                   />
                 </Field>
 
                 {/* Email (read-only) */}
                 <Field
-                  icon={<Mail className="w-4 h-4 text-slate-400" />}
+                  icon={<Mail className="w-4 h-4 text-muted-foreground" />}
                   label="Email"
                   readOnly
                 >
-                  <span className="text-slate-500 text-sm">{form.email || '—'}</span>
+                  <span className="text-muted-foreground text-sm">{form.email || '—'}</span>
                 </Field>
 
                 {/* Phone */}
                 <Field
-                  icon={<Phone className="w-4 h-4 text-slate-400" />}
+                  icon={<Phone className="w-4 h-4 text-muted-foreground" />}
                   label="Phone"
                 >
                   <input
                     type="tel"
                     value={form.phone}
                     onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                    className="w-full text-slate-800 bg-transparent outline-none text-sm placeholder:text-slate-400"
+                    className="w-full text-foreground bg-transparent outline-none text-sm placeholder:text-muted-foreground"
                     placeholder="Mobile number"
                   />
                 </Field>
 
                 {/* Designation */}
                 <Field
-                  icon={<Briefcase className="w-4 h-4 text-slate-400" />}
+                  icon={<Briefcase className="w-4 h-4 text-muted-foreground" />}
                   label="Designation"
                 >
                   <input
                     type="text"
                     value={form.designation}
                     onChange={(e) => setForm({ ...form, designation: e.target.value })}
-                    className="w-full text-slate-800 bg-transparent outline-none text-sm placeholder:text-slate-400"
+                    className="w-full text-foreground bg-transparent outline-none text-sm placeholder:text-muted-foreground"
                     placeholder="Your job title"
                   />
                 </Field>
 
-                {/* Company Name */}
+                {/* Agency name */}
                 <Field
-                  icon={<Building2 className="w-4 h-4 text-slate-400" />}
-                  label="Company Name"
+                  icon={<Building2 className="w-4 h-4 text-muted-foreground" />}
+                  label="Agency Name"
                 >
                   <input
                     type="text"
                     value={form.company_name}
                     onChange={(e) => setForm({ ...form, company_name: e.target.value })}
-                    className="w-full text-slate-800 bg-transparent outline-none text-sm placeholder:text-slate-400"
+                    className="w-full text-foreground bg-transparent outline-none text-sm placeholder:text-muted-foreground"
                     placeholder="Your company"
                   />
                 </Field>
@@ -255,23 +255,23 @@ export default function ProfilePage() {
             <CardHeader className="pb-2 pt-5 px-5">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4 text-emerald-500" />
-                  <p className="text-sm font-semibold text-slate-700 uppercase tracking-wide">WhatsApp Template</p>
+                  <MessageSquare className="w-4 h-4 text-success" />
+                  <p className="text-sm font-semibold text-foreground uppercase tracking-wide">WhatsApp Template</p>
                 </div>
                 <button
                   onClick={() => setWaTemplate(DEFAULT_WA_TEMPLATE)}
-                  className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition"
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-muted-foreground transition"
                   title="Reset to default"
                 >
                   <RotateCcw className="w-3 h-3" /> Reset
                 </button>
               </div>
-              <p className="text-[11px] text-slate-400 mt-1">
-                Placeholders: <code className="bg-slate-100 px-1 rounded">{'{name}'}</code>{' '}
-                <code className="bg-slate-100 px-1 rounded">{'{company}'}</code>{' '}
-                <code className="bg-slate-100 px-1 rounded">{'{exhibition}'}</code>{' '}
-                <code className="bg-slate-100 px-1 rounded">{'{sender}'}</code>{' '}
-                <code className="bg-slate-100 px-1 rounded">{'{sender_company}'}</code>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Placeholders: <code className="bg-secondary px-1 rounded">{'{name}'}</code>{' '}
+                <code className="bg-secondary px-1 rounded">{'{company}'}</code>{' '}
+                <code className="bg-secondary px-1 rounded">{'{exhibition}'}</code>{' '}
+                <code className="bg-secondary px-1 rounded">{'{sender}'}</code>{' '}
+                <code className="bg-secondary px-1 rounded">{'{sender_company}'}</code>
               </p>
             </CardHeader>
             <CardContent className="px-5 pb-5">
@@ -279,14 +279,14 @@ export default function ProfilePage() {
                 value={waTemplate}
                 onChange={e => setWaTemplate(e.target.value)}
                 rows={8}
-                className="w-full text-sm text-slate-800 border border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:border-emerald-400 resize-none bg-slate-50 focus:bg-white transition font-mono"
+                className="w-full text-sm text-foreground border border-border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-ring/30 focus:border-success resize-none bg-secondary/50 focus:bg-card transition font-mono"
               />
               <Button
                 onClick={() => {
                   localStorage.setItem('whatsapp_template', waTemplate);
                   toast.success('WhatsApp template saved');
                 }}
-                className="mt-3 h-9 px-5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl shadow-sm text-sm"
+                className="mt-3 h-9 px-5 bg-success hover:bg-success/90 text-success-foreground font-medium rounded-xl shadow-sm text-sm"
               >
                 <Save className="w-4 h-4 mr-2" /> Save Template
               </Button>
@@ -304,7 +304,7 @@ export default function ProfilePage() {
           <Button
             onClick={handleSave}
             disabled={saving}
-            className="h-9 px-6 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl shadow-sm text-sm"
+            className="h-9 px-6 bg-primary hover:bg-primary/90 text-white font-medium rounded-xl shadow-sm text-sm"
           >
             {saving ? (
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -333,11 +333,11 @@ function Field({
 }) {
   return (
     <div className={`flex items-center gap-3 border rounded-xl px-4 py-3 ${
-      readOnly ? 'bg-slate-50 border-slate-100' : 'border-slate-200 focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-200 transition'
+      readOnly ? 'bg-secondary/50 border-border' : 'border-border focus-within:border-input focus-within:ring-1 focus-within:ring-ring/30 transition'
     }`}>
       <span className="shrink-0">{icon}</span>
       <div className="flex-1 min-w-0">
-        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide leading-none mb-0.5">{label}</p>
+        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide leading-none mb-0.5">{label}</p>
         {children}
       </div>
     </div>

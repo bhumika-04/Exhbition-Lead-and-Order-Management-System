@@ -15,8 +15,8 @@ public class ProductService : IProductService
     }
 
     private const string Columns = @"
-        ProductId, Barcode, ProductType, Category, Size, Colour, Fabric,
-        Price, Name, ImagePath, IsActive, CreatedAt";
+        ProductId, Barcode, Size, Colour, Fabric,
+        Price, Name, ImagePath, ImageUrl, ColourIsSet, SizeIsSet, IsActive, CreatedAt";
 
     public async Task<(List<ProductDto> Products, int TotalCount)> SearchAsync(ProductSearchParams p)
     {
@@ -30,16 +30,6 @@ public class ProductService : IProductService
             where += " AND (Barcode LIKE @Search OR Name LIKE @Search OR Colour LIKE @Search OR Fabric LIKE @Search)";
             args.Add("Search", $"%{p.Search.Trim()}%");
         }
-        if (!string.IsNullOrWhiteSpace(p.ProductType))
-        {
-            where += " AND ProductType = @ProductType";
-            args.Add("ProductType", p.ProductType);
-        }
-        if (!string.IsNullOrWhiteSpace(p.Category))
-        {
-            where += " AND Category = @Category";
-            args.Add("Category", p.Category);
-        }
 
         var total = await conn.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM Products {where}", args);
 
@@ -49,7 +39,7 @@ public class ProductService : IProductService
         var rows = (await conn.QueryAsync<ProductDto>($@"
             SELECT {Columns} FROM Products
             {where}
-            ORDER BY ProductType, Barcode
+            ORDER BY Barcode
             OFFSET @Offset ROWS FETCH NEXT @Limit ROWS ONLY", args)).ToList();
 
         return (rows, total);
@@ -75,7 +65,7 @@ public class ProductService : IProductService
 
     public async Task<int> CreateAsync(SaveProductRequest request)
     {
-        var (category, size, colour) = ValidateAndNormalise(request);
+        var (size, colour) = ValidateAndNormalise(request);
 
         using var conn = _db.CreateConnection();
 
@@ -86,21 +76,22 @@ public class ProductService : IProductService
             throw new InvalidOperationException($"Barcode {request.Barcode.Trim()} is already in use");
 
         var id = await conn.ExecuteScalarAsync<int>(@"
-            INSERT INTO Products (Barcode, ProductType, Category, Size, Colour, Fabric,
-                                  Price, Name, IsActive, CreatedAt)
+            INSERT INTO Products (Barcode, Size, Colour, Fabric,
+                                  Price, Name, ImageUrl, ColourIsSet, SizeIsSet, IsActive, CreatedAt)
             OUTPUT INSERTED.ProductId
-            VALUES (@Barcode, @ProductType, @Category, @Size, @Colour, @Fabric,
-                    @Price, @Name, 1, GETUTCDATE())",
+            VALUES (@Barcode, @Size, @Colour, @Fabric,
+                    @Price, @Name, @ImageUrl, @ColourIsSet, @SizeIsSet, 1, GETUTCDATE())",
             new
             {
                 Barcode = request.Barcode.Trim(),
-                request.ProductType,
-                Category = category,
                 Size = size,
                 Colour = colour,
                 request.Fabric,
                 request.Price,
                 request.Name,
+                request.ImageUrl,
+                request.ColourIsSet,
+                request.SizeIsSet,
             });
 
         _logger.LogInformation("Created product {ProductId} ({Barcode})", id, request.Barcode);
@@ -109,7 +100,7 @@ public class ProductService : IProductService
 
     public async Task UpdateAsync(int productId, SaveProductRequest request)
     {
-        var (category, size, colour) = ValidateAndNormalise(request);
+        var (size, colour) = ValidateAndNormalise(request);
 
         using var conn = _db.CreateConnection();
 
@@ -121,20 +112,23 @@ public class ProductService : IProductService
 
         var rows = await conn.ExecuteAsync(@"
             UPDATE Products
-            SET Barcode = @Barcode, ProductType = @ProductType, Category = @Category,
+            SET Barcode = @Barcode,
                 Size = @Size, Colour = @Colour, Fabric = @Fabric,
-                Price = @Price, Name = @Name, UpdatedAt = GETUTCDATE()
+                Price = @Price, Name = @Name, ImageUrl = @ImageUrl,
+                ColourIsSet = @ColourIsSet, SizeIsSet = @SizeIsSet,
+                UpdatedAt = GETUTCDATE()
             WHERE ProductId = @Id",
             new
             {
                 Barcode = request.Barcode.Trim(),
-                request.ProductType,
-                Category = category,
                 Size = size,
                 Colour = colour,
                 request.Fabric,
                 request.Price,
                 request.Name,
+                request.ImageUrl,
+                request.ColourIsSet,
+                request.SizeIsSet,
                 Id = productId,
             });
 
@@ -184,23 +178,18 @@ public class ProductService : IProductService
             .OrderBy(v => v, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-    private static (string? Category, string? Size, string? Colour) ValidateAndNormalise(SaveProductRequest r)
+    private static (string? Size, string? Colour) ValidateAndNormalise(SaveProductRequest r)
     {
         if (string.IsNullOrWhiteSpace(r.Barcode))
             throw new ArgumentException("Barcode is required");
         if (r.Price < 0m)
             throw new ArgumentException("Price cannot be negative");
 
-        var problem = ProductRules.Validate(r.ProductType, r.Category, r.Size);
-        if (problem != null) throw new ArgumentException(problem);
-
-        var (category, size) = ProductRules.Normalise(r.ProductType, r.Category, r.Size);
-
         // Size and colour are comma-separated lists. Canonicalise the spacing so
         // "38,40" and "38, 40" are stored identically — otherwise the same design
         // entered twice yields two different strings and the order-page dropdown
         // shows duplicates.
-        return (category, NormaliseList(size), NormaliseList(r.Colour));
+        return (NormaliseList(r.Size), NormaliseList(r.Colour));
     }
 
     private static string? NormaliseList(string? raw)

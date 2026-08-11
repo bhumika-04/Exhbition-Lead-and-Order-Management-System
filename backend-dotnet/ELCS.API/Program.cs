@@ -1,3 +1,4 @@
+using ELCS.API.Utils;
 using ELCS.API.Data;
 using ELCS.API.Services;
 using Microsoft.AspNetCore.ResponseCompression;
@@ -47,8 +48,9 @@ builder.Services.AddScoped<IOpenAIService, OpenAIService>();
 builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<ISalesOrderPdfService, SalesOrderPdfService>();
 builder.Services.AddScoped<IWhatsAppService, InteraktWhatsAppService>();
-builder.Services.AddScoped<IOtpService, OtpService>();
+builder.Services.AddScoped<IPublicSessionService, PublicSessionService>();
 builder.Services.AddScoped<IProductService, ProductService>();
+builder.Services.AddScoped<IProductImportService, ProductImportService>();
 builder.Services.AddScoped<ISettingsService, SettingsService>();
 builder.Services.AddScoped<ILeadMediaService, LeadMediaService>();
 builder.Services.AddHttpClient();
@@ -104,20 +106,30 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        policy.WithOrigins(
-            "http://localhost:3000",
-            "http://localhost:3001",
-            "http://192.168.137.1:3000",
-            "http://103.150.136.76:3003",
-            "https://exhibitionvistingcard.vercel.app",
-            "https://exhibitionvistingcard-git-main-printude-indas.vercel.app",
-            "https://exhibitionvistingcard-printude-indas.vercel.app",
-            "https://exhibitionvisitingcard.indusanalytics.co.in",
-            "https://ksk-vc.indusanalytics.co.in"
-        )
-        .AllowAnyMethod()
-        .AllowAnyHeader()
-        .AllowCredentials();
+        // ONE predicate decides, deliberately.
+        //
+        // WithOrigins() and SetIsOriginAllowed() do not combine: WithOrigins
+        // works by installing a default predicate that checks its list, and
+        // SetIsOriginAllowed replaces that predicate outright. Using both meant
+        // the configured list was silently discarded and only the LAN check ran
+        // — so localhost passed (it is loopback) while the Vercel origin was
+        // refused however it was configured. Both rules now live in one place.
+        //
+        // Configured origins, so a new frontend deployment needs a setting
+        // rather than a rebuild:
+        //   "Cors": { "AllowedOrigins": [ "https://tejoo-eloms.vercel.app" ] }
+        //   Cors__AllowedOrigins__0=https://tejoo-eloms.vercel.app
+        var allowed = (builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+                       ?? Array.Empty<string>())
+            .Where(o => !string.IsNullOrWhiteSpace(o))
+            .Select(o => o.TrimEnd('/'))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        policy.SetIsOriginAllowed(origin =>
+                   allowed.Contains(origin.TrimEnd('/')) || IsPrivateLanOrigin(origin))
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials();
     });
 });
 
@@ -175,12 +187,24 @@ app.Use(async (context, next) =>
     }
 });
 
-// Serve uploaded card images as static files
-var uploadsPath = Path.Combine(app.Environment.ContentRootPath, "uploads");
-Directory.CreateDirectory(uploadsPath);
+// ── Uploaded files ────────────────────────────────────────────────────────
+//
+// Storage:UploadsRoot points the whole uploads tree wherever you like. Set it
+// to a path OUTSIDE the deployment folder in production: everything under it is
+// irreplaceable — product photographs, visiting cards, team photos and issued
+// Sales Orders — and a republish that cleans the target directory would take
+// the lot with it. Left unset it falls back to the old in-app location, so a
+// development checkout keeps working with no configuration.
+var uploadsPath = builder.Configuration["Storage:UploadsRoot"] is { Length: > 0 } configuredRoot
+    ? Path.GetFullPath(configuredRoot)
+    : Path.Combine(app.Environment.ContentRootPath, UploadPaths.RootFolder);
+
+UploadPaths.UseRoot(uploadsPath);
+app.Logger.LogInformation("Uploads root: {UploadsRoot}", UploadPaths.Root);
+
 app.UseStaticFiles(new StaticFileOptions
 {
-    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(uploadsPath),
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(UploadPaths.Root),
     RequestPath = "/uploads"
 });
 
@@ -202,3 +226,29 @@ app.MapGet("/health", async (IDbConnection db) =>
 });
 
 app.Run();
+
+/// <summary>
+/// True when the origin's host is a loopback or RFC1918 private address, on any
+/// port. Used by the CORS policy so phones on the same Wi-Fi can reach the API
+/// without the machine's current IP being hard-coded.
+/// </summary>
+static bool IsPrivateLanOrigin(string origin)
+{
+    if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri)) return false;
+    if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps) return false;
+
+    if (uri.IsLoopback) return true;
+
+    if (!System.Net.IPAddress.TryParse(uri.Host, out var ip)) return false;
+    if (ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) return false;
+
+    var b = ip.GetAddressBytes();
+    return b[0] switch
+    {
+        10  => true,                              // 10.0.0.0/8
+        172 => b[1] >= 16 && b[1] <= 31,           // 172.16.0.0/12
+        192 => b[1] == 168,                        // 192.168.0.0/16
+        169 => b[1] == 254,                        // link-local, e.g. a direct cable
+        _   => false,
+    };
+}

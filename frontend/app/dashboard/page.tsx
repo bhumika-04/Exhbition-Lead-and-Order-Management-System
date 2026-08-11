@@ -23,23 +23,27 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { isAuthenticated, hasPermission } from '@/lib/auth';
+import { usePermission } from '@/lib/usePermission';
 import type {
   Exhibition, Lead, OrderListItem, OrderListTotals, CouponHolder,
 } from '@/lib/types';
 import { money } from '@/lib/orders';
+import PageHeader from '@/components/PageHeader';
+import { Button } from '@/components/ui/button';
+import { StatCard } from '@/components/ui/stat-card';
+import { Panel } from '@/components/ui/panel';
+import { cn } from '@/lib/utils';
+import DateFilter, {
+  type DatePreset, datePresetStart, datePresetEnd,
+} from '@/components/DateFilter';
 
-type Preset = 'today' | '7d' | '30d' | 'all';
-
-const PRESETS: { key: Preset; label: string }[] = [
-  { key: 'today', label: 'Today' },
-  { key: '7d',    label: '7 days' },
-  { key: '30d',   label: '30 days' },
-  { key: 'all',   label: 'All' },
+// Drawn from the theme's chart tokens so the charts move with the palette
+// instead of holding a second, contradictory set of colours. Distinguishable
+// rather than a single-hue ramp — these label categories, not magnitudes.
+const SERIES = [
+  'hsl(var(--chart-1))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))',
+  'hsl(var(--chart-4))', 'hsl(var(--chart-5))', 'hsl(var(--chart-6))',
 ];
-
-// Deliberately distinguishable rather than a single-hue ramp: these are
-// categories, not magnitudes.
-const SERIES = ['#2563eb', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#06b6d4'];
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -51,11 +55,11 @@ export default function DashboardPage() {
   const [exhibitions, setExhibitions] = useState<Exhibition[]>([]);
 
   const [exhibitionId, setExhibitionId] = useState('');
-  const [preset, setPreset] = useState<Preset>('all');
+  const [preset, setPreset] = useState<DatePreset>('all');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const canSeeOrders = hasPermission('manage_orders');
+  const canSeeOrders = usePermission('manage_orders');
 
   const load = useCallback(async (quiet = false) => {
     if (quiet) setRefreshing(true); else setLoading(true);
@@ -92,18 +96,16 @@ export default function DashboardPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  /** Cut-off for the chosen preset; null means everything. */
-  const since = useMemo(() => {
-    const now = new Date();
-    if (preset === 'today') return new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    if (preset === '7d')    return new Date(now.getTime() - 7 * 864e5);
-    if (preset === '30d')   return new Date(now.getTime() - 30 * 864e5);
-    return null;
-  }, [preset]);
+  /** Window for the chosen preset; nulls mean unbounded on that side. */
+  const since  = useMemo(() => datePresetStart(preset), [preset]);
+  const until = useMemo(() => datePresetEnd(preset), [preset]);
 
   const inRange = useCallback(
-    (iso: string) => !since || new Date(iso) >= since,
-    [since]
+    (iso: string) => {
+      const t = new Date(iso);
+      return (!since || t >= since) && (!until || t < until);
+    },
+    [since, until]
   );
 
   const shownLeads  = useMemo(() => leads.filter(l => inRange(l.created_at)), [leads, inRange]);
@@ -117,13 +119,24 @@ export default function DashboardPage() {
   const balanceDue   = Math.max(0, orderValue - orderAdvance);
   const pendingCustomer = totals?.pending_self_service ?? 0;
 
-  const kpis = [
-    { label: 'Leads',       value: String(shownLeads.length),  icon: Users,       tone: 'text-blue-600 bg-blue-50',       href: '/leads' },
-    { label: 'Orders',      value: String(shownOrders.length), icon: ShoppingBag, tone: 'text-violet-600 bg-violet-50',   href: '/orders', ordersOnly: true },
-    { label: 'Order value', value: money(orderValue),          icon: IndianRupee, tone: 'text-indigo-600 bg-indigo-50',   href: '/orders', ordersOnly: true },
-    { label: 'Advance',     value: money(orderAdvance),        icon: Wallet,      tone: 'text-emerald-600 bg-emerald-50', href: '/orders', ordersOnly: true },
-    { label: 'Balance due', value: money(balanceDue),          icon: Scale,       tone: 'text-rose-600 bg-rose-50',       href: '/orders', ordersOnly: true },
-    { label: 'Coupons',     value: String(totals?.total_coupons ?? 0), icon: Ticket, tone: 'text-amber-600 bg-amber-50',  href: '/orders', ordersOnly: true },
+  // Tone is used sparingly and with meaning: money owed reads as a warning,
+  // money received as success, everything else stays neutral. Six differently
+  // coloured cards would be decoration, not information.
+  const kpis: {
+    label: string; value: string; icon: typeof Users;
+    tone?: 'neutral' | 'primary' | 'success' | 'warning' | 'danger';
+    hint?: string; href: string; ordersOnly?: boolean;
+  }[] = [
+    { label: 'Leads',  value: String(shownLeads.length),  icon: Users, tone: 'primary' as const, href: '/leads' },
+    { label: 'Orders', value: String(shownOrders.length), icon: ShoppingBag, href: '/orders', ordersOnly: true,
+      hint: pendingCustomer > 0 ? `${pendingCustomer} to confirm` : undefined },
+    { label: 'Order value', value: money(orderValue),   icon: IndianRupee, href: '/orders', ordersOnly: true },
+    { label: 'Advance',     value: money(orderAdvance), icon: Wallet, tone: 'success' as const, href: '/orders', ordersOnly: true,
+      hint: orderValue > 0 ? `${Math.round((orderAdvance / orderValue) * 100)}% collected` : undefined },
+    { label: 'Balance due', value: money(balanceDue), icon: Scale,
+      tone: balanceDue > 0 ? ('warning' as const) : ('neutral' as const),
+      href: '/orders', ordersOnly: true },
+    { label: 'Coupons', value: String(totals?.total_coupons ?? 0), icon: Ticket, href: '/orders', ordersOnly: true },
   ].filter(k => canSeeOrders || !k.ordersOnly);
 
   const sourceData = useMemo(() => {
@@ -151,7 +164,12 @@ export default function DashboardPage() {
 
   /** Leads and orders per day, so capture and conversion read side by side. */
   const trend = useMemo(() => {
-    const days = preset === 'today' ? 1 : preset === '7d' ? 7 : preset === '30d' ? 30 : 14;
+    const days =
+      preset === 'today' || preset === 'yesterday' ? 1
+      : preset === '7d'    ? 7
+      : preset === '30d'   ? 30
+      : preset === 'month' ? new Date().getDate()
+      : 14;
     const buckets: { day: string; Leads: number; Orders: number }[] = [];
     const now = new Date();
     for (let i = days - 1; i >= 0; i--) {
@@ -175,205 +193,237 @@ export default function DashboardPage() {
   }, [shownLeads, shownOrders, preset]);
 
   if (loading) {
-    return <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-slate-300" /></div>;
+    return <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
   }
 
   return (
-    <div className="px-4 md:px-6 py-5 max-w-6xl mx-auto space-y-4">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shrink-0">
-          <TrendingUp className="w-4 h-4 text-white" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-base font-bold text-slate-900">Dashboard</h1>
-          <p className="text-[11px] text-slate-400 truncate">
-            {exhibitionId
-              ? exhibitions.find(e => String(e.exhibition_id) === exhibitionId)?.name
-              : 'All exhibitions'}
-            {' · '}{PRESETS.find(p => p.key === preset)?.label}
-          </p>
-        </div>
-        <button onClick={() => load(true)} disabled={refreshing} aria-label="Refresh"
-                className="p-2 rounded-lg hover:bg-slate-100 text-slate-400 shrink-0">
-          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-        </button>
-      </div>
+    <>
+      <PageHeader
+        icon={TrendingUp}
+        title="Dashboard"
+        filters={<>
+          {/* flex-1 on a phone so the two share one row evenly; fixed widths
+              from sm so they fit beside the title at 768px without pushing the
+              header past the sidebar's 65px. */}
+          <select value={exhibitionId} onChange={e => setExhibitionId(e.target.value)}
+                  className="h-9 px-2.5 rounded-lg border border-border bg-card text-sm text-foreground
+                             focus:outline-none focus:ring-2 focus:ring-ring/30
+                             flex-1 min-w-0 sm:flex-none sm:w-40 lg:w-52">
+            <option value="">All exhibitions</option>
+            {exhibitions.map(e => (
+              <option key={e.exhibition_id} value={e.exhibition_id}>{e.name}</option>
+            ))}
+          </select>
+          <DateFilter value={preset} onChange={setPreset}
+                      className="flex-1 min-w-0 sm:flex-none sm:w-36 lg:w-44" />
+        </>}
+        actions={
+          <Button variant="ghost" size="icon" onClick={() => load(true)}
+                  disabled={refreshing} aria-label="Refresh">
+            <RefreshCw className={refreshing ? 'animate-spin' : ''} />
+          </Button>
+        }
+      />
 
-      {/* Filters — stack on a phone, sit inline from sm up */}
-      <div className="flex flex-col sm:flex-row gap-2">
-        <select value={exhibitionId} onChange={e => setExhibitionId(e.target.value)}
-                className="h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm sm:w-56">
-          <option value="">All exhibitions</option>
-          {exhibitions.map(e => (
-            <option key={e.exhibition_id} value={e.exhibition_id}>{e.name}</option>
-          ))}
-        </select>
-        <div className="flex gap-1 bg-slate-100 rounded-lg p-1 overflow-x-auto">
-          {PRESETS.map(p => (
-            <button key={p.key} onClick={() => setPreset(p.key)}
-                    className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition-colors ${
-                      preset === p.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
-                    }`}>
-              {p.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* Wide cap rather than max-w-6xl: on a 1080p monitor that left roughly a
+          third of the window empty on either side of the charts. */}
+      <div className="px-4 md:px-6 py-4 max-w-[1600px] mx-auto space-y-3">
 
       {/* Work waiting — the only actionable thing here, so it sits above the numbers */}
       {canSeeOrders && pendingCustomer > 0 && (
         <button onClick={() => router.push('/orders')}
-                className="w-full flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-left hover:border-amber-300 transition-colors">
-          <span className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
-            <Smartphone className="w-4 h-4 text-amber-700" />
+                className="group w-full flex items-center gap-3 rounded-lg border border-warning/25
+                           bg-warning/[0.07] px-3.5 py-2.5 text-left
+                           hover:border-warning/40 hover:bg-warning/10 transition-colors">
+          <span className="rounded-md bg-warning/15 p-1.5 shrink-0">
+            <Smartphone className="w-3.5 h-3.5 text-warning" />
           </span>
           <span className="flex-1 min-w-0">
-            <span className="block text-sm font-semibold text-amber-900">
-              {pendingCustomer} customer order{pendingCustomer === 1 ? '' : 's'} to confirm
+            <span className="block text-sm font-medium text-foreground">
+              {pendingCustomer} customer order{pendingCustomer === 1 ? '' : 's'} waiting to be confirmed
             </span>
-            <span className="block text-[11px] text-amber-700">Placed from the QR page</span>
+            <span className="block text-[11px] text-muted-foreground">Placed from the QR page at the stall</span>
           </span>
-          <ChevronRight className="w-4 h-4 text-amber-600 shrink-0" />
+          <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 transition-transform group-hover:translate-x-0.5" />
         </button>
       )}
 
       {/* KPIs: 2 across on a phone, 3 on a tablet, all 6 on desktop */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
-        {kpis.map(({ label, value, icon: Icon, tone, href }, i) => (
-          <motion.button
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 auto-rows-fr">
+        {kpis.map(({ label, value, icon, tone, hint, href }, i) => (
+          <motion.div
             key={label}
-            initial={{ opacity: 0, y: 6 }}
+            initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.03 }}
-            onClick={() => router.push(href)}
-            className="rounded-xl border border-slate-200 bg-white p-3 text-left hover:border-slate-300 transition-colors"
+            transition={{ delay: i * 0.03, duration: 0.2 }}
           >
-            <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${tone}`}>
-              <Icon className="w-4 h-4" />
-            </div>
-            <p className="text-[10px] uppercase tracking-wide text-slate-400 leading-none">{label}</p>
-            <p className="text-sm font-bold text-slate-900 truncate mt-1">{value}</p>
-          </motion.button>
+            <StatCard
+              label={label} value={value} icon={icon} tone={tone} hint={hint}
+              onClick={() => router.push(href)}
+              className="h-full"
+            />
+          </motion.div>
         ))}
       </div>
 
-      {/* Charts stack on a phone — two 50%-width charts side by side would be
-          unreadable at 360px. */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      {/* The two donuts always share a row — at 2 columns even on a phone. The
+          per-day chart needs width to stay legible, so it spans both until 2xl
+          where all three fit on one line. */}
+      <div className="grid grid-cols-2 2xl:grid-cols-3 gap-2.5 sm:gap-3">
         <ChartCard title="Where leads came from" empty={sourceData.length === 0}>
-          <ResponsiveContainer width="100%" height={220}>
-            <PieChart>
-              <Pie data={sourceData} dataKey="value" nameKey="name"
-                   cx="50%" cy="50%" innerRadius={45} outerRadius={80} paddingAngle={2}>
-                {sourceData.map((_, i) => <Cell key={i} fill={SERIES[i % SERIES.length]} />)}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
-          <Legend data={sourceData} />
+          <Donut data={sourceData} />
         </ChartCard>
 
         {canSeeOrders && (
           <ChartCard title="Order status" empty={orderStatusData.length === 0}
                      emptyHint="No orders in this period">
-            <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
-                <Pie data={orderStatusData} dataKey="value" nameKey="name"
-                     cx="50%" cy="50%" innerRadius={45} outerRadius={80} paddingAngle={2}>
-                  {orderStatusData.map((_, i) => <Cell key={i} fill={SERIES[i % SERIES.length]} />)}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-            <Legend data={orderStatusData} />
+            <Donut data={orderStatusData} />
           </ChartCard>
         )}
-      </div>
 
-      <ChartCard title="Leads and orders per day" empty={trend.every(t => !t.Leads && !t.Orders)}>
-        <ResponsiveContainer width="100%" height={240}>
-          <BarChart data={trend} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-            <XAxis dataKey="day" tick={{ fontSize: 10, fill: '#94a3b8' }}
-                   interval="preserveStartEnd" axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} allowDecimals={false}
-                   axisLine={false} tickLine={false} />
-            <Tooltip cursor={{ fill: '#f8fafc' }} />
-            <Bar dataKey="Leads"  fill={SERIES[0]} radius={[3, 3, 0, 0]} />
-            {canSeeOrders && <Bar dataKey="Orders" fill={SERIES[2]} radius={[3, 3, 0, 0]} />}
-          </BarChart>
-        </ResponsiveContainer>
-      </ChartCard>
+        <ChartCard
+          title="Leads and orders per day"
+          empty={trend.every(t => !t.Leads && !t.Orders)}
+          className="col-span-2 2xl:col-span-1"
+        >
+          {/* Same height as the donuts, so the three cards in the row match and
+              none of them stretches to leave a void under its chart. */}
+          <ResponsiveContainer width="100%" height={168}>
+            <BarChart data={trend} margin={{ top: 8, right: 8, left: -22, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="hsl(var(--border))" />
+              <XAxis dataKey="day" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                     interval="preserveStartEnd" axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} allowDecimals={false}
+                     axisLine={false} tickLine={false} width={32} />
+              <Tooltip cursor={{ fill: 'hsl(var(--secondary))' }} content={<ChartTooltip />} />
+              <Bar dataKey="Leads"  fill={SERIES[0]} radius={[3, 3, 0, 0]} maxBarSize={22} />
+              {canSeeOrders && <Bar dataKey="Orders" fill={SERIES[1]} radius={[3, 3, 0, 0]} maxBarSize={22} />}
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+      </div>
 
       {/* Lucky draw standings */}
       {canSeeOrders && holders.length > 0 && (
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Trophy className="w-4 h-4 text-amber-500" />
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Lucky draw leaders
-            </span>
+        <Panel
+          title="Lucky draw leaders"
+          icon={Trophy}
+          action={
             <button onClick={() => router.push('/orders')}
-                    className="ml-auto text-[11px] text-blue-600 hover:underline">
+                    className="text-[11px] font-medium text-primary hover:underline">
               See all
             </button>
-          </div>
-          <div className="space-y-2">
+          }
+        >
+          <div className="space-y-2.5">
             {holders.slice(0, 5).map((h, i) => (
               <button key={h.lead_id} onClick={() => router.push(`/leads/${h.lead_id}`)}
-                      className="w-full flex items-center gap-2.5 text-left">
-                <span className={`w-5 h-5 rounded-full shrink-0 flex items-center justify-center text-[10px] font-bold ${
-                  i === 0 ? 'bg-amber-100 text-amber-700' : 'text-slate-400'
-                }`}>{i + 1}</span>
+                      className="w-full flex items-center gap-2.5 text-left group">
+                <span className={cn(
+                  'w-5 h-5 rounded-md shrink-0 flex items-center justify-center text-[10px] font-bold tabular',
+                  i === 0 ? 'bg-primary/10 text-primary' : 'text-muted-foreground',
+                )}>
+                  {i + 1}
+                </span>
                 <span className="flex-1 min-w-0">
-                  <span className="block text-xs font-medium text-slate-800 truncate">
+                  <span className="block text-xs font-medium text-foreground truncate
+                                   group-hover:text-primary transition-colors">
                     {h.lead_name || 'Unknown'}
                   </span>
-                  <span className="block h-1 bg-slate-100 rounded-full mt-1 overflow-hidden">
-                    <span className="block h-full bg-amber-400 rounded-full"
+                  <span className="block h-1 bg-secondary rounded-full mt-1.5 overflow-hidden">
+                    <span className="block h-full bg-primary/70 rounded-full transition-[width] duration-500"
                           style={{ width: `${(h.coupons / holders[0].coupons) * 100}%` }} />
                   </span>
                 </span>
-                <span className="text-xs font-bold text-amber-700 shrink-0">{h.coupons}</span>
+                <span className="text-xs font-semibold text-foreground shrink-0 tabular">{h.coupons}</span>
               </button>
             ))}
           </div>
-        </div>
+        </Panel>
       )}
+      </div>
+    </>
+  );
+}
+
+/** Recharts' default tooltip is a white box with a grey border — off-palette. */
+function ChartTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-lg border border-border bg-popover px-2.5 py-1.5 shadow-md">
+      <p className="text-[10px] font-medium text-muted-foreground mb-0.5">{label}</p>
+      {payload.map((p: any) => (
+        <p key={p.name} className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: p.color }} />
+          {p.name}
+          <span className="tabular ml-auto pl-3">{p.value}</span>
+        </p>
+      ))}
     </div>
   );
 }
 
-function ChartCard({ title, children, empty, emptyHint }: {
-  title: string; children: React.ReactNode; empty?: boolean; emptyHint?: string;
+function ChartCard({ title, children, empty, emptyHint, className = '' }: {
+  title: string; children: React.ReactNode;
+  empty?: boolean; emptyHint?: string; className?: string;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">{title}</p>
+    <Panel title={title} className={className} bodyClassName="flex flex-col">
       {empty ? (
-        <p className="text-[11px] text-slate-400 py-12 text-center">
+        <p className="text-[11px] text-muted-foreground flex-1 flex items-center justify-center text-center py-10">
           {emptyHint ?? 'Nothing in this period'}
         </p>
       ) : children}
-    </div>
+    </Panel>
   );
 }
 
-/** Own legend rather than recharts': theirs wraps badly under 380px. */
-function Legend({ data }: { data: { name: string; value: number }[] }) {
+/**
+ * Donut with its legend beside it rather than beneath.
+ *
+ * Stacked, a 160px circle sat in the middle of a 550px card with the legend as
+ * a single short line under it — most of the card was empty. Side by side the
+ * legend takes the width the chart does not need. Falls back to stacked below
+ * sm, where there is no width to share.
+ */
+function Donut({ data }: { data: { name: string; value: number }[] }) {
   const total = data.reduce((s, d) => s + d.value, 0);
+
   return (
-    <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
-      {data.map((d, i) => (
-        <span key={d.name} className="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
-          <span className="w-2 h-2 rounded-full shrink-0" style={{ background: SERIES[i % SERIES.length] }} />
-          {d.name}
-          <span className="text-slate-400">
-            {d.value}{total > 0 ? ` · ${Math.round((d.value / total) * 100)}%` : ''}
+    <div className="flex flex-col lg:flex-row items-center justify-center gap-2 lg:gap-3 flex-1">
+      {/* The total sits in the hole rather than in a caption — it is the one
+          number every reader wants and the ring already frames the space.
+          Radii are percentages, not pixels: these cards are half-width on a
+          phone, and a fixed 68px outer radius would be clipped by the card. */}
+      <div className="w-full lg:w-[45%] lg:max-w-[172px] shrink-0 relative">
+        <ResponsiveContainer width="100%" height={132}>
+          <PieChart>
+            <Pie data={data} dataKey="value" nameKey="name" cx="50%" cy="50%"
+                 innerRadius="62%" outerRadius="92%" paddingAngle={2}
+                 stroke="hsl(var(--card))" strokeWidth={2}>
+              {data.map((_, i) => <Cell key={i} fill={SERIES[i % SERIES.length]} />)}
+            </Pie>
+            <Tooltip content={<ChartTooltip />} />
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+          <span className="text-lg font-semibold text-foreground tabular leading-none">{total}</span>
+          <span className="text-[9px] text-muted-foreground mt-0.5">total</span>
+        </div>
+      </div>
+
+      {/* Own legend rather than recharts': theirs wraps badly under 380px. */}
+      <div className="flex-1 min-w-0 w-full flex flex-col gap-y-1 lg:gap-y-2">
+        {data.map((d, i) => (
+          <span key={d.name} className="inline-flex items-center gap-1.5 text-[10px] lg:text-[11px] text-muted-foreground min-w-0">
+            <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: SERIES[i % SERIES.length] }} />
+            <span className="truncate text-foreground">{d.name}</span>
+            <span className="shrink-0 ml-auto tabular">
+              {d.value}{total > 0 ? ` · ${Math.round((d.value / total) * 100)}%` : ''}
+            </span>
           </span>
-        </span>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }

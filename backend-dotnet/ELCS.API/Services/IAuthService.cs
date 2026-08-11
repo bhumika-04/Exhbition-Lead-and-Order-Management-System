@@ -15,7 +15,6 @@ public record AuthResult(
     string Email,
     string? Phone,
     string? Designation,
-    string? CompanyName,
     int? RoleId,
     string? RoleName,
     string? Permissions    // JSON array string, null = no role = full access
@@ -24,6 +23,5 @@ public record AuthResult(
 public record UpdateProfileRequest(
     string FullName,
     string? Phone,
-    string? Designation,
-    string? CompanyName
+    string? Designation
 );

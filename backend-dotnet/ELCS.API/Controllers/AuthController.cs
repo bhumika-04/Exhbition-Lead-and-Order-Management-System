@@ -48,7 +48,6 @@ public class AuthController : ControllerBase
             email        = result.Email,
             phone        = result.Phone,
             designation  = result.Designation,
-            company_name = result.CompanyName,
             role_id      = result.RoleId,
             role_name    = result.RoleName,
             permissions  = result.Permissions,
@@ -72,7 +71,6 @@ public class AuthController : ControllerBase
             email        = employee.Email,
             phone        = employee.Phone,
             designation  = employee.Designation,
-            company_name = employee.CompanyName
         });
     }
 

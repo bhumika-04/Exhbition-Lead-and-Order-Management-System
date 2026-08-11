@@ -12,13 +12,6 @@ public interface IWhatsAppService
     Task<WhatsAppSendResult> SendOrderConfirmationAsync(OrderDetailDto order, string? soPdfUrl);
 
     /// <summary>
-    /// Verification code for the public self-service ordering page. Uses an
-    /// Interakt authentication template, which is a separate approval from the
-    /// marketing templates the other touchpoints use.
-    /// </summary>
-    Task<WhatsAppSendResult> SendOtpAsync(string mobile10, string code, int expiryMinutes);
-
-    /// <summary>
     /// Touchpoint #1 — welcome, sent automatically when a lead is created.
     /// Carries the lead's team photo when one exists, plus the social links
     /// configured in Settings.
@@ -27,6 +20,12 @@ public interface IWhatsAppService
 
     /// <summary>Touchpoint #3 — testimonial, sent manually from the lead page.</summary>
     Task<WhatsAppSendResult> SendTestimonialAsync(int leadId, string? name, string? phone, string testimonialUrl);
+
+    /// <summary>
+    /// Touchpoint #4 — invites the visitor to the Chandni Chowk showroom once
+    /// the exhibition is over. Sent to everyone, whether or not they ordered.
+    /// </summary>
+    Task<WhatsAppSendResult> SendShowroomInviteAsync(int leadId, string? name, string? phone);
 }
 
 public static class WhatsAppTouchpoints
@@ -34,7 +33,7 @@ public static class WhatsAppTouchpoints
     public const string Welcome           = "welcome";
     public const string OrderConfirmation = "order_confirmation";
     public const string Testimonial       = "testimonial";
-    public const string Otp               = "otp";
+    public const string ShowroomInvite    = "showroom_invite";
 }
 
 public record WhatsAppSendResult(

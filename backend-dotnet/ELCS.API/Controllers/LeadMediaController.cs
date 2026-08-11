@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
 using ELCS.API.Services;
 using ELCS.API.Utils;
+using ELCS.API.Data;
+using Dapper;
 
 namespace ELCS.API.Controllers;
 
@@ -18,6 +20,7 @@ public class LeadMediaController : ControllerBase
     private readonly ILeadService _leads;
     private readonly IWhatsAppService _whatsApp;
     private readonly IConfiguration _config;
+    private readonly IDbConnection _db;
 
     private static readonly string[] AllowedImageTypes = { ".jpg", ".jpeg", ".png", ".webp" };
 
@@ -27,7 +30,8 @@ public class LeadMediaController : ControllerBase
         IWebHostEnvironment env,
         ILeadService leads,
         IWhatsAppService whatsApp,
-        IConfiguration config)
+        IConfiguration config,
+        IDbConnection db)
     {
         _logger = logger;
         _media = media;
@@ -35,6 +39,7 @@ public class LeadMediaController : ControllerBase
         _leads = leads;
         _whatsApp = whatsApp;
         _config = config;
+        _db = db;
     }
 
     /// <summary>
@@ -82,7 +87,7 @@ public class LeadMediaController : ControllerBase
         // and a sequential name would make customers' photos enumerable.
         var fileName = $"{Guid.NewGuid():N}{ext}";
         var folder = UploadPaths.LeadTeam(leadId);
-        var dir = UploadPaths.EnsureFolder(_env.ContentRootPath, folder);
+        var dir = UploadPaths.EnsureFolder(folder);
 
         await using (var stream = System.IO.File.Create(Path.Combine(dir, fileName)))
             await photo.CopyToAsync(stream);
@@ -91,8 +96,60 @@ public class LeadMediaController : ControllerBase
 
         try
         {
+            // The guard is "has this customer already been sent their photo?",
+            // not "is this the first photo". Retaking one — which happens
+            // constantly at a stall — must not send the same message twice, and
+            // WhatsApp has no undo. But a photo added after a FAILED send, or
+            // after the earlier one was deleted, should still go out; counting
+            // photos would have blocked that forever.
+            using var conn = _db.CreateConnection();
+            var alreadySent = await conn.ExecuteScalarAsync<int>(@"
+                SELECT COUNT(*) FROM WhatsAppMessages
+                WHERE LeadId = @LeadId
+                  AND Touchpoint = @Touchpoint
+                  AND MediaUrl IS NOT NULL
+                  AND StatusCode = 'sent'",
+                new { LeadId = leadId, Touchpoint = WhatsAppTouchpoints.Welcome }) > 0;
+
             var id = await _media.AddPhotoFileAsync(leadId, relative, caption, CallerEmployeeId);
-            return Ok(new { success = true, lead_photo_id = id, file_path = relative });
+
+            var sent = false;
+            string? sendError = null;
+
+            if (!alreadySent)
+            {
+                // Best effort. The photo is already saved, and a messaging
+                // failure must not turn a successful upload into an error.
+                try
+                {
+                    var lead = await _leads.GetLeadByIdAsync(leadId);
+                    if (lead != null)
+                    {
+                        // SendWelcomeAsync picks the meeting-photo template once
+                        // a photo URL is supplied — see InteraktWhatsAppService.
+                        var result = await _whatsApp.SendWelcomeAsync(
+                            leadId, lead.PrimaryVisitorName, lead.PrimaryVisitorPhone,
+                            BuildPublicUrl(relative));
+
+                        sent = result.Sent;
+                        sendError = result.Error;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    sendError = ex.Message;
+                    _logger.LogError(ex, "Meeting-photo message failed for lead {LeadId}", leadId);
+                }
+            }
+
+            return Ok(new
+            {
+                success = true,
+                lead_photo_id = id,
+                file_path = relative,
+                whatsapp_sent = sent,
+                whatsapp_error = sendError,
+            });
         }
         catch (KeyNotFoundException) { return NotFound(new { error = "Lead not found" }); }
     }
@@ -166,6 +223,25 @@ public class LeadMediaController : ControllerBase
 
         var result = await _whatsApp.SendTestimonialAsync(
             leadId, lead.PrimaryVisitorName, lead.PrimaryVisitorPhone, media.TestimonialUrl);
+
+        return Ok(new { sent = result.Sent, status = result.StatusCode, error = result.Error });
+    }
+
+    /// <summary>
+    /// Touchpoint #4 — showroom invitation, sent after the exhibition.
+    ///
+    /// Needs nothing but a phone number: no photo, no order, no testimonial. It
+    /// goes to everyone who visited, whether or not they bought anything, which
+    /// is the whole point of it.
+    /// </summary>
+    [HttpPost("{leadId:int}/whatsapp/showroom")]
+    public async Task<IActionResult> SendShowroomInvite(int leadId)
+    {
+        var lead = await _leads.GetLeadByIdAsync(leadId);
+        if (lead == null) return NotFound(new { error = "Lead not found" });
+
+        var result = await _whatsApp.SendShowroomInviteAsync(
+            leadId, lead.PrimaryVisitorName, lead.PrimaryVisitorPhone);
 
         return Ok(new { sent = result.Sent, status = result.StatusCode, error = result.Error });
     }

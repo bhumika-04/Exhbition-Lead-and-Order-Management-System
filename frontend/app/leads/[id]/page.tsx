@@ -35,15 +35,8 @@ export default function LeadDetailPage() {
     primary_visitor_phone: '',
     primary_visitor_email: '',
     company_name: '',
-    category: '',
-    vertical: '',
-    turn_over: '',
-    team_size: '',
   });
 
-  const VERTICAL_OPTIONS = ['Packaging', 'Commercial', 'Flexo Label', 'Publication', 'Corrugation', 'Large Format'];
-  const [editServices, setEditServices] = useState<string[]>([]);
-  const [newService, setNewService] = useState('');
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -63,12 +56,7 @@ export default function LeadDetailPage() {
         primary_visitor_phone: data.primary_visitor_phone || '',
         primary_visitor_email: data.primary_visitor_email || '',
         company_name: data.company_name || '',
-        category: data.category || '',
-        vertical: data.vertical || '',
-        turn_over: data.turn_over || '',
-        team_size: data.team_size || '',
       });
-      setEditServices(data.services?.map(s => s.service_text) || []);
     } catch (err: any) {
       console.error('Failed to load lead', err);
       toast.error('Failed to load lead details. Please try again.');
@@ -83,34 +71,20 @@ export default function LeadDetailPage() {
         primary_visitor_phone: lead.primary_visitor_phone || '',
         primary_visitor_email: lead.primary_visitor_email || '',
         company_name: lead.company_name || '',
-        category: lead.category || '',
-        vertical: lead.vertical || '',
-        turn_over: lead.turn_over || '',
-        team_size: lead.team_size || '',
       });
-      setEditServices(lead.services?.map(s => s.service_text) || []);
-      setNewService('');
     }
     setIsEditing(!isEditing);
   };
 
   const handleSaveEdit = async () => {
     try {
-      await api.updateLead(leadId, { ...editForm, services: editServices } as any);
+      await api.updateLead(leadId, { ...editForm } as any);
       toast.success('Lead updated');
       setIsEditing(false);
       await loadLead();
     } catch (err: any) {
       toast.error(err.response?.data?.detail || 'Failed to update lead');
     }
-  };
-
-  const handleAddService = () => {
-    const s = newService.trim();
-    if (s && !editServices.includes(s)) {
-      setEditServices([...editServices, s]);
-    }
-    setNewService('');
   };
 
   const backendBase = (() => {
@@ -198,8 +172,6 @@ export default function LeadDetailPage() {
     if (lead.primary_visitor_phone) lines.push(`Phone: ${lead.primary_visitor_phone}`);
     if (lead.primary_visitor_email) lines.push(`Email: ${lead.primary_visitor_email}`);
     if (lead.websites?.[0]?.website_url) lines.push(`Website: ${lead.websites[0].website_url}`);
-    const services = lead.services?.map(s => s.service_text).filter(Boolean) ?? [];
-    if (services.length) lines.push(`Services: ${services.join(', ')}`);
     if (lead.addresses?.[0]) {
       const a = lead.addresses[0];
       const parts = [a.address_text, a.city, a.state].filter(Boolean);
@@ -251,17 +223,17 @@ export default function LeadDetailPage() {
   // ── Loading / not found ──
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
   }
 
   if (!lead) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">
-          <p className="text-slate-600 mb-3">Lead not found</p>
+          <p className="text-muted-foreground mb-3">Lead not found</p>
           <Button variant="outline" onClick={() => router.push('/leads')}>Back to Leads</Button>
         </div>
       </div>
@@ -271,25 +243,25 @@ export default function LeadDetailPage() {
   const initials = (lead.primary_visitor_name || lead.company_name || '?')
     .split(' ').slice(0, 2).map(w => w[0] || '').join('').toUpperCase();
 
-  const priorityColor = lead.priority === 'high' ? 'text-red-500' : lead.priority === 'medium' ? 'text-amber-500' : lead.priority === 'low' ? 'text-emerald-500' : 'text-slate-400';
+  const priorityColor = lead.priority === 'high' ? 'text-destructive' : lead.priority === 'medium' ? 'text-warning' : lead.priority === 'low' ? 'text-success' : 'text-muted-foreground';
 
-  const inputCls = 'w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 bg-slate-50 focus:bg-white transition';
+  const inputCls = 'w-full px-3 py-2 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-ring/30 bg-secondary/50 focus:bg-card transition';
 
   return (
-    <div className="bg-slate-50 min-h-full">
+    <div className="bg-background min-h-full">
 
       {/* ── Sticky Header ── */}
-      <div className="sticky top-0 z-20 bg-white/90 backdrop-blur-sm border-b border-slate-200">
+      <div className="sticky top-0 z-20 bg-card/90 backdrop-blur-sm border-b border-border">
         <div className="px-4 md:px-6 py-3.5 flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={() => router.back()} className="h-8 w-8 shrink-0">
             <ArrowLeft className="w-4 h-4" />
           </Button>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-slate-900 truncate">
+            <p className="text-sm font-semibold text-foreground truncate">
               {lead.primary_visitor_name || 'Lead Details'}
             </p>
             {lead.company_name && (
-              <p className="text-xs text-slate-400 truncate">{lead.company_name}</p>
+              <p className="text-xs text-muted-foreground truncate">{lead.company_name}</p>
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -298,7 +270,7 @@ export default function LeadDetailPage() {
                 <Button size="sm" variant="ghost" onClick={handleEditToggle} className="h-8 text-xs gap-1">
                   <X className="w-3.5 h-3.5" /> Cancel
                 </Button>
-                <Button size="sm" onClick={handleSaveEdit} className="h-8 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700">
+                <Button size="sm" onClick={handleSaveEdit} variant="success" className="h-8 text-xs gap-1">
                   <Check className="w-3.5 h-3.5" /> Save
                 </Button>
               </>
@@ -313,34 +285,28 @@ export default function LeadDetailPage() {
 
       {/* ── Content ── */}
       <div className="px-4 md:px-6 py-5 pb-24 md:pb-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
 
           {/* ── RIGHT COLUMN (shown first on mobile) ── */}
           <div className="space-y-4 lg:hidden">
-            {((lead.services?.length ?? 0) > 0 || lead.priority) && (
+            {lead.priority && (
               <BlurFade delay={0.05} inView>
-                <Card className="shadow-sm border-slate-100">
+                <Card className="shadow-sm border-border">
                   <CardHeader className="pb-3 pt-4 px-5">
-                    <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                      <span className="w-7 h-7 bg-indigo-100 rounded-lg flex items-center justify-center">
-                        <Zap className="w-4 h-4 text-indigo-600" />
+                    <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                      <span className="w-7 h-7 bg-primary/12 rounded-lg flex items-center justify-center">
+                        <Zap className="w-4 h-4 text-primary" />
                       </span>
                       Lead Intelligence
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="px-5 pb-5 space-y-2">
-                    <div className="grid grid-cols-2 gap-2">
-                      {(lead.services?.length ?? 0) > 0 && (
-                        <div className="p-3 bg-indigo-50 rounded-xl">
-                          <p className="text-[10px] font-semibold text-indigo-400 uppercase tracking-wide mb-1">Services</p>
-                          <p className="font-semibold text-indigo-700 text-sm leading-snug">{lead.services.map(s => s.service_text).join(', ')}</p>
-                        </div>
-                      )}
+                    <div>
                       {lead.priority && (
                         <div className={cn('p-3 rounded-xl', {
-                          'bg-red-50': lead.priority === 'high',
-                          'bg-amber-50': lead.priority === 'medium',
-                          'bg-emerald-50': lead.priority === 'low',
+                          'bg-destructive/[0.07]': lead.priority === 'high',
+                          'bg-warning/[0.07]': lead.priority === 'medium',
+                          'bg-success/[0.07]': lead.priority === 'low',
                         })}>
                           <p className={cn('text-[10px] font-semibold uppercase tracking-wide mb-1', priorityColor)}>Priority</p>
                           <p className={cn('font-semibold capitalize text-sm', priorityColor)}>{lead.priority}</p>
@@ -360,12 +326,16 @@ export default function LeadDetailPage() {
               <LeadOrdersCard leadId={leadId} />
             </BlurFade>
 
+            <BlurFade delay={0.115} inView>
+              <LeadOrdersCard leadId={leadId} show="drafts" />
+            </BlurFade>
+
             <BlurFade delay={0.08} inView>
-              <Card className="shadow-sm border-slate-100">
+              <Card className="shadow-sm border-border">
                 <CardHeader className="pb-3 pt-4 px-5">
-                  <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                    <span className="w-7 h-7 bg-blue-100 rounded-lg flex items-center justify-center">
-                      <Zap className="w-4 h-4 text-blue-600" />
+                  <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <span className="w-7 h-7 bg-primary/12 rounded-lg flex items-center justify-center">
+                      <Zap className="w-4 h-4 text-primary" />
                     </span>
                     Quick Actions
                   </CardTitle>
@@ -379,8 +349,8 @@ export default function LeadDetailPage() {
                       className={cn(
                         'flex flex-col items-center justify-center gap-1.5 px-3 py-3 rounded-xl font-semibold text-xs transition-all',
                         !lead.primary_visitor_phone && !lead.phones?.length
-                          ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                          : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                          ? 'bg-secondary text-muted-foreground cursor-not-allowed'
+                          : 'bg-success/15 text-success hover:bg-success/25'
                       )}
                     >
                       <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
@@ -395,8 +365,8 @@ export default function LeadDetailPage() {
                       className={cn(
                         'flex flex-col items-center justify-center gap-1.5 px-3 py-3 rounded-xl font-semibold text-xs transition-all',
                         !lead.primary_visitor_name && !lead.primary_visitor_phone && !lead.company_name
-                          ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                          : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                          ? 'bg-secondary text-muted-foreground cursor-not-allowed'
+                          : 'bg-primary/12 text-primary hover:bg-primary/25'
                       )}
                     >
                       <Users className="w-5 h-5" />Save Contact
@@ -404,7 +374,7 @@ export default function LeadDetailPage() {
                     <motion.button
                       whileTap={{ scale: 0.96 }}
                       onClick={handleShare}
-                      className="col-span-2 flex items-center justify-center gap-2 px-3 py-3 rounded-xl font-semibold text-xs bg-violet-100 text-violet-700 hover:bg-violet-200 transition-all"
+                      className="col-span-2 flex items-center justify-center gap-2 px-3 py-3 rounded-xl font-semibold text-xs bg-primary/12 text-primary hover:bg-primary/25 transition-all"
                     >
                       <Share2 className="w-4 h-4" />Share Lead Details
                     </motion.button>
@@ -414,22 +384,22 @@ export default function LeadDetailPage() {
             </BlurFade>
 
             <BlurFade delay={0.1} inView>
-              <Card className="shadow-sm border-slate-100">
+              <Card className="shadow-sm border-border">
                 <CardContent className="px-5 py-3">
                   <div className="flex items-center justify-between gap-3 flex-wrap">
                     <div className="flex items-center gap-2 text-sm">
-                      <span className="text-slate-500">Status</span>
+                      <span className="text-muted-foreground">Status</span>
                       <Badge variant={lead.status_code === 'confirmed' ? 'default' : 'secondary'}>
                         {lead.status_name || lead.status_code}
                       </Badge>
                     </div>
                     {lead.source_name && (
                       <div className="flex items-center gap-2 text-sm">
-                        <span className="text-slate-500">Source</span>
-                        <span className="text-slate-700 font-medium">{lead.source_name}</span>
+                        <span className="text-muted-foreground">Source</span>
+                        <span className="text-foreground font-medium">{lead.source_name}</span>
                       </div>
                     )}
-                    <span className="text-slate-400 font-mono text-xs">#{lead.lead_id}</span>
+                    <span className="text-muted-foreground font-mono text-xs">#{lead.lead_id}</span>
                   </div>
                 </CardContent>
               </Card>
@@ -438,11 +408,11 @@ export default function LeadDetailPage() {
             {/* Visiting Card Images — mobile */}
             {(lead.front_image_path || lead.back_image_path) && (
               <BlurFade delay={0.12} inView>
-                <Card className="shadow-sm border-slate-100">
+                <Card className="shadow-sm border-border">
                   <CardHeader className="pb-3 pt-4 px-5">
-                    <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                      <span className="w-7 h-7 bg-sky-100 rounded-lg flex items-center justify-center">
-                        <Image className="w-4 h-4 text-sky-600" />
+                    <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                      <span className="w-7 h-7 bg-primary/12 rounded-lg flex items-center justify-center">
+                        <Image className="w-4 h-4 text-primary" />
                       </span>
                       Visiting Card
                     </CardTitle>
@@ -451,22 +421,22 @@ export default function LeadDetailPage() {
                     <div className="flex gap-3 flex-wrap">
                       {imageUrl(lead.front_image_path) && (
                         <div className="flex-1 min-w-[120px]">
-                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Front</p>
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Front</p>
                           <img
                             src={imageUrl(lead.front_image_path)!}
                             alt="Front of visiting card"
-                            className="w-full rounded-xl border border-slate-200 cursor-pointer hover:opacity-90 transition object-contain max-h-40"
+                            className="w-full rounded-xl border border-border cursor-pointer hover:opacity-90 transition object-contain max-h-40"
                             onClick={() => setLightboxImage(imageUrl(lead.front_image_path)!)}
                           />
                         </div>
                       )}
                       {imageUrl(lead.back_image_path) && (
                         <div className="flex-1 min-w-[120px]">
-                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Back</p>
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Back</p>
                           <img
                             src={imageUrl(lead.back_image_path)!}
                             alt="Back of visiting card"
-                            className="w-full rounded-xl border border-slate-200 cursor-pointer hover:opacity-90 transition object-contain max-h-40"
+                            className="w-full rounded-xl border border-border cursor-pointer hover:opacity-90 transition object-contain max-h-40"
                             onClick={() => setLightboxImage(imageUrl(lead.back_image_path)!)}
                           />
                         </div>
@@ -483,11 +453,11 @@ export default function LeadDetailPage() {
 
             {/* Contact Information */}
             <BlurFade delay={0.1} inView>
-              <Card className="shadow-sm border-slate-100">
+              <Card className="shadow-sm border-border">
                 <CardHeader className="pb-3 pt-4 px-5">
-                  <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                    <span className="w-7 h-7 bg-violet-100 rounded-lg flex items-center justify-center">
-                      <Users className="w-4 h-4 text-violet-600" />
+                  <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <span className="w-7 h-7 bg-primary/12 rounded-lg flex items-center justify-center">
+                      <Users className="w-4 h-4 text-primary" />
                     </span>
                     Contact Information
                   </CardTitle>
@@ -498,12 +468,12 @@ export default function LeadDetailPage() {
                       {[
                         { label: 'Name', key: 'primary_visitor_name', type: 'text', placeholder: 'Visitor name' },
                         { label: 'Designation', key: 'primary_visitor_designation', type: 'text', placeholder: 'Job title' },
-                        { label: 'Company', key: 'company_name', type: 'text', placeholder: 'Company name' },
+                        { label: 'Agency', key: 'company_name', type: 'text', placeholder: 'Company name' },
                         { label: 'Phone', key: 'primary_visitor_phone', type: 'tel', placeholder: 'Phone number' },
                         { label: 'Email', key: 'primary_visitor_email', type: 'email', placeholder: 'Email address' },
                       ].map(({ label, key, type, placeholder }) => (
                         <div key={key}>
-                          <label className="text-xs font-semibold text-slate-500 mb-1 block">{label}</label>
+                          <label className="text-xs font-semibold text-muted-foreground mb-1 block">{label}</label>
                           <input
                             type={type}
                             value={(editForm as any)[key]}
@@ -517,21 +487,21 @@ export default function LeadDetailPage() {
                   ) : (
                     <div className="space-y-4">
                       <div className="flex items-start gap-3">
-                        <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-base shrink-0">
+                        <div className="w-12 h-12 rounded-xl bg-primary/12 flex items-center justify-center text-primary font-bold text-base shrink-0">
                           {initials}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-bold text-slate-900 text-base">{lead.primary_visitor_name || '—'}</p>
+                          <p className="font-bold text-foreground text-base">{lead.primary_visitor_name || '—'}</p>
                           {lead.primary_visitor_designation && (
-                            <p className="text-sm text-slate-500">{lead.primary_visitor_designation}</p>
+                            <p className="text-sm text-muted-foreground">{lead.primary_visitor_designation}</p>
                           )}
                           {lead.company_name && (
-                            <p className="text-sm font-semibold text-blue-600 mt-1 flex items-center gap-1">
+                            <p className="text-sm font-semibold text-primary mt-1 flex items-center gap-1">
                               <Building2 className="w-3.5 h-3.5" />{lead.company_name}
                             </p>
                           )}
                           {lead.exhibition_name && (
-                            <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
+                            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
                               <MapPin className="w-3 h-3" />{lead.exhibition_name}
                             </p>
                           )}
@@ -541,26 +511,26 @@ export default function LeadDetailPage() {
                       <div className="space-y-2">
                         {lead.primary_visitor_phone && (
                           <a href={`tel:${lead.primary_visitor_phone}`}
-                            className="flex items-center gap-3 p-3 bg-blue-50 hover:bg-blue-100 rounded-xl transition group">
-                            <div className="w-9 h-9 bg-blue-100 rounded-lg flex items-center justify-center shrink-0">
-                              <Phone className="w-4 h-4 text-blue-600" />
+                            className="flex items-center gap-3 p-3 bg-primary/[0.07] hover:bg-primary/15 rounded-xl transition group">
+                            <div className="w-9 h-9 bg-primary/12 rounded-lg flex items-center justify-center shrink-0">
+                              <Phone className="w-4 h-4 text-primary" />
                             </div>
                             <div>
-                              <p className="text-[11px] text-slate-400">Phone</p>
-                              <p className="text-sm font-semibold text-blue-700">{lead.primary_visitor_phone}</p>
+                              <p className="text-[11px] text-muted-foreground">Phone</p>
+                              <p className="text-sm font-semibold text-primary">{lead.primary_visitor_phone}</p>
                             </div>
                           </a>
                         )}
                         {lead.primary_visitor_email && (
                           <button
                             onClick={() => openEmail(lead.primary_visitor_email!)}
-                            className="w-full flex items-center gap-3 p-3 bg-violet-50 hover:bg-violet-100 rounded-xl transition text-left">
-                            <div className="w-9 h-9 bg-violet-100 rounded-lg flex items-center justify-center shrink-0">
-                              <Mail className="w-4 h-4 text-violet-600" />
+                            className="w-full flex items-center gap-3 p-3 bg-primary/[0.07] hover:bg-primary/12 rounded-xl transition text-left">
+                            <div className="w-9 h-9 bg-primary/12 rounded-lg flex items-center justify-center shrink-0">
+                              <Mail className="w-4 h-4 text-primary" />
                             </div>
                             <div className="min-w-0 flex-1">
-                              <p className="text-[11px] text-slate-400">Email · tap to compose</p>
-                              <p className="text-sm font-semibold text-violet-700 truncate">{lead.primary_visitor_email}</p>
+                              <p className="text-[11px] text-muted-foreground">Email · tap to compose</p>
+                              <p className="text-sm font-semibold text-primary truncate">{lead.primary_visitor_email}</p>
                             </div>
                           </button>
                         )}
@@ -571,177 +541,55 @@ export default function LeadDetailPage() {
               </Card>
             </BlurFade>
 
-            {/* Company */}
+            {/* Agency — hidden when empty rather than shown as an em-dash */}
+            {(lead.company_name || lead.websites?.length || lead.addresses?.length) ? (
             <BlurFade delay={0.15} inView>
-              <Card className="shadow-sm border-slate-100">
+              <Card className="shadow-sm border-border">
                 <CardHeader className="pb-3 pt-4 px-5">
-                  <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                    <span className="w-7 h-7 bg-emerald-100 rounded-lg flex items-center justify-center">
-                      <Building2 className="w-4 h-4 text-emerald-600" />
+                  <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <span className="w-7 h-7 bg-success/15 rounded-lg flex items-center justify-center">
+                      <Building2 className="w-4 h-4 text-success" />
                     </span>
-                    Company
+                    Agency
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="px-5 pb-5 space-y-3">
-                  <p className="font-semibold text-slate-800">{lead.company_name || '—'}</p>
+                  <p className="font-semibold text-foreground">{lead.company_name || '—'}</p>
                   {lead.websites?.map(w => w.website_url && (
                     <a key={w.lead_website_id}
                       href={w.website_url.startsWith('http') ? w.website_url : `https://${w.website_url}`}
                       target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 text-sm text-blue-600 hover:underline">
+                      className="flex items-center gap-1.5 text-sm text-primary hover:underline">
                       <Globe className="w-3.5 h-3.5 shrink-0" />{w.website_url}
                     </a>
                   ))}
                   {lead.addresses?.map(addr => (
-                    <div key={addr.lead_address_id} className="text-sm text-slate-600">
+                    <div key={addr.lead_address_id} className="text-sm text-muted-foreground">
                       {addr.address_type && (
                         <Badge variant="secondary" className="text-[10px] mb-1">{addr.address_type}</Badge>
                       )}
-                      <p className="flex items-start gap-1 mt-1"><MapPin className="w-3.5 h-3.5 text-slate-400 mt-0.5 shrink-0" />{addr.address_text}</p>
-                      {addr.city && <p className="text-slate-400 text-xs ml-5">{addr.city}{addr.state && `, ${addr.state}`}</p>}
+                      <p className="flex items-start gap-1 mt-1"><MapPin className="w-3.5 h-3.5 text-muted-foreground mt-0.5 shrink-0" />{addr.address_text}</p>
+                      {addr.city && <p className="text-muted-foreground text-xs ml-5">{addr.city}{addr.state && `, ${addr.state}`}</p>}
                     </div>
                   ))}
 
-                  {/* Services — editable */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Products / Services</p>
-                    </div>
-                    {isEditing ? (
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap gap-1.5 min-h-[28px]">
-                          {editServices.map((s, i) => (
-                            <span key={i} className="flex items-center gap-1 bg-indigo-50 text-indigo-700 text-xs font-medium px-2.5 py-1 rounded-full">
-                              {s}
-                              <button onClick={() => setEditServices(editServices.filter((_, j) => j !== i))} className="ml-0.5 hover:text-red-500">
-                                <X className="w-3 h-3" />
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value={newService}
-                            onChange={e => setNewService(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && handleAddService()}
-                            placeholder="Add service..."
-                            className={inputCls + ' flex-1'}
-                          />
-                          <button
-                            onClick={handleAddService}
-                            className="px-3 py-2 bg-indigo-100 text-indigo-700 rounded-xl text-sm font-medium hover:bg-indigo-200 transition flex items-center gap-1"
-                          >
-                            <Plus className="w-3.5 h-3.5" />Add
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex flex-wrap gap-1.5">
-                        {lead.services?.length > 0
-                          ? lead.services.map(s => (
-                              <Badge key={s.lead_service_id} variant="secondary" className="text-xs">{s.service_text}</Badge>
-                            ))
-                          : <span className="text-xs text-slate-400">—</span>
-                        }
-                      </div>
-                    )}
-                  </div>
                 </CardContent>
               </Card>
             </BlurFade>
-
-            {/* Classification */}
-            <BlurFade delay={0.18} inView>
-              <Card className="shadow-sm border-slate-100">
-                <CardHeader className="pb-3 pt-4 px-5">
-                  <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                    <span className="w-7 h-7 bg-amber-100 rounded-lg flex items-center justify-center">
-                      <Tag className="w-4 h-4 text-amber-600" />
-                    </span>
-                    Classification
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="px-5 pb-5">
-                  {isEditing ? (
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-xs font-semibold text-slate-500 mb-1 block">Category</label>
-                        <input
-                          type="text"
-                          list="category-options-detail"
-                          value={editForm.category}
-                          onChange={e => setEditForm({ ...editForm, category: e.target.value })}
-                          placeholder="e.g. Supplier"
-                          className={inputCls}
-                        />
-                        <datalist id="category-options-detail">
-                          {['Supplier', 'Printer', 'Distributor', 'Manufacturer', 'Agency'].map(c => <option key={c} value={c} />)}
-                        </datalist>
-                      </div>
-                      <div>
-                        <label className="text-xs font-semibold text-slate-500 mb-1 block">Vertical</label>
-                        <select
-                          value={editForm.vertical}
-                          onChange={e => setEditForm({ ...editForm, vertical: e.target.value })}
-                          className={inputCls}
-                        >
-                          <option value="">— Select —</option>
-                          {VERTICAL_OPTIONS.map(v => <option key={v} value={v}>{v}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="text-xs font-semibold text-slate-500 mb-1 block">Turn-over</label>
-                        <input
-                          type="text"
-                          value={editForm.turn_over}
-                          onChange={e => setEditForm({ ...editForm, turn_over: e.target.value })}
-                          placeholder="e.g. 5 Cr"
-                          className={inputCls}
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs font-semibold text-slate-500 mb-1 block">Team Size</label>
-                        <input
-                          type="text"
-                          value={editForm.team_size}
-                          onChange={e => setEditForm({ ...editForm, team_size: e.target.value })}
-                          placeholder="e.g. 50-100"
-                          className={inputCls}
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-3">
-                      {[
-                        { label: 'Category', value: lead.category },
-                        { label: 'Vertical', value: lead.vertical },
-                        { label: 'Turn-over', value: lead.turn_over },
-                        { label: 'Team Size', value: lead.team_size },
-                      ].map(({ label, value }) => (
-                        <div key={label} className="p-3 bg-slate-50 rounded-xl">
-                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">{label}</p>
-                          <p className="text-sm font-medium text-slate-700">{value || <span className="text-slate-300">—</span>}</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </BlurFade>
+            ) : null}
 
             {/* Additional phones + emails */}
             {((lead.phones?.length ?? 0) > 0 || (lead.emails?.length ?? 0) > 0) && (
               <BlurFade delay={0.2} inView>
-                <Card className="shadow-sm border-slate-100">
+                <Card className="shadow-sm border-border">
                   <CardHeader className="pb-3 pt-4 px-5">
-                    <CardTitle className="text-sm font-semibold text-slate-700">All Contact Details</CardTitle>
+                    <CardTitle className="text-sm font-semibold text-foreground">All Contact Details</CardTitle>
                   </CardHeader>
                   <CardContent className="px-5 pb-5 space-y-2">
                     {lead.phones?.map(p => (
                       <a key={p.lead_phone_id} href={`tel:${p.phone_number}`}
-                        className="flex items-center justify-between p-2.5 bg-green-50 rounded-xl hover:bg-green-100 transition">
-                        <span className="text-sm font-medium text-green-700 flex items-center gap-2">
+                        className="flex items-center justify-between p-2.5 bg-success/12 rounded-xl hover:bg-success/12 transition">
+                        <span className="text-sm font-medium text-success flex items-center gap-2">
                           <Phone className="w-3.5 h-3.5" />{p.phone_number}
                         </span>
                         {p.phone_type && <Badge variant="secondary" className="text-[10px]">{p.phone_type}</Badge>}
@@ -750,9 +598,9 @@ export default function LeadDetailPage() {
                     {lead.emails?.map(e => (
                       <button key={e.lead_email_id}
                         onClick={() => openEmail(e.email_address)}
-                        className="w-full flex items-center p-2.5 bg-orange-50 rounded-xl hover:bg-orange-100 transition text-left">
-                        <Mail className="w-3.5 h-3.5 text-orange-500 mr-2 shrink-0" />
-                        <span className="text-sm font-medium text-orange-700 break-all">{e.email_address}</span>
+                        className="w-full flex items-center p-2.5 bg-warning/12 rounded-xl hover:bg-warning/12 transition text-left">
+                        <Mail className="w-3.5 h-3.5 text-warning mr-2 shrink-0" />
+                        <span className="text-sm font-medium text-warning break-all">{e.email_address}</span>
                       </button>
                     ))}
                   </CardContent>
@@ -763,16 +611,16 @@ export default function LeadDetailPage() {
             {/* Brands */}
             {(lead.brands?.length ?? 0) > 0 && (
               <BlurFade delay={0.22} inView>
-                <Card className="shadow-sm border-slate-100">
+                <Card className="shadow-sm border-border">
                   <CardHeader className="pb-3 pt-4 px-5">
-                    <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                      <Tag className="w-4 h-4 text-violet-500" />Associated Brands
+                    <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                      <Tag className="w-4 h-4 text-primary" />Associated Brands
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="px-5 pb-5 space-y-2">
                     {lead.brands?.map(b => (
-                      <div key={b.lead_brand_id} className="flex items-center justify-between p-2.5 bg-violet-50 rounded-xl">
-                        <span className="font-medium text-violet-900 text-sm">{b.brand_name}</span>
+                      <div key={b.lead_brand_id} className="flex items-center justify-between p-2.5 bg-primary/[0.07] rounded-xl">
+                        <span className="font-medium text-primary text-sm">{b.brand_name}</span>
                         {b.relationship && <Badge variant="secondary" className="text-[10px]">{b.relationship}</Badge>}
                       </div>
                     ))}
@@ -784,22 +632,22 @@ export default function LeadDetailPage() {
             {/* Additional contacts */}
             {lead.persons?.length > 0 && (
               <BlurFade delay={0.24} inView>
-                <Card className="shadow-sm border-slate-100">
+                <Card className="shadow-sm border-border">
                   <CardHeader className="pb-3 pt-4 px-5">
-                    <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                      <Users className="w-4 h-4 text-blue-500" />Additional Contacts
+                    <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                      <Users className="w-4 h-4 text-primary" />Additional Contacts
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="px-5 pb-5 space-y-2">
                     {lead.persons.map(p => (
-                      <div key={p.lead_person_id} className="flex items-center gap-3 p-2.5 bg-slate-50 rounded-xl">
-                        <div className="w-9 h-9 bg-slate-100 rounded-lg flex items-center justify-center text-slate-600 font-bold text-sm shrink-0">
+                      <div key={p.lead_person_id} className="flex items-center gap-3 p-2.5 bg-secondary/50 rounded-xl">
+                        <div className="w-9 h-9 bg-secondary rounded-lg flex items-center justify-center text-muted-foreground font-bold text-sm shrink-0">
                           {p.name?.charAt(0).toUpperCase() || '?'}
                         </div>
                         <div>
-                          <p className="font-semibold text-sm text-slate-900">{p.name}</p>
-                          {p.designation && <p className="text-xs text-slate-400">{p.designation}</p>}
-                          {p.phone && <p className="text-xs text-blue-600">{p.phone}</p>}
+                          <p className="font-semibold text-sm text-foreground">{p.name}</p>
+                          {p.designation && <p className="text-xs text-muted-foreground">{p.designation}</p>}
+                          {p.phone && <p className="text-xs text-primary">{p.phone}</p>}
                         </div>
                       </div>
                     ))}
@@ -811,75 +659,55 @@ export default function LeadDetailPage() {
             {/* Discussion */}
             {lead.discussion_summary && (
               <BlurFade delay={0.26} inView>
-                <Card className="shadow-sm border-slate-100">
+                <Card className="shadow-sm border-border">
                   <CardHeader className="pb-2 pt-4 px-5">
-                    <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                      <MessageSquare className="w-4 h-4 text-blue-500" />Discussion Summary
+                    <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                      <MessageSquare className="w-4 h-4 text-primary" />Discussion Summary
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="px-5 pb-5">
-                    <p className="text-sm text-slate-600 leading-relaxed">{lead.discussion_summary}</p>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{lead.discussion_summary}</p>
                   </CardContent>
                 </Card>
               </BlurFade>
             )}
 
-            {/* Messages */}
-            {lead.messages?.length > 0 && (
+            {/*
+              Orders live at the foot of the wide column rather than in the
+              narrow one. Two reasons: the left column ran out of content long
+              before the right did, leaving a screen of nothing beside the
+              sidebar; and an order list is a table of numbers that reads badly
+              squeezed into a third of the width.
+            */}
+            <div className="hidden lg:block">
               <BlurFade delay={0.28} inView>
-                <Card className="shadow-sm border-slate-100">
-                  <CardHeader className="pb-2 pt-4 px-5">
-                    <CardTitle className="text-sm font-semibold text-slate-700">Conversation History</CardTitle>
-                  </CardHeader>
-                  <CardContent className="px-5 pb-5">
-                    <div className="space-y-2 max-h-64 overflow-y-auto">
-                      {lead.messages.map(msg => (
-                        <div key={msg.message_id}
-                          className={cn('p-3 rounded-xl text-sm', {
-                            'bg-slate-100 text-slate-500 text-center': msg.sender_type === 'system',
-                            'bg-blue-50 text-blue-900 ml-8': msg.sender_type === 'employee',
-                            'bg-slate-50 text-slate-900 mr-8': msg.sender_type !== 'system' && msg.sender_type !== 'employee',
-                          })}>
-                          <p className="whitespace-pre-wrap">{msg.message_text}</p>
-                          <p className="text-[10px] text-slate-400 mt-1" suppressHydrationWarning>
-                            {new Date(msg.created_at).toLocaleString()}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
+                <LeadOrdersCard leadId={leadId} />
               </BlurFade>
-            )}
+            </div>
+
           </div>
 
           {/* ── RIGHT COLUMN (desktop only) ── */}
           <div className="space-y-4 hidden lg:block">
 
             {/* Lead Intelligence */}
-            {((lead.services?.length ?? 0) > 0 || lead.priority) && (
+            {lead.priority && (
               <BlurFade delay={0.08} inView>
-                <Card className="shadow-sm border-slate-100">
+                <Card className="shadow-sm border-border">
                   <CardHeader className="pb-3 pt-4 px-5">
-                    <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                      <span className="w-7 h-7 bg-indigo-100 rounded-lg flex items-center justify-center">
-                        <Zap className="w-4 h-4 text-indigo-600" />
+                    <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                      <span className="w-7 h-7 bg-primary/12 rounded-lg flex items-center justify-center">
+                        <Zap className="w-4 h-4 text-primary" />
                       </span>
                       Lead Intelligence
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="px-5 pb-5 space-y-2">
-                    {(lead.services?.length ?? 0) > 0 && (
-                      <div className="p-3 bg-indigo-50 rounded-xl">
-                        <p className="text-[10px] font-semibold text-indigo-400 uppercase tracking-wide mb-1">Services</p>
-                        <p className="font-semibold text-indigo-700 text-sm leading-snug">{lead.services.map(s => s.service_text).join(', ')}</p>
-                      </div>
-                    )}
                     {lead.priority && (
                       <div className={cn('p-3 rounded-xl', {
-                        'bg-red-50': lead.priority === 'high',
-                        'bg-amber-50': lead.priority === 'medium',
-                        'bg-emerald-50': lead.priority === 'low',
+                        'bg-destructive/[0.07]': lead.priority === 'high',
+                        'bg-warning/[0.07]': lead.priority === 'medium',
+                        'bg-success/[0.07]': lead.priority === 'low',
                       })}>
                         <p className={cn('text-[10px] font-semibold uppercase tracking-wide mb-1', priorityColor)}>Priority</p>
                         <p className={cn('font-semibold capitalize text-sm', priorityColor)}>{lead.priority}</p>
@@ -894,17 +722,13 @@ export default function LeadDetailPage() {
               <LeadMediaCard leadId={leadId} />
             </BlurFade>
 
-            <BlurFade delay={0.11} inView>
-              <LeadOrdersCard leadId={leadId} />
-            </BlurFade>
-
             {/* Quick Actions */}
             <BlurFade delay={0.12} inView>
-              <Card className="shadow-sm border-slate-100">
+              <Card className="shadow-sm border-border">
                 <CardHeader className="pb-3 pt-4 px-5">
-                  <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                    <span className="w-7 h-7 bg-blue-100 rounded-lg flex items-center justify-center">
-                      <Zap className="w-4 h-4 text-blue-600" />
+                  <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <span className="w-7 h-7 bg-primary/12 rounded-lg flex items-center justify-center">
+                      <Zap className="w-4 h-4 text-primary" />
                     </span>
                     Quick Actions
                   </CardTitle>
@@ -918,8 +742,8 @@ export default function LeadDetailPage() {
                     className={cn(
                       'w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold text-sm transition-all',
                       !lead.primary_visitor_phone && !lead.phones?.length
-                        ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                        : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                        ? 'bg-secondary text-muted-foreground cursor-not-allowed'
+                        : 'bg-success/15 text-success hover:bg-success/25'
                     )}
                   >
                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
@@ -936,8 +760,8 @@ export default function LeadDetailPage() {
                     className={cn(
                       'w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold text-sm transition-all',
                       !lead.primary_visitor_name && !lead.primary_visitor_phone && !lead.company_name
-                        ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                        : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                        ? 'bg-secondary text-muted-foreground cursor-not-allowed'
+                        : 'bg-primary/12 text-primary hover:bg-primary/25'
                     )}
                   >
                     <Users className="w-4 h-4" />Add to Contacts
@@ -947,7 +771,7 @@ export default function LeadDetailPage() {
                   <motion.button
                     whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
                     onClick={handleShare}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold text-sm bg-violet-100 text-violet-700 hover:bg-violet-200 transition-all"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold text-sm bg-primary/12 text-primary hover:bg-primary/25 transition-all"
                   >
                     <Share2 className="w-4 h-4" />Share Lead Details
                   </motion.button>
@@ -955,31 +779,38 @@ export default function LeadDetailPage() {
               </Card>
             </BlurFade>
 
+            {/* Unfinished orders sit apart from placed ones: a draft is work in
+                progress, not a sale, and listing the two together made a draft
+                read as revenue beside the lead's totals. */}
+            <BlurFade delay={0.15} inView>
+              <LeadOrdersCard leadId={leadId} show="drafts" />
+            </BlurFade>
+
             {/* Status info */}
             <BlurFade delay={0.16} inView>
-              <Card className="shadow-sm border-slate-100">
+              <Card className="shadow-sm border-border">
                 <CardContent className="px-5 py-4 space-y-2.5">
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-500 text-xs font-medium uppercase tracking-wide">Status</span>
+                    <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">Status</span>
                     <Badge variant={lead.status_code === 'confirmed' ? 'default' : 'secondary'} className="text-xs">
                       {lead.status_name || lead.status_code}
                     </Badge>
                   </div>
                   {lead.source_name && (
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-slate-500 text-xs font-medium uppercase tracking-wide">Source</span>
-                      <span className="text-slate-700 font-medium text-sm">{lead.source_name}</span>
+                      <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide">Source</span>
+                      <span className="text-foreground font-medium text-sm">{lead.source_name}</span>
                     </div>
                   )}
                   {lead.exhibition_name && (
                     <div className="flex items-start justify-between text-sm gap-2">
-                      <span className="text-slate-500 text-xs font-medium uppercase tracking-wide shrink-0">Exhibition</span>
-                      <span className="text-slate-700 font-medium text-xs text-right">{lead.exhibition_name}</span>
+                      <span className="text-muted-foreground text-xs font-medium uppercase tracking-wide shrink-0">Exhibition</span>
+                      <span className="text-foreground font-medium text-xs text-right">{lead.exhibition_name}</span>
                     </div>
                   )}
-                  <div className="flex items-center justify-between text-sm pt-1 border-t border-slate-100">
-                    <span className="text-slate-400 text-xs">Lead ID</span>
-                    <span className="text-slate-400 font-mono text-xs">#{lead.lead_id}</span>
+                  <div className="flex items-center justify-between text-sm pt-1 border-t border-border">
+                    <span className="text-muted-foreground text-xs">Lead ID</span>
+                    <span className="text-muted-foreground font-mono text-xs">#{lead.lead_id}</span>
                   </div>
                 </CardContent>
               </Card>
@@ -988,11 +819,11 @@ export default function LeadDetailPage() {
             {/* Visiting Card Images */}
             {(lead.front_image_path || lead.back_image_path) && (
               <BlurFade delay={0.18} inView>
-                <Card className="shadow-sm border-slate-100">
+                <Card className="shadow-sm border-border">
                   <CardHeader className="pb-3 pt-4 px-5">
-                    <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                      <span className="w-7 h-7 bg-sky-100 rounded-lg flex items-center justify-center">
-                        <Image className="w-4 h-4 text-sky-600" />
+                    <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                      <span className="w-7 h-7 bg-primary/12 rounded-lg flex items-center justify-center">
+                        <Image className="w-4 h-4 text-primary" />
                       </span>
                       Visiting Card
                     </CardTitle>
@@ -1001,22 +832,22 @@ export default function LeadDetailPage() {
                     <div className="flex gap-3 flex-wrap">
                       {imageUrl(lead.front_image_path) && (
                         <div className="flex-1 min-w-[120px]">
-                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Front</p>
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Front</p>
                           <img
                             src={imageUrl(lead.front_image_path)!}
                             alt="Front of visiting card"
-                            className="w-full rounded-xl border border-slate-200 cursor-pointer hover:opacity-90 transition object-contain max-h-40"
+                            className="w-full rounded-xl border border-border cursor-pointer hover:opacity-90 transition object-contain max-h-40"
                             onClick={() => setLightboxImage(imageUrl(lead.front_image_path)!)}
                           />
                         </div>
                       )}
                       {imageUrl(lead.back_image_path) && (
                         <div className="flex-1 min-w-[120px]">
-                          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Back</p>
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Back</p>
                           <img
                             src={imageUrl(lead.back_image_path)!}
                             alt="Back of visiting card"
-                            className="w-full rounded-xl border border-slate-200 cursor-pointer hover:opacity-90 transition object-contain max-h-40"
+                            className="w-full rounded-xl border border-border cursor-pointer hover:opacity-90 transition object-contain max-h-40"
                             onClick={() => setLightboxImage(imageUrl(lead.back_image_path)!)}
                           />
                         </div>
@@ -1045,7 +876,7 @@ export default function LeadDetailPage() {
           />
           <button
             onClick={() => setLightboxImage(null)}
-            className="absolute top-4 right-4 w-9 h-9 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white"
+            className="absolute top-4 right-4 w-9 h-9 bg-card/20 hover:bg-card/30 rounded-full flex items-center justify-center text-white"
           >
             <X className="w-5 h-5" />
           </button>
@@ -1068,33 +899,33 @@ export default function LeadDetailPage() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 40, scale: 0.97 }}
               transition={{ duration: 0.2, ease: 'easeOut' }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 flex flex-col gap-4"
+              className="bg-card rounded-2xl shadow-2xl w-full max-w-sm p-6 flex flex-col gap-4"
               onClick={e => e.stopPropagation()}
             >
               <div className="flex items-center justify-between">
-                <p className="text-base font-bold text-slate-900">Share Lead Details</p>
-                <button onClick={() => setShowShareModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors">
-                  <X className="w-4 h-4 text-slate-500" />
+                <p className="text-base font-bold text-foreground">Share Lead Details</p>
+                <button onClick={() => setShowShareModal(false)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors">
+                  <X className="w-4 h-4 text-muted-foreground" />
                 </button>
               </div>
               <div className="flex flex-col gap-2.5">
                 {typeof navigator !== 'undefined' && !!navigator.share && (
                   <button
                     onClick={handleShareVia}
-                    className="flex items-center gap-3 px-4 py-3.5 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-700 font-semibold text-sm transition-colors w-full"
+                    className="flex items-center gap-3 px-4 py-3.5 rounded-xl bg-primary/[0.07] hover:bg-primary/12 text-primary font-semibold text-sm transition-colors w-full"
                   >
                     <ExternalLink className="w-4 h-4 shrink-0" />
                     Share via...
-                    <span className="ml-auto text-xs font-normal text-violet-400">WhatsApp, Mail…</span>
+                    <span className="ml-auto text-xs font-normal text-primary/70">WhatsApp, Mail…</span>
                   </button>
                 )}
                 <button
                   onClick={handleCopyDetails}
-                  className="flex items-center gap-3 px-4 py-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold text-sm transition-colors w-full"
+                  className="flex items-center gap-3 px-4 py-3.5 rounded-xl bg-secondary/50 hover:bg-secondary text-foreground font-semibold text-sm transition-colors w-full"
                 >
                   <Copy className="w-4 h-4 shrink-0" />
                   Copy to Clipboard
-                  <span className="ml-auto text-xs font-normal text-slate-400">Plain text</span>
+                  <span className="ml-auto text-xs font-normal text-muted-foreground">Plain text</span>
                 </button>
               </div>
             </motion.div>

@@ -16,11 +16,15 @@ public interface ISettingsService
 
 public static class SettingKeys
 {
-    public const string TemplateWelcome           = "whatsapp.template.welcome";
-    public const string TemplateOrderConfirmation = "whatsapp.template.order_confirmation";
-    public const string TemplateTestimonial       = "whatsapp.template.testimonial";
-    public const string TemplateOtp               = "whatsapp.template.otp";
-    public const string WelcomeAutoSend           = "whatsapp.welcome.auto_send";
+    /// <summary>Sent instead of Welcome when the lead has a team photo to attach.</summary>
+    /// <summary>Invitation to the Chandni Chowk showroom, sent after the exhibition.</summary>
+
+    /// <summary>
+    /// "true" makes the public ordering page verify the mobile by WhatsApp OTP
+    /// before showing anything. Defaults to false: at a booth the QR is physical
+    /// and staff are present, and requiring OTP means an approved Meta
+    /// authentication template — which would otherwise block ordering entirely.
+    /// </summary>
 
     public const string SocialInstagram = "social.instagram";
     public const string SocialFacebook  = "social.facebook";
@@ -30,8 +34,6 @@ public static class SettingKeys
     /// <summary>Only these keys may be written — the table is not a free-form store.</summary>
     public static readonly HashSet<string> Writable = new()
     {
-        TemplateWelcome, TemplateOrderConfirmation, TemplateTestimonial, TemplateOtp,
-        WelcomeAutoSend,
         SocialInstagram, SocialFacebook, SocialWebsite, SocialYoutube,
     };
 }

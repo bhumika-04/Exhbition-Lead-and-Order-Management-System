@@ -232,7 +232,7 @@ export default function BarcodeScanner({
 
   return (
     <div className="w-full">
-      {label && <span className="text-xs text-slate-500 font-medium">{label}</span>}
+      {label && <span className="text-xs text-muted-foreground font-medium">{label}</span>}
 
       <div className={`flex gap-2 ${label ? 'mt-1' : ''}`}>
         <input
@@ -242,7 +242,7 @@ export default function BarcodeScanner({
           placeholder={placeholder}
           autoCapitalize="characters"
           autoComplete="off"
-          className="flex-1 h-11 px-3 rounded-lg border border-slate-200 bg-white text-sm font-mono"
+          className="flex-1 h-11 px-3 rounded-lg border border-border bg-card text-sm font-mono"
         />
         <button
           type="button"
@@ -250,7 +250,7 @@ export default function BarcodeScanner({
           disabled={decoder === null}
           aria-label={scanning ? 'Stop scanning' : 'Scan barcode with camera'}
           className={`h-11 w-11 shrink-0 rounded-lg flex items-center justify-center transition-colors disabled:opacity-50 ${
-            scanning || starting ? 'bg-rose-100 text-rose-600' : 'bg-blue-600 text-white hover:bg-blue-700'
+            scanning || starting ? 'bg-destructive/12 text-destructive' : 'bg-primary text-white hover:bg-primary/90'
           }`}
         >
           {starting ? <Loader2 className="w-5 h-5 animate-spin" />
@@ -273,7 +273,7 @@ export default function BarcodeScanner({
       )}
 
       {error && (
-        <p className="mt-1 text-[11px] text-amber-700 flex items-start gap-1">
+        <p className="mt-1 text-[11px] text-warning flex items-start gap-1">
           <AlertTriangle className="w-3 h-3 shrink-0 mt-px" /> {error}
         </p>
       )}

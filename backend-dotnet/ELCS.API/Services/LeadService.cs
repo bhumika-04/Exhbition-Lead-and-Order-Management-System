@@ -43,7 +43,6 @@ public class LeadService : ILeadService
         var emails = ParseJsonEmails(lead.EmailAddresses) ?? new List<LeadEmail>();
         var addresses = ParseJsonAddresses(lead.Addresses) ?? new List<LeadAddress>();
         var websites = ParseJsonWebsites(lead.Websites) ?? new List<LeadWebsite>();
-        var services = ParseJsonServices(lead.Services) ?? new List<LeadServiceModel>();
         var brands = ParseJsonBrands(lead.Brands) ?? new List<LeadBrand>();
         var topics = ParseJsonTopics(lead.Topics) ?? new List<LeadTopic>();
 
@@ -56,7 +55,6 @@ public class LeadService : ILeadService
             Persons: persons,
             Addresses: addresses,
             Websites: websites,
-            Services: services,
             Topics: topics,
             Messages: messages,
             Brands: brands,
@@ -77,6 +75,52 @@ public class LeadService : ILeadService
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Serialises a list into the shape the Parse* readers above expect, or NULL
+    /// when there is nothing to store. NULL rather than "[]" so an empty field
+    /// leaves the column untouched-looking and the readers short-circuit.
+    /// </summary>
+    private static string? JsonListOrNull<T>(List<string>? values, Func<string, T> shape)
+    {
+        var cleaned = values?
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => v.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return cleaned is { Count: > 0 }
+            ? JsonSerializer.Serialize(cleaned.Select(shape))
+            : null;
+    }
+
+    /// <summary>
+    /// City and State have no columns of their own — the list views read them
+    /// back with JSON_VALUE(Addresses, '$[0].city'), so they only exist inside
+    /// this object. A lead with a city but no street still gets a row.
+    /// </summary>
+    private static string? JsonAddressOrNull(string? address, string? city, string? state)
+    {
+        if (string.IsNullOrWhiteSpace(address) &&
+            string.IsNullOrWhiteSpace(city) &&
+            string.IsNullOrWhiteSpace(state))
+            return null;
+
+        return JsonSerializer.Serialize(new[]
+        {
+            new
+            {
+                address = Trimmed(address),
+                city    = Trimmed(city),
+                state   = Trimmed(state),
+                country = (string?)null,
+                pincode = (string?)null,
+                type    = (string?)null,
+            },
+        });
+
+        static string? Trimmed(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
     }
 
     private List<LeadPhone>? ParseJsonPhones(string? json)
@@ -167,24 +211,6 @@ public class LeadService : ILeadService
         }
     }
 
-    private List<LeadServiceModel>? ParseJsonServices(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json)) return null;
-        try
-        {
-            var services = JsonSerializer.Deserialize<List<string>>(json);
-            return services?.Select((service, index) => new LeadServiceModel
-            {
-                LeadServiceId = index + 1,
-                LeadId = 0,
-                ServiceText = service
-            }).ToList();
-        }
-        catch
-        {
-            return null;
-        }
-    }
 
     private List<LeadBrand>? ParseJsonBrands(string? json)
     {
@@ -257,12 +283,6 @@ public class LeadService : ILeadService
             parameters.Add("AssignedEmployeeId", queryParams.AssignedEmployeeId.Value);
         }
 
-        if (!string.IsNullOrEmpty(queryParams.Service))
-        {
-            whereClause += " AND EXISTS (SELECT 1 FROM OPENJSON(l.Services) WHERE value LIKE @Service)";
-            parameters.Add("Service", $"%{queryParams.Service}%");
-        }
-
         // Get count
         var totalCount = await conn.ExecuteScalarAsync<int>(
             $"SELECT COUNT(*) FROM Leads l {whereClause}", parameters);
@@ -274,11 +294,10 @@ public class LeadService : ILeadService
         var sql = $@"
             SELECT l.LeadId, l.ExhibitionId, e.Name as ExhibitionName,
                    l.CompanyName, l.PrimaryVisitorName, l.PrimaryVisitorDesignation,
-                   l.PrimaryVisitorPhone, l.Segment, l.Priority, l.StatusCode, l.CreatedAt,
+                   l.PrimaryVisitorPhone, l.Priority, l.StatusCode, l.CreatedAt,
                    JSON_VALUE(l.Addresses, '$[0].city') as City,
                    JSON_VALUE(l.Addresses, '$[0].state') as State,
-                   l.Services as ServicesJson,
-                   l.PrimaryVisitorEmail, l.Category, l.TurnOver, l.TeamSize, l.Vertical
+                   l.PrimaryVisitorEmail
             FROM Leads l
             LEFT JOIN Exhibitions e ON l.ExhibitionId = e.ExhibitionId
             {whereClause}
@@ -300,11 +319,13 @@ public class LeadService : ILeadService
         var sql = @"
             INSERT INTO Leads (ExhibitionId, SourceCode, StatusCode, AssignedEmployeeId,
                               CompanyName, PrimaryVisitorName, PrimaryVisitorPhone, PrimaryVisitorEmail,
-                              PrimaryVisitorDesignation, DiscussionSummary, Segment, Priority, CreatedAt)
+                              PrimaryVisitorDesignation, DiscussionSummary, Priority,
+                              GstNumber, PhoneNumbers, EmailAddresses, Websites, Addresses, CreatedAt)
             OUTPUT INSERTED.LeadId
             VALUES (@ExhibitionId, @SourceCode, 'new', @AssignedEmployeeId,
                    @CompanyName, @PrimaryVisitorName, @PrimaryVisitorPhone, @PrimaryVisitorEmail,
-                   @PrimaryVisitorDesignation, @DiscussionSummary, @Segment, @Priority, GETUTCDATE())";
+                   @PrimaryVisitorDesignation, @DiscussionSummary, @Priority,
+                   @GstNumber, @PhoneNumbers, @EmailAddresses, @Websites, @Addresses, GETUTCDATE())";
 
         var parameters = new
         {
@@ -313,12 +334,20 @@ public class LeadService : ILeadService
             dto.AssignedEmployeeId,
             dto.CompanyName,
             dto.PrimaryVisitorName,
-            dto.PrimaryVisitorPhone,
-            dto.PrimaryVisitorEmail,
+            // The primary falls back to the first of the list, so an operator who
+            // typed only into the repeatable field still gets a usable lead.
+            PrimaryVisitorPhone = dto.PrimaryVisitorPhone ?? dto.Phones?.FirstOrDefault(),
+            PrimaryVisitorEmail = dto.PrimaryVisitorEmail ?? dto.Emails?.FirstOrDefault(),
             dto.PrimaryVisitorDesignation,
             dto.DiscussionSummary,
-            dto.Segment,
-            dto.Priority
+            dto.Priority,
+            dto.GstNumber,
+            PhoneNumbers   = JsonListOrNull(dto.Phones, v => new { phone = v, type = (string?)null }),
+            EmailAddresses = JsonListOrNull(dto.Emails, v => new { email = v, type = (string?)null }),
+            // Websites are a bare string array on read, so they must be written
+            // that way too — see ParseJsonWebsites.
+            Websites       = JsonListOrNull(dto.Websites, v => v),
+            Addresses      = JsonAddressOrNull(dto.Address, dto.City, dto.State),
         };
 
         var leadId = await conn.ExecuteScalarAsync<int>(sql, parameters);
@@ -344,20 +373,10 @@ public class LeadService : ILeadService
         if (dto.PrimaryVisitorDesignation != null) { updates.Add("PrimaryVisitorDesignation = @PrimaryVisitorDesignation"); parameters.Add("PrimaryVisitorDesignation", dto.PrimaryVisitorDesignation); }
         if (dto.PrimaryVisitorPhone != null) { updates.Add("PrimaryVisitorPhone = @PrimaryVisitorPhone"); parameters.Add("PrimaryVisitorPhone", dto.PrimaryVisitorPhone); }
         if (dto.PrimaryVisitorEmail != null) { updates.Add("PrimaryVisitorEmail = @PrimaryVisitorEmail"); parameters.Add("PrimaryVisitorEmail", dto.PrimaryVisitorEmail); }
-        if (dto.Segment != null) { updates.Add("Segment = @Segment"); parameters.Add("Segment", dto.Segment); }
         if (dto.Priority != null) { updates.Add("Priority = @Priority"); parameters.Add("Priority", dto.Priority); }
         if (dto.StatusCode != null) { updates.Add("StatusCode = @StatusCode"); parameters.Add("StatusCode", dto.StatusCode); }
         if (dto.DiscussionSummary != null) { updates.Add("DiscussionSummary = @DiscussionSummary"); parameters.Add("DiscussionSummary", dto.DiscussionSummary); }
-        if (dto.Services != null)
-        {
-            var servicesJson = System.Text.Json.JsonSerializer.Serialize(dto.Services);
-            updates.Add("Services = @Services");
-            parameters.Add("Services", servicesJson);
-        }
-        if (dto.Category != null) { updates.Add("Category = @Category"); parameters.Add("Category", dto.Category); }
-        if (dto.TurnOver != null) { updates.Add("TurnOver = @TurnOver"); parameters.Add("TurnOver", dto.TurnOver); }
-        if (dto.TeamSize != null) { updates.Add("TeamSize = @TeamSize"); parameters.Add("TeamSize", dto.TeamSize); }
-        if (dto.Vertical != null) { updates.Add("Vertical = @Vertical"); parameters.Add("Vertical", dto.Vertical); }
+        if (dto.GstNumber != null) { updates.Add("GstNumber = @GstNumber"); parameters.Add("GstNumber", dto.GstNumber); }
 
         if (updates.Count == 0) return;
 
@@ -430,7 +449,6 @@ public class LeadService : ILeadService
                 l.PrimaryVisitorName,
                 l.PrimaryVisitorDesignation,
                 l.PrimaryVisitorPhone,
-                l.Segment,
                 l.Priority,
                 l.StatusCode,
                 l.CreatedAt,

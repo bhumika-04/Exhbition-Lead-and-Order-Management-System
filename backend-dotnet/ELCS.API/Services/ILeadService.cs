@@ -33,18 +33,12 @@ public record LeadListDto(
     string? PrimaryVisitorName,
     string? PrimaryVisitorDesignation,
     string? PrimaryVisitorPhone,
-    string? Segment,
     string? Priority,
     string? StatusCode,
     DateTime CreatedAt,
     string? City,
     string? State,
-    string? ServicesJson,
-    string? PrimaryVisitorEmail,
-    string? Category,
-    string? TurnOver,
-    string? TeamSize,
-    string? Vertical
+    string? PrimaryVisitorEmail
 );
 
 public record LeadDetailDto(
@@ -52,7 +46,6 @@ public record LeadDetailDto(
     List<LeadPerson> Persons,
     List<LeadAddress> Addresses,
     List<LeadWebsite> Websites,
-    List<LeadServiceModel> Services,
     List<LeadTopic> Topics,
     List<LeadMessage> Messages,
     List<LeadBrand> Brands,
@@ -70,8 +63,18 @@ public record CreateLeadDto(
     string? PrimaryVisitorEmail = null,
     string? PrimaryVisitorDesignation = null,
     string? DiscussionSummary = null,
-    string? Segment = null,
-    string? Priority = null
+    string? Priority = null,
+    string? GstNumber = null,
+    // Everything below lands in the JSON columns on Leads. Without them a lead
+    // typed by hand kept only its first phone and first email, and silently
+    // dropped the rest along with the address and every website — the card
+    // extraction path had always written them, so only manual entry lost data.
+    List<string>? Phones = null,
+    List<string>? Emails = null,
+    List<string>? Websites = null,
+    string? Address = null,
+    string? City = null,
+    string? State = null
 );
 
 public record UpdateLeadDto(
@@ -80,13 +83,8 @@ public record UpdateLeadDto(
     string? PrimaryVisitorDesignation = null,
     string? PrimaryVisitorPhone = null,
     string? PrimaryVisitorEmail = null,
-    string? Segment = null,
     string? Priority = null,
     string? StatusCode = null,
     string? DiscussionSummary = null,
-    List<string>? Services = null,
-    string? Category = null,
-    string? TurnOver = null,
-    string? TeamSize = null,
-    string? Vertical = null
+    string? GstNumber = null
 );

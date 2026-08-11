@@ -42,6 +42,20 @@ export default function CameraDialog({
     setError(null);
     stop();
     try {
+      // Browsers only expose mediaDevices in a secure context. Over plain HTTP
+      // on a LAN address it is undefined, and calling through it throws a
+      // TypeError that the catch below reported as "could not start the camera"
+      // — true but useless. Say what is actually wrong.
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setError(
+          window.isSecureContext
+            ? 'This browser does not support in-page camera capture. Use Upload instead.'
+            : `The camera needs a secure connection. You are on ${window.location.protocol}//${window.location.host} — `
+              + 'open the site over HTTPS or on localhost, or use Upload instead.'
+        );
+        return;
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: preferredId
           ? { deviceId: { exact: preferredId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
@@ -120,12 +134,12 @@ export default function CameraDialog({
         <span className="text-sm font-semibold text-white flex-1">{title}</span>
         {devices.length > 1 && !error && (
           <button onClick={switchCamera} aria-label="Switch camera"
-                  className="p-2 rounded-lg text-white/80 hover:bg-white/10">
+                  className="p-2 rounded-lg text-white/80 hover:bg-card/10">
             <SwitchCamera className="w-5 h-5" />
           </button>
         )}
         <button onClick={() => { stop(); onClose(); }} aria-label="Close"
-                className="p-2 rounded-lg text-white/80 hover:bg-white/10">
+                className="p-2 rounded-lg text-white/80 hover:bg-card/10">
           <X className="w-5 h-5" />
         </button>
       </div>
@@ -134,7 +148,7 @@ export default function CameraDialog({
       <div className="flex-1 min-h-0 relative flex items-center justify-center">
         {error ? (
           <div className="flex flex-col items-center gap-3 px-8 text-center">
-            <AlertTriangle className="w-10 h-10 text-amber-400" />
+            <AlertTriangle className="w-10 h-10 text-warning" />
             <p className="text-sm text-white/90 max-w-xs">{error}</p>
           </div>
         ) : (
@@ -162,13 +176,13 @@ export default function CameraDialog({
       <div className="shrink-0 px-6 pb-8 pt-4 flex items-center justify-center">
         {error ? (
           <button onClick={() => { stop(); onClose(); }}
-                  className="px-6 py-3 rounded-xl bg-white/10 text-white text-sm font-semibold">
+                  className="px-6 py-3 rounded-xl bg-card/10 text-white text-sm font-semibold">
             Close
           </button>
         ) : (
           <button onClick={capture} disabled={starting} aria-label="Capture"
-                  className="w-16 h-16 rounded-full bg-white disabled:bg-white/40 flex items-center justify-center ring-4 ring-white/30 transition-transform active:scale-95">
-            <Camera className="w-6 h-6 text-slate-900" />
+                  className="w-16 h-16 rounded-full bg-card disabled:bg-card/40 flex items-center justify-center ring-4 ring-white/30 transition-transform active:scale-95">
+            <Camera className="w-6 h-6 text-foreground" />
           </button>
         )}
       </div>

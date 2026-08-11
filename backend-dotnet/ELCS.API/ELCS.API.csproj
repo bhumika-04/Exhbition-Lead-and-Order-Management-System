@@ -20,7 +20,11 @@
     <PackageReference Include="OpenAI" Version="2.8.0" />
 
     <!-- Utilities -->
-    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.0" />
+    <!-- 10.2.3+ : 10.1.0 pulled Microsoft.OpenApi 2.3.0, which carries
+         GHSA-v5pm-xwqc-g5wc (high). Bumped here rather than pinning
+         Microsoft.OpenApi directly, so we do not take a direct reference on a
+         package we never call and then have to remember to keep it in step. -->
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.3" />
     <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
   </ItemGroup>
 

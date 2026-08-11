@@ -3,28 +3,32 @@ namespace ELCS.API.Services;
 /// <summary>
 /// Advance payment + lucky-draw coupon rules.
 ///
-/// Coupons follow the money ACTUALLY TAKEN, not the order value. A lead may
-/// hold ₹2.5 L of orders and pay only ₹11,000 advance — that earns 4 coupons,
-/// not 8. So:
+/// A coupon needs BOTH sides of the promotion to be met:
 ///
-///   coupons = 4 × floor(totalAdvance / ₹11,000)
+///   • order value of at least ₹1,00,000  (one slab), AND
+///   • advance of at least ₹11,000
 ///
-/// The order-value slab only SUGGESTS an advance, which the operator may then
-/// edit:
+///   coupons = 4 × min( floor(value / ₹1,00,000), floor(advance / ₹11,000) )
 ///
-///   suggestedAdvance = ₹11,000 × slab
+///   ₹1L  order + ₹11,000 advance →  4 coupons
+///   ₹2L  order + ₹22,000 advance →  8 coupons
+///   ₹4L  order + ₹44,000 advance → 16 coupons
 ///
-///   slab 1 (₹1L–₹2L) → suggests ₹11,000 →  4 coupons if paid in full
-///   slab 2 (₹2L–₹3L) → suggests ₹22,000 →  8 coupons if paid in full
-///   slab 3 (₹3L–₹4L) → suggests ₹33,000 → 12 coupons if paid in full
+/// Both limits matter, and each is there for a reason:
 ///
-/// and onward without a ceiling. Slab 0 (below ₹1L) suggests nothing; whatever
-/// advance is agreed is entered by hand and earns coupons on the same rule —
-/// which is why an under-₹1L lead who pays ₹11,000 still gets 4.
+///   ₹50,000 order + ₹11,000 advance →  0 — under ₹1L earns nothing, however
+///                                       much is paid against it.
+///   ₹2.5L   order + ₹11,000 advance →  4 — the advance is the limiter, so a
+///                                       big order paid lightly earns one unit.
+///   ₹1L     order + ₹44,000 advance →  4 — the VALUE is the limiter, so
+///                                       overpaying cannot farm coupons.
 ///
-/// Advance is accumulated across all the lead's non-cancelled orders before
-/// the coupon calculation, so two part-payments of ₹6,000 together earn 4
-/// coupons rather than nothing.
+/// The slab also SUGGESTS an advance, which the operator may edit:
+/// suggestedAdvance = ₹11,000 × slab. Slab 0 suggests nothing.
+///
+/// Value and advance are both accumulated across the lead's non-cancelled
+/// orders before this runs, so two ₹6,000 part-payments against a ₹1L order
+/// together earn 4 coupons rather than nothing.
 /// </summary>
 public static class AdvanceCalculator
 {
@@ -40,11 +44,27 @@ public static class AdvanceCalculator
     public static decimal SuggestedAdvance(int slab) =>
         slab <= 0 ? 0m : AdvancePerSlab * slab;
 
-    /// <summary>Coupons earned by an advance actually paid.</summary>
-    public static int CouponsForAdvance(decimal totalAdvance) =>
-        totalAdvance < AdvancePerSlab
-            ? 0
-            : (int)decimal.Floor(totalAdvance / AdvancePerSlab) * CouponsPerUnit;
+    /// <summary>
+    /// Coupons earned, gated by BOTH the order value and the advance paid.
+    /// Whichever side has fewer complete units decides the count.
+    /// </summary>
+    public static int CouponsFor(decimal totalValue, decimal totalAdvance)
+    {
+        if (totalValue < SlabSize || totalAdvance < AdvancePerSlab) return 0;
+
+        var valueUnits   = (int)decimal.Floor(totalValue / SlabSize);
+        var advanceUnits = (int)decimal.Floor(totalAdvance / AdvancePerSlab);
+
+        return Math.Min(valueUnits, advanceUnits) * CouponsPerUnit;
+    }
+
+    /// <summary>
+    /// Coupons a slab's suggested advance would earn if paid in full — used to
+    /// label the slab options. By construction value and advance units match
+    /// here, so the minimum is the slab itself.
+    /// </summary>
+    public static int CouponsForSlab(int slab) =>
+        slab <= 0 ? 0 : slab * CouponsPerUnit;
 
     /// <summary>
     /// A lead's full position.
@@ -56,7 +76,7 @@ public static class AdvanceCalculator
         if (totalValue < 0m)   totalValue   = 0m;
         if (totalAdvance < 0m) totalAdvance = 0m;
 
-        var coupons = CouponsForAdvance(totalAdvance);
+        var coupons = CouponsFor(totalValue, totalAdvance);
 
         // An advance larger than the order value is a data-entry error, not a
         // negative balance. Report the balance floored at zero and flag it so

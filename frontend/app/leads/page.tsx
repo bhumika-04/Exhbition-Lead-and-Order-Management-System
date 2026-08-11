@@ -21,20 +21,20 @@ import { AnimatedList, AnimatedListItem } from '@/components/ui/animated-list';
 import { cn } from '@/lib/utils';
 
 const AVATAR_COLORS = [
-  { bg: 'bg-blue-100',   text: 'text-blue-600'   },
-  { bg: 'bg-violet-100', text: 'text-violet-600'  },
-  { bg: 'bg-emerald-100',text: 'text-emerald-600' },
-  { bg: 'bg-amber-100',  text: 'text-amber-600'   },
-  { bg: 'bg-rose-100',   text: 'text-rose-600'    },
-  { bg: 'bg-cyan-100',   text: 'text-cyan-600'    },
-  { bg: 'bg-indigo-100', text: 'text-indigo-600'  },
-  { bg: 'bg-orange-100', text: 'text-orange-600'  },
+  { bg: 'bg-primary/12',   text: 'text-primary'   },
+  { bg: 'bg-primary/12', text: 'text-primary'  },
+  { bg: 'bg-success/15',text: 'text-success' },
+  { bg: 'bg-warning/15',  text: 'text-warning'   },
+  { bg: 'bg-destructive/12',   text: 'text-destructive'    },
+  { bg: 'bg-primary/12',   text: 'text-primary'    },
+  { bg: 'bg-primary/12', text: 'text-primary'  },
+  { bg: 'bg-secondary', text: 'text-muted-foreground'  },
 ];
 
 const PRIORITY_BAR: Record<string, string> = {
-  high: 'bg-red-400',
-  medium: 'bg-amber-400',
-  low: 'bg-emerald-400',
+  high: 'bg-primary',
+  medium: 'bg-primary/45',
+  low: 'bg-border',
 };
 
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -45,11 +45,6 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | '
 };
 
 // Pull the first number out of a free-text value, e.g. "10 Cr" -> 10, "80 employees" -> 80
-const parseLeadingNumber = (s?: string | null): number | null => {
-  if (!s) return null;
-  const m = s.replace(/,/g, '').match(/-?\d+(\.\d+)?/);
-  return m ? parseFloat(m[0]) : null;
-};
 
 export default function LeadsPage() {
   const router = useRouter();
@@ -61,18 +56,9 @@ export default function LeadsPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [sourceFilter, setSourceFilter] = useState('all');
   const [exhibitionFilter, setExhibitionFilter] = useState('all');
-  const [segmentFilter, setSegmentFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [cityFilter, setCityFilter] = useState('all');
   const [stateFilter, setStateFilter] = useState('all');
-  const [serviceFilter, setServiceFilter] = useState<string[]>([]);
-  const [svcSearch, setSvcSearch] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('all');
-  const [verticalFilter, setVerticalFilter] = useState('all');
-  const [turnoverMin, setTurnoverMin] = useState('');
-  const [turnoverMax, setTurnoverMax] = useState('');
-  const [teamMin, setTeamMin] = useState('');
-  const [teamMax, setTeamMax] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [sortBy, setSortBy] = useState('date_desc');
@@ -81,7 +67,6 @@ export default function LeadsPage() {
   const savedPageRef = useRef<number | null>(null);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [showCreateForm, setShowCreateForm] = useState(false);
   const [exhibitions, setExhibitions] = useState<any[]>([]);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedLeads, setSelectedLeads] = useState<Set<number>>(new Set());
@@ -108,7 +93,7 @@ export default function LeadsPage() {
 
   useEffect(() => {
     applyFilters();
-  }, [leads, searchQuery, statusFilter, sourceFilter, exhibitionFilter, segmentFilter, priorityFilter, cityFilter, stateFilter, serviceFilter, categoryFilter, verticalFilter, turnoverMin, turnoverMax, teamMin, teamMax, dateFrom, dateTo, sortBy]);
+  }, [leads, searchQuery, statusFilter, sourceFilter, exhibitionFilter, priorityFilter, cityFilter, stateFilter, dateFrom, dateTo, sortBy]);
 
   const loadExhibitions = async () => {
     try { setExhibitions(await api.getExhibitions()); } catch { /* silent */ }
@@ -142,32 +127,9 @@ export default function LeadsPage() {
     if (statusFilter !== 'all') f = f.filter(l => l.status_code === statusFilter);
     if (sourceFilter !== 'all') f = f.filter(l => l.source_code === sourceFilter);
     if (exhibitionFilter !== 'all') f = f.filter(l => l.exhibition_id?.toString() === exhibitionFilter);
-    if (segmentFilter !== 'all') f = f.filter(l => l.segment === segmentFilter);
     if (priorityFilter !== 'all') f = f.filter(l => l.priority === priorityFilter);
     if (cityFilter !== 'all') f = f.filter(l => l.city?.toLowerCase() === cityFilter.toLowerCase());
     if (stateFilter !== 'all') f = f.filter(l => l.state?.toLowerCase() === stateFilter.toLowerCase());
-    if (serviceFilter.length > 0) {
-      f = f.filter(l => {
-        try {
-          const svcs: any[] = JSON.parse(l.services_json || '[]');
-          const texts = svcs.map(s => (s.service_text || s || '').toLowerCase());
-          return serviceFilter.some(sel => texts.some(t => t.includes(sel.toLowerCase())));
-        } catch { return false; }
-      });
-    }
-    if (categoryFilter !== 'all') f = f.filter(l => l.category === categoryFilter);
-    if (verticalFilter !== 'all') f = f.filter(l => l.vertical === verticalFilter);
-    // Turn-over / Team-size are free text — parse the leading number and match the Min/Max range
-    if (turnoverMin || turnoverMax) {
-      const min = turnoverMin ? parseFloat(turnoverMin) : -Infinity;
-      const max = turnoverMax ? parseFloat(turnoverMax) : Infinity;
-      f = f.filter(l => { const n = parseLeadingNumber(l.turn_over); return n !== null && n >= min && n <= max; });
-    }
-    if (teamMin || teamMax) {
-      const min = teamMin ? parseFloat(teamMin) : -Infinity;
-      const max = teamMax ? parseFloat(teamMax) : Infinity;
-      f = f.filter(l => { const n = parseLeadingNumber(l.team_size); return n !== null && n >= min && n <= max; });
-    }
     if (dateFrom) { const d = new Date(dateFrom); d.setHours(0,0,0,0); f = f.filter(l => new Date(l.created_at) >= d); }
     if (dateTo)   { const d = new Date(dateTo);   d.setHours(23,59,59,999); f = f.filter(l => new Date(l.created_at) <= d); }
     f.sort((a, b) => {
@@ -199,19 +161,15 @@ export default function LeadsPage() {
 
   const clearAllFilters = () => {
     setSearchQuery(''); setStatusFilter('all'); setSourceFilter('all');
-    setExhibitionFilter('all'); setSegmentFilter('all'); setPriorityFilter('all');
-    setCityFilter('all'); setStateFilter('all'); setServiceFilter([]);
-    setCategoryFilter('all'); setVerticalFilter('all');
-    setTurnoverMin(''); setTurnoverMax(''); setTeamMin(''); setTeamMax('');
+    setExhibitionFilter('all'); setPriorityFilter('all');
+    setCityFilter('all'); setStateFilter('all');
     setDateFrom(''); setDateTo(''); setSortBy('date_desc');
     loadLeads();
   };
 
   const activeFilterCount = [
     statusFilter !== 'all', sourceFilter !== 'all', exhibitionFilter !== 'all',
-    segmentFilter !== 'all', priorityFilter !== 'all', cityFilter !== 'all', stateFilter !== 'all',
-    serviceFilter.length > 0, categoryFilter !== 'all', verticalFilter !== 'all',
-    !!(turnoverMin || turnoverMax), !!(teamMin || teamMax),
+    priorityFilter !== 'all', cityFilter !== 'all', stateFilter !== 'all',
     !!dateFrom, !!dateTo, sortBy !== 'date_desc',
   ].filter(Boolean).length;
 
@@ -283,27 +241,15 @@ export default function LeadsPage() {
     setSelectedLeads(new Set());
   };
 
-  const handleCreateLead = async (formData: any) => {
-    try {
-      const employee = getEmployee();
-      await api.createLead({ ...formData, assigned_employee_id: employee?.employee_id });
-      toast.success('Lead created!');
-      setShowCreateForm(false);
-      await loadLeads();
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to create lead');
-    }
-  };
-
   if (!mounted) return null;
 
   if (loading) {
     return (
-      <div className="flex flex-col flex-1 overflow-hidden bg-slate-50">
+      <div className="flex flex-col flex-1 overflow-hidden bg-background">
         <div className="flex-1 flex items-center justify-center">
           <div className="flex flex-col items-center gap-3">
-            <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-            <p className="text-sm text-slate-500 font-medium">Loading leads…</p>
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground font-medium">Loading leads…</p>
           </div>
         </div>
       </div>
@@ -314,34 +260,34 @@ export default function LeadsPage() {
   const pagedLeads = filteredLeads.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
-    <div className="flex flex-col flex-1 overflow-hidden bg-slate-50">
+    <div className="flex flex-col flex-1 overflow-hidden bg-background">
 
       {/* ── Header ── */}
-      <div className="bg-white/80 backdrop-blur-sm border-b border-slate-200 px-4 md:px-6 py-4 md:py-0 shrink-0 md:min-h-[65px] flex items-center">
+      <div className="bg-card/80 backdrop-blur-sm border-b border-border px-4 md:px-6 py-4 md:py-0 shrink-0 md:min-h-[65px] flex items-center">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h1 className="text-lg font-bold text-slate-900">Leads</h1>
-            <span className="bg-blue-100 text-blue-700 text-xs font-bold rounded-full px-2 py-0.5">
+            <h1 className="text-lg font-bold text-foreground">Leads</h1>
+            <span className="bg-primary/12 text-primary text-xs font-bold rounded-full px-2 py-0.5">
               {filteredLeads.length}
             </span>
           </div>
-          <p className="text-[11px] text-slate-400">Exhibition visitors &amp; card scans</p>
+          <p className="text-[11px] text-muted-foreground">Exhibition visitors &amp; card scans</p>
         </div>
       </div>
 
       {/* ── Toolbar: Search + Filter + Select + Add ── */}
       {!selectMode ? (
-        <div className="bg-white border-b border-slate-100 px-4 md:px-6 py-2.5 shrink-0 flex items-center gap-2">
+        <div className="bg-card border-b border-border px-4 md:px-6 py-2.5 shrink-0 flex items-center gap-2">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
             <Input
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               placeholder="Search name, company, phone…"
-              className="pl-9 h-9 bg-slate-50 border-slate-200 focus:bg-white text-sm"
+              className="pl-9 h-9 bg-secondary/50 border-border focus:bg-card text-sm"
             />
             {searchQuery && (
-              <button onClick={() => setSearchQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+              <button onClick={() => setSearchQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-muted-foreground">
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
@@ -351,12 +297,12 @@ export default function LeadsPage() {
             variant="outline"
             size="sm"
             onClick={() => setShowFilters(!showFilters)}
-            className={cn('gap-1.5 h-9 text-xs px-3 shrink-0', showFilters && 'bg-blue-50 border-blue-300 text-blue-700')}
+            className={cn('gap-1.5 h-9 text-xs px-3 shrink-0', showFilters && 'bg-primary/[0.07] border-primary/30 text-primary')}
           >
             <SlidersHorizontal className="w-3 h-3" />
             Filters
             {activeFilterCount > 0 && (
-              <span className="bg-blue-600 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+              <span className="bg-primary text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
                 {activeFilterCount}
               </span>
             )}
@@ -371,21 +317,18 @@ export default function LeadsPage() {
             <Users className="w-3 h-3" />
             <span className="hidden sm:inline">Select</span>
           </Button>
-          <Button size="sm" onClick={() => setShowCreateForm(true)} className="gap-1.5 h-9 text-xs px-3 shrink-0">
-            <Plus className="w-3 h-3" /> Add
-          </Button>
         </div>
       ) : (
         /* ── Select Mode Toolbar ── */
-        <div className="bg-blue-50 border-b border-blue-200 px-4 md:px-6 py-2.5 shrink-0 flex items-center gap-2">
-          <span className="text-sm font-semibold text-blue-800 flex-1">
+        <div className="bg-primary/[0.07] border-b border-primary/30 px-4 md:px-6 py-2.5 shrink-0 flex items-center gap-2">
+          <span className="text-sm font-semibold text-primary flex-1">
             {`${selectedLeads.size} of ${filteredLeads.length} selected`}
           </span>
           <Button
             variant="outline"
             size="sm"
             onClick={selectAllFiltered}
-            className="gap-1.5 h-9 text-xs px-3 shrink-0 border-blue-300 text-blue-700 hover:bg-blue-100"
+            className="gap-1.5 h-9 text-xs px-3 shrink-0 border-primary/30 text-primary hover:bg-primary/15"
           >
             All
           </Button>
@@ -393,7 +336,7 @@ export default function LeadsPage() {
             size="sm"
             onClick={saveContacts}
             disabled={selectedLeads.size === 0}
-            className="gap-1.5 h-9 text-xs px-3 shrink-0 bg-blue-600 hover:bg-blue-700"
+            className="gap-1.5 h-9 text-xs px-3 shrink-0 bg-primary hover:bg-primary/90"
           >
             <Download className="w-3 h-3" />
             Contacts{selectedLeads.size > 0 ? ` (${selectedLeads.size})` : ''}
@@ -402,7 +345,7 @@ export default function LeadsPage() {
             variant="ghost"
             size="sm"
             onClick={toggleSelectMode}
-            className="gap-1 h-9 text-xs px-2.5 shrink-0 text-slate-600"
+            className="gap-1 h-9 text-xs px-2.5 shrink-0 text-muted-foreground"
           >
             <X className="w-3.5 h-3.5" /> Cancel
           </Button>
@@ -419,13 +362,13 @@ export default function LeadsPage() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -8, scale: 0.97 }}
               transition={{ duration: 0.15, ease: 'easeOut' }}
-              className="fixed right-4 md:right-6 z-40 w-[520px] max-w-[calc(100vw-2rem)] bg-white border border-slate-200 rounded-2xl shadow-2xl shadow-slate-200/80 overflow-hidden flex flex-col"
+              className="fixed right-4 md:right-6 z-40 w-[520px] max-w-[calc(100vw-2rem)] bg-card border border-border rounded-2xl shadow-2xl shadow-slate-200/80 overflow-hidden flex flex-col"
               style={{ top: (filterBtnRef.current?.getBoundingClientRect().bottom ?? 120) + 8 }}
             >
               {/* Header */}
-              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-                <span className="text-sm font-semibold text-slate-800">Filters</span>
-                <button onClick={() => setShowFilters(false)} className="text-slate-400 hover:text-slate-600">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                <span className="text-sm font-semibold text-foreground">Filters</span>
+                <button onClick={() => setShowFilters(false)} className="text-muted-foreground hover:text-muted-foreground">
                   <X className="w-4 h-4" />
                 </button>
               </div>
@@ -449,28 +392,13 @@ export default function LeadsPage() {
                   setCityFilter('all');
                 };
 
-                // All unique services parsed from lead data
-                const allServices = Array.from(new Set(
-                  leads.flatMap(l => {
-                    try { return (JSON.parse(l.services_json || '[]') as any[]).map((s: any) => s.service_text || s).filter(Boolean); }
-                    catch { return []; }
-                  })
-                )).sort();
-
-                const visibleServices = svcSearch.trim()
-                  ? allServices.filter(s => s.toLowerCase().includes(svcSearch.toLowerCase()))
-                  : allServices;
-
-                const allCategories = Array.from(new Set(leads.map(l => l.category).filter(Boolean) as string[])).sort();
-                const allVerticals = Array.from(new Set(leads.map(l => l.vertical).filter(Boolean) as string[])).sort();
-
                 const FilterRow = ({ label, value, onChange, options }: {
                   label: string; value: string; onChange: (v: string) => void; options: { v: string; l: string }[];
                 }) => (
                   <div className="flex items-center gap-3 py-2.5">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest w-20 shrink-0">{label}</span>
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest w-20 shrink-0">{label}</span>
                     <Select value={value} onValueChange={onChange}>
-                      <SelectTrigger className={cn('h-8 text-xs border-slate-200 flex-1', value !== 'all' && value !== 'date_desc' && 'border-blue-300 bg-blue-50 text-blue-700')}>
+                      <SelectTrigger className={cn('h-8 text-xs border-border flex-1', value !== 'all' && value !== 'date_desc' && 'border-primary/30 bg-primary/[0.07] text-primary')}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -481,7 +409,7 @@ export default function LeadsPage() {
                 );
 
                 return (
-                  <div className="px-4 pt-2 pb-4 divide-y divide-slate-100 overflow-y-auto max-h-[calc(100vh-14rem)]">
+                  <div className="px-4 pt-2 pb-4 divide-y divide-border overflow-y-auto max-h-[calc(100vh-14rem)]">
 
                     <FilterRow label="Status" value={statusFilter} onChange={setStatusFilter} options={[
                       { v: 'all', l: 'All Statuses' }, { v: 'new', l: 'New' },
@@ -506,82 +434,6 @@ export default function LeadsPage() {
                     <FilterRow label="City" value={cityFilter} onChange={handleCityChange}
                       options={[{ v: 'all', l: 'All Cities' }, ...citiesForState.map(c => ({ v: c, l: c }))]} />
 
-                    {/* Services — multi-select with search */}
-                    <div className="py-2.5">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Services</span>
-                        <div className="flex items-center gap-2">
-                          {serviceFilter.length > 0 && (
-                            <button onClick={() => setServiceFilter([])} className="text-[11px] text-blue-600 hover:text-blue-800 font-medium">Clear</button>
-                          )}
-                          <span className="text-[11px] text-slate-400">{serviceFilter.length > 0 ? `${serviceFilter.length} selected` : 'All'}</span>
-                        </div>
-                      </div>
-                      {allServices.length === 0 ? (
-                        <p className="text-xs text-slate-400 italic">No services available</p>
-                      ) : (
-                        <>
-                          <input
-                            type="text"
-                            value={svcSearch}
-                            onChange={e => setSvcSearch(e.target.value)}
-                            placeholder="Search services…"
-                            className="w-full mb-1.5 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white"
-                          />
-                          <div className="max-h-36 overflow-y-auto space-y-0.5 border border-slate-100 rounded-lg p-1.5 bg-slate-50">
-                            {visibleServices.length === 0 && (
-                              <p className="text-xs text-slate-400 italic px-2 py-1">No match</p>
-                            )}
-                            {visibleServices.map(s => (
-                              <label key={s} className="flex items-center gap-2 px-2 py-1 hover:bg-white rounded-md cursor-pointer text-xs text-slate-700">
-                                <input
-                                  type="checkbox"
-                                  checked={serviceFilter.includes(s)}
-                                  onChange={e => setServiceFilter(prev => e.target.checked ? [...prev, s] : prev.filter(x => x !== s))}
-                                  className="rounded accent-blue-600 shrink-0"
-                                />
-                                <span className="truncate">{s}</span>
-                              </label>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
-
-                    <FilterRow label="Category" value={categoryFilter} onChange={setCategoryFilter}
-                      options={[{ v: 'all', l: 'All Categories' }, ...allCategories.map(c => ({ v: c, l: c }))]} />
-
-                    <FilterRow label="Vertical" value={verticalFilter} onChange={setVerticalFilter}
-                      options={[{ v: 'all', l: 'All Verticals' }, ...allVerticals.map(v => ({ v: v, l: v }))]} />
-
-                    {/* Turnover range (Cr) */}
-                    <div className="flex items-center gap-3 py-2.5">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest w-20 shrink-0">Turnover</span>
-                      <div className="flex items-center gap-1.5 flex-1">
-                        <input type="number" inputMode="decimal" value={turnoverMin} onChange={e => setTurnoverMin(e.target.value)}
-                          placeholder="Min Cr"
-                          className="w-full h-8 px-2.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white" />
-                        <span className="text-slate-300 text-xs">–</span>
-                        <input type="number" inputMode="decimal" value={turnoverMax} onChange={e => setTurnoverMax(e.target.value)}
-                          placeholder="Max Cr"
-                          className="w-full h-8 px-2.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white" />
-                      </div>
-                    </div>
-
-                    {/* Team size range (employees) */}
-                    <div className="flex items-center gap-3 py-2.5">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest w-20 shrink-0">Team Size</span>
-                      <div className="flex items-center gap-1.5 flex-1">
-                        <input type="number" inputMode="numeric" value={teamMin} onChange={e => setTeamMin(e.target.value)}
-                          placeholder="Min"
-                          className="w-full h-8 px-2.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white" />
-                        <span className="text-slate-300 text-xs">–</span>
-                        <input type="number" inputMode="numeric" value={teamMax} onChange={e => setTeamMax(e.target.value)}
-                          placeholder="Max"
-                          className="w-full h-8 px-2.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white" />
-                      </div>
-                    </div>
-
                     <FilterRow label="Sort By" value={sortBy} onChange={setSortBy} options={[
                       { v: 'date_desc', l: 'Newest First' }, { v: 'date_asc', l: 'Oldest First' },
                       { v: 'name_asc', l: 'Name A-Z' }, { v: 'priority', l: 'By Priority' },
@@ -589,7 +441,7 @@ export default function LeadsPage() {
 
                     {activeFilterCount > 0 && (
                       <div className="pt-3">
-                        <button onClick={() => { clearAllFilters(); setShowFilters(false); }} className="text-[11px] text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1">
+                        <button onClick={() => { clearAllFilters(); setShowFilters(false); }} className="text-[11px] text-primary hover:text-primary font-semibold flex items-center gap-1">
                           <X className="w-3 h-3" /> Clear all filters
                         </button>
                       </div>
@@ -610,11 +462,11 @@ export default function LeadsPage() {
             animate={{ opacity: 1, y: 0 }}
             className="flex flex-col items-center justify-center py-20"
           >
-            <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
-              <User className="w-8 h-8 text-slate-300" />
+            <div className="w-16 h-16 bg-secondary rounded-2xl flex items-center justify-center mb-4">
+              <User className="w-8 h-8 text-muted-foreground/50" />
             </div>
-            <p className="font-semibold text-slate-700 mb-1">No leads found</p>
-            <p className="text-sm text-slate-400 mb-5">
+            <p className="font-semibold text-foreground mb-1">No leads found</p>
+            <p className="text-sm text-muted-foreground mb-5">
               {searchQuery || activeFilterCount > 0 ? 'Try adjusting your filters' : 'Start by scanning a visiting card'}
             </p>
             <Button onClick={() => router.push('/chat')} size="sm">Scan a Card</Button>
@@ -626,7 +478,7 @@ export default function LeadsPage() {
               const initials = (lead.primary_visitor_name || lead.company_name || '?')
                 .split(' ').slice(0, 2).map((w: string) => w[0] || '').join('').toUpperCase();
               const avatar = AVATAR_COLORS[lead.lead_id % AVATAR_COLORS.length];
-              const priorityBar = PRIORITY_BAR[lead.priority || ''] || 'bg-slate-200';
+              const priorityBar = PRIORITY_BAR[lead.priority || ''] || 'bg-secondary';
               const statusVariant = STATUS_VARIANT[lead.status_code] || 'secondary';
 
               const isSelected = selectedLeads.has(lead.lead_id);
@@ -642,8 +494,8 @@ export default function LeadsPage() {
                     whileHover={{ y: -3, boxShadow: '0 12px 40px -8px rgba(0,0,0,0.15)' }}
                     transition={{ duration: 0.15 }}
                     className={cn(
-                      'bg-white rounded-2xl border shadow-sm cursor-pointer group relative overflow-hidden transition-colors',
-                      isSelected ? 'border-blue-400 ring-2 ring-blue-200' : 'border-slate-100',
+                      'bg-card rounded-2xl border shadow-sm cursor-pointer group relative overflow-hidden transition-colors',
+                      isSelected ? 'border-primary/30 ring-2 ring-ring/30' : 'border-border',
                     )}
                   >
                     {/* Priority accent bar */}
@@ -654,14 +506,14 @@ export default function LeadsPage() {
                       {selectMode ? (
                         <div className="absolute top-2.5 right-2.5 pointer-events-none">
                           {isSelected
-                            ? <CheckCircle2 className="w-5 h-5 text-blue-500" />
-                            : <div className="w-5 h-5 rounded-full border-2 border-slate-300 bg-white" />
+                            ? <CheckCircle2 className="w-5 h-5 text-primary" />
+                            : <div className="w-5 h-5 rounded-full border-2 border-input bg-card" />
                           }
                         </div>
                       ) : (
                         <button
                           onClick={e => { e.stopPropagation(); confirmDelete(lead); }}
-                          className="absolute top-2.5 right-2.5 p-1.5 rounded-lg text-slate-200 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all duration-150"
+                          className="absolute top-2.5 right-2.5 p-1.5 rounded-lg text-muted-foreground/30 hover:text-destructive hover:bg-destructive/[0.07] opacity-0 group-hover:opacity-100 transition-all duration-150"
                           title="Delete lead"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -678,58 +530,40 @@ export default function LeadsPage() {
                         </div>
 
                         <div className="flex-1 min-w-0 pr-5">
-                          <p className="text-sm font-semibold text-slate-900 truncate">
+                          <p className="text-sm font-semibold text-foreground truncate">
                             {lead.primary_visitor_name || 'Unknown Visitor'}
                           </p>
                           {lead.primary_visitor_designation && (
-                            <p className="text-[11px] text-slate-400 truncate">{lead.primary_visitor_designation}</p>
+                            <p className="text-[11px] text-muted-foreground truncate">{lead.primary_visitor_designation}</p>
                           )}
                           {lead.company_name && (
-                            <p className="text-xs text-slate-500 flex items-center gap-1 mt-1 truncate">
-                              <Building2 className="w-3 h-3 shrink-0 text-slate-300" />
+                            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1 truncate">
+                              <Building2 className="w-3 h-3 shrink-0 text-muted-foreground/50" />
                               {lead.company_name}
                             </p>
                           )}
                           {lead.primary_visitor_phone && (
-                            <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
-                              <Phone className="w-3 h-3 shrink-0 text-slate-300" />
+                            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                              <Phone className="w-3 h-3 shrink-0 text-muted-foreground/50" />
                               {lead.primary_visitor_phone}
                             </p>
                           )}
                         </div>
                       </div>
 
-                      {/* Classification chips */}
-                      {(lead.category || lead.vertical || lead.turn_over || lead.team_size) && (
-                        <div className="flex flex-wrap gap-1.5 mt-2.5">
-                          {lead.category && (
-                            <span className="text-[10px] font-medium bg-violet-50 text-violet-600 rounded-md px-1.5 py-0.5 max-w-[140px] truncate" title={`Category: ${lead.category}`}>{lead.category}</span>
-                          )}
-                          {lead.vertical && (
-                            <span className="text-[10px] font-medium bg-sky-50 text-sky-600 rounded-md px-1.5 py-0.5 max-w-[140px] truncate" title={`Vertical: ${lead.vertical}`}>{lead.vertical}</span>
-                          )}
-                          {lead.turn_over && (
-                            <span className="text-[10px] font-medium bg-emerald-50 text-emerald-600 rounded-md px-1.5 py-0.5" title={`Turnover: ${lead.turn_over}`}>₹{lead.turn_over}</span>
-                          )}
-                          {lead.team_size && (
-                            <span className="text-[10px] font-medium bg-amber-50 text-amber-600 rounded-md px-1.5 py-0.5" title={`Team size: ${lead.team_size}`}>{lead.team_size} emp</span>
-                          )}
-                        </div>
-                      )}
-
                       {/* Card footer */}
-                      <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-slate-50">
+                      <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-border">
                         <div className="flex items-center gap-1.5">
                           <Badge variant={statusVariant} className="text-[11px] h-5 py-0 px-2">
                             {lead.status_name || lead.status_code || 'pending'}
                           </Badge>
                         </div>
-                        <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
-                          {lead.priority === 'high' && <span className="text-red-400 font-semibold">● High</span>}
+                        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                          {lead.priority === 'high' && <span className="text-destructive/70 font-semibold">● High</span>}
                           <span suppressHydrationWarning>
                             {formatDistanceToNow(new Date(lead.created_at), { addSuffix: true })}
                           </span>
-                          <ChevronRight className="w-3.5 h-3.5 text-slate-200 group-hover:text-blue-400 transition-colors" />
+                          <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/30 group-hover:text-primary/70 transition-colors" />
                         </div>
                       </div>
                     </div>
@@ -742,14 +576,14 @@ export default function LeadsPage() {
           {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-between mt-5 px-1">
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-muted-foreground">
                 Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredLeads.length)} of {filteredLeads.length}
               </p>
               <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => setPage(p => Math.max(1, p - 1))}
                   disabled={page === 1}
-                  className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                  className="p-1.5 rounded-lg border border-border text-muted-foreground hover:bg-secondary disabled:opacity-30 disabled:cursor-not-allowed transition"
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
@@ -762,14 +596,14 @@ export default function LeadsPage() {
                   }, [])
                   .map((p, i) =>
                     p === '...' ? (
-                      <span key={`ellipsis-${i}`} className="text-xs text-slate-400 px-1">…</span>
+                      <span key={`ellipsis-${i}`} className="text-xs text-muted-foreground px-1">…</span>
                     ) : (
                       <button
                         key={p}
                         onClick={() => setPage(p as number)}
                         className={cn(
                           'min-w-[30px] h-7 rounded-lg text-xs font-semibold transition',
-                          page === p ? 'bg-blue-600 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'
+                          page === p ? 'bg-primary text-white' : 'border border-border text-muted-foreground hover:bg-secondary'
                         )}
                       >
                         {p}
@@ -779,7 +613,7 @@ export default function LeadsPage() {
                 <button
                   onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                   disabled={page === totalPages}
-                  className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                  className="p-1.5 rounded-lg border border-border text-muted-foreground hover:bg-secondary disabled:opacity-30 disabled:cursor-not-allowed transition"
                 >
                   <ChevronRight className="w-4 h-4" />
                 </button>
@@ -790,11 +624,6 @@ export default function LeadsPage() {
         )}
         <div className="md:hidden h-20" />
       </div>
-
-      {/* ── Create Modal ── */}
-      {showCreateForm && (
-        <ManualLeadForm exhibitions={exhibitions} onClose={() => setShowCreateForm(false)} onSubmit={handleCreateLead} />
-      )}
 
       {/* ── Delete Confirm ── */}
       <AnimatePresence>
@@ -809,20 +638,20 @@ export default function LeadsPage() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6"
+              className="bg-card rounded-2xl shadow-2xl max-w-sm w-full p-6"
             >
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-11 h-11 bg-red-100 rounded-xl flex items-center justify-center shrink-0">
-                  <AlertTriangle className="w-5 h-5 text-red-500" />
+                <div className="w-11 h-11 bg-destructive/12 rounded-xl flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-5 h-5 text-destructive" />
                 </div>
                 <div>
-                  <h3 className="text-base font-semibold text-slate-900">Delete Lead?</h3>
-                  <p className="text-xs text-slate-500">Data is soft-deleted and can be restored</p>
+                  <h3 className="text-base font-semibold text-foreground">Delete Lead?</h3>
+                  <p className="text-xs text-muted-foreground">Data is soft-deleted and can be restored</p>
                 </div>
               </div>
-              <div className="bg-slate-50 rounded-xl p-3 mb-5 border border-slate-100">
-                <p className="text-sm font-semibold text-slate-800">{selectedLead.primary_visitor_name}</p>
-                <p className="text-xs text-slate-500">{selectedLead.company_name}</p>
+              <div className="bg-secondary/50 rounded-xl p-3 mb-5 border border-border">
+                <p className="text-sm font-semibold text-foreground">{selectedLead.primary_visitor_name}</p>
+                <p className="text-xs text-muted-foreground">{selectedLead.company_name}</p>
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" className="flex-1" onClick={() => { setShowDeleteConfirm(false); setSelectedLead(null); }}>
@@ -837,140 +666,5 @@ export default function LeadsPage() {
         )}
       </AnimatePresence>
     </div>
-  );
-}
-
-// ─────────────────────────────────────────
-// Manual Lead Creation Form
-// ─────────────────────────────────────────
-function ManualLeadForm({ exhibitions, onClose, onSubmit }: {
-  exhibitions: any[];
-  onClose: () => void;
-  onSubmit: (data: any) => Promise<void>;
-}) {
-  const [formData, setFormData] = useState({
-    exhibition_id: exhibitions.find(e => e.is_active)?.exhibition_id || 1,
-    source_code: 'manual_entry',
-    company_name: '',
-    primary_visitor_name: '',
-    primary_visitor_designation: '',
-    primary_visitor_phone: '',
-    primary_visitor_email: '',
-    discussion_summary: '',
-    next_step: '',
-    segment: 'general',
-    priority: 'medium',
-  });
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const set = (field: string, value: string) => setFormData(p => ({ ...p, [field]: value }));
-
-  const handleSubmit = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    setIsSubmitting(true);
-    try { await onSubmit({ ...formData, exhibition_id: parseInt(formData.exhibition_id.toString()) }); }
-    finally { setIsSubmitting(false); }
-  };
-
-  const cls = 'w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-200 bg-white';
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto"
-    >
-      <motion.div
-        initial={{ scale: 0.96, opacity: 0, y: 12 }}
-        animate={{ scale: 1, opacity: 1, y: 0 }}
-        className="bg-white rounded-2xl shadow-2xl max-w-lg w-full my-8"
-      >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-          <div>
-            <h2 className="text-base font-bold text-slate-900">Add Lead Manually</h2>
-            <p className="text-xs text-slate-400">Enter visitor details</p>
-          </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="px-6 py-4 space-y-3.5 max-h-[65vh] overflow-y-auto">
-          <div>
-            <label className="text-xs font-semibold text-slate-600 mb-1 block">Exhibition <span className="text-red-400">*</span></label>
-            <select value={formData.exhibition_id} onChange={e => set('exhibition_id', e.target.value)} className={cls} required>
-              {exhibitions.map(exh => (
-                <option key={exh.exhibition_id} value={exh.exhibition_id}>{exh.name}{exh.is_active ? ' (Active)' : ''}</option>
-              ))}
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-semibold text-slate-600 mb-1 block">Name <span className="text-red-400">*</span></label>
-              <input type="text" value={formData.primary_visitor_name} onChange={e => set('primary_visitor_name', e.target.value)} className={cls} placeholder="John Doe" required />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-600 mb-1 block">Company <span className="text-red-400">*</span></label>
-              <input type="text" value={formData.company_name} onChange={e => set('company_name', e.target.value)} className={cls} placeholder="ABC Corp" required />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-semibold text-slate-600 mb-1 block">Phone <span className="text-red-400">*</span></label>
-              <input
-                type="tel"
-                value={formData.primary_visitor_phone}
-                onChange={e => set('primary_visitor_phone', e.target.value)}
-                onBlur={e => {
-                  const digits = e.target.value.replace(/\D/g, '');
-                  if (digits.length === 10) set('primary_visitor_phone', `+91${digits}`);
-                }}
-                className={cls}
-                placeholder="+91 98765 43210"
-                required
-              />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-600 mb-1 block">Email</label>
-              <input type="email" value={formData.primary_visitor_email} onChange={e => set('primary_visitor_email', e.target.value)} className={cls} placeholder="john@example.com" />
-            </div>
-          </div>
-          <div>
-            <label className="text-xs font-semibold text-slate-600 mb-1 block">Designation</label>
-            <input type="text" value={formData.primary_visitor_designation} onChange={e => set('primary_visitor_designation', e.target.value)} className={cls} placeholder="Manager, CEO…" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-semibold text-slate-600 mb-1 block">Segment</label>
-              <select value={formData.segment} onChange={e => set('segment', e.target.value)} className={cls}>
-                <option value="decision_maker">Decision Maker</option>
-                <option value="influencer">Influencer</option>
-                <option value="researcher">Researcher</option>
-                <option value="general">General</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-600 mb-1 block">Priority</label>
-              <select value={formData.priority} onChange={e => set('priority', e.target.value)} className={cls}>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-            </div>
-          </div>
-          <div>
-            <label className="text-xs font-semibold text-slate-600 mb-1 block">Discussion Summary</label>
-            <textarea value={formData.discussion_summary} onChange={e => set('discussion_summary', e.target.value)} className={cls} rows={3} placeholder="What was discussed…" />
-          </div>
-        </form>
-
-        <div className="flex gap-2 px-6 py-4 border-t border-slate-100">
-          <Button variant="outline" className="flex-1" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
-          <Button className="flex-1" onClick={() => handleSubmit()} disabled={isSubmitting}>
-            {isSubmitting
-              ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />Creating…</>
-              : <><Plus className="w-3.5 h-3.5 mr-1.5" />Create Lead</>}
-          </Button>
-        </div>
-      </motion.div>
-    </motion.div>
   );
 }

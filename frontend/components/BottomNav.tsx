@@ -8,26 +8,29 @@ import {
   ShoppingBag, Package, Settings as SettingsIcon,
 } from 'lucide-react';
 import { getEmployee, hasPermission } from '@/lib/auth';
+import { useKeyboardOpen } from '@/lib/useKeyboardOpen';
 import { api } from '@/lib/api';
 import { motion, AnimatePresence } from 'framer-motion';
 
-// Primary items in the bar
+// The bar carries only what a CRR touches repeatedly at a stall: capture a
+// lead, look one up, take an order. Three slots plus More means each is a
+// comfortable target at 360px instead of six cramped ones.
 const PRIMARY_NAV = [
-  { name: 'Scan',        path: '/chat',        icon: ScanLine,    permission: null },
-  { name: 'Leads',       path: '/leads',       icon: Users,       permission: 'view_leads' },
-  { name: 'Dashboard',   path: '/dashboard',   icon: BarChart3,   permission: 'view_dashboard' },
-  { name: 'Exhibitions', path: '/exhibitions', icon: Building2,   permission: 'view_exhibitions' },
-  { name: 'Orders',      path: '/orders',      icon: ShoppingBag, permission: 'manage_orders' },
+  { name: 'Scan',   path: '/chat',   icon: ScanLine,    permission: null },
+  { name: 'Leads',  path: '/leads',  icon: Users,       permission: 'view_leads' },
+  { name: 'Orders', path: '/orders', icon: ShoppingBag, permission: 'manage_orders' },
 ];
 
-// Everything else, in the "More" sheet. Products and Settings are here rather
-// than nowhere — without them those screens are unreachable on a phone.
+// Everything consulted rather than operated. Dashboard and Exhibitions sit here
+// because they are read a few times a day, not per visitor.
 const SECONDARY_NAV = [
-  { name: 'Report',   path: '/report',   icon: FileSpreadsheet, permission: 'view_report' },
-  { name: 'Products', path: '/products', icon: Package,         permission: 'manage_products' },
-  { name: 'Users',    path: '/users',    icon: UserCog,         permission: 'manage_users' },
-  { name: 'Roles',    path: '/roles',    icon: Shield,          permission: 'manage_roles' },
-  { name: 'Settings', path: '/settings', icon: SettingsIcon,    permission: 'manage_settings' },
+  { name: 'Dashboard',   path: '/dashboard',   icon: BarChart3,       permission: 'view_dashboard' },
+  { name: 'Exhibitions', path: '/exhibitions', icon: Building2,       permission: 'view_exhibitions' },
+  { name: 'Report',      path: '/report',      icon: FileSpreadsheet, permission: 'view_report' },
+  { name: 'Products',    path: '/products',    icon: Package,         permission: 'manage_products' },
+  { name: 'Users',       path: '/users',       icon: UserCog,         permission: 'manage_users' },
+  { name: 'Roles',       path: '/roles',       icon: Shield,          permission: 'manage_roles' },
+  { name: 'Settings',    path: '/settings',    icon: SettingsIcon,    permission: 'manage_settings' },
 ];
 
 export default function BottomNav() {
@@ -38,6 +41,7 @@ export default function BottomNav() {
   const [primaryItems, setPrimaryItems] = useState(PRIMARY_NAV);
   const [secondaryItems, setSecondaryItems] = useState(SECONDARY_NAV);
   const [showMore, setShowMore] = useState(false);
+  const keyboardOpen = useKeyboardOpen();
 
   useEffect(() => {
     const emp = getEmployee();
@@ -69,7 +73,7 @@ export default function BottomNav() {
 
   return (
     <>
-      {/* ── More Slide-up Panel ── */}
+      {/* More slide-up panel */}
       <AnimatePresence>
         {showMore && (
           <>
@@ -88,17 +92,17 @@ export default function BottomNav() {
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-              className="md:hidden fixed bottom-16 left-0 right-0 bg-white rounded-t-3xl shadow-2xl z-50 px-4 pt-3 pb-8"
+              className="md:hidden fixed bottom-16 left-0 right-0 bg-card rounded-t-2xl shadow-lg border-t border-border z-50 px-4 pt-3 pb-8"
             >
               {/* Drag handle */}
-              <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-3" />
+              <div className="w-10 h-1 bg-border rounded-full mx-auto mb-3" />
 
               {/* Header row */}
               <div className="flex items-center justify-between mb-4 px-1">
-                <p className="text-sm font-bold text-slate-800">More Options</p>
+                <p className="text-sm font-semibold text-foreground">More Options</p>
                 <button
                   onClick={() => setShowMore(false)}
-                  className="p-1.5 rounded-full hover:bg-slate-100 text-slate-400"
+                  className="p-1.5 rounded-full hover:bg-secondary text-muted-foreground"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -115,8 +119,8 @@ export default function BottomNav() {
                         onClick={() => navigate(path)}
                         className={`flex flex-col items-center gap-2 p-3 rounded-2xl transition-all active:scale-95 ${
                           isActive
-                            ? 'bg-blue-50 text-blue-600'
-                            : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+                            ? 'bg-primary/10 text-primary'
+                            : 'bg-secondary/60 text-muted-foreground hover:bg-secondary'
                         }`}
                       >
                         <Icon className="w-6 h-6" />
@@ -128,32 +132,32 @@ export default function BottomNav() {
               )}
 
               {/* Divider */}
-              <div className="border-t border-slate-100 mb-3" />
+              <div className="border-t border-border mb-3" />
 
               {/* Profile row */}
               <button
                 onClick={() => navigate('/profile')}
                 className={`w-full flex items-center gap-3 px-3 py-3 rounded-2xl transition-all mb-2 active:scale-[0.98] ${
                   pathname === '/profile'
-                    ? 'bg-blue-50 text-blue-600'
-                    : 'text-slate-700 hover:bg-slate-50'
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-foreground hover:bg-secondary/60'
                 }`}
               >
                 <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white shrink-0 ${
-                  pathname === '/profile' ? 'bg-blue-600' : 'bg-slate-400'
+                  pathname === '/profile' ? 'bg-primary' : 'bg-muted-foreground'
                 }`}>
                   {initial}
                 </div>
                 <div className="text-left">
                   <p className="text-sm font-semibold">{employeeName || 'Profile'}</p>
-                  <p className="text-xs text-slate-400">View &amp; edit profile</p>
+                  <p className="text-xs text-muted-foreground">View &amp; edit profile</p>
                 </div>
               </button>
 
               {/* Logout row */}
               <button
                 onClick={handleLogout}
-                className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl text-red-500 hover:bg-red-50 transition-all active:scale-[0.98]"
+                className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl text-destructive hover:bg-destructive/12 transition-all active:scale-[0.98]"
               >
                 <LogOut className="w-5 h-5" />
                 <span className="text-sm font-medium">Logout</span>
@@ -163,8 +167,19 @@ export default function BottomNav() {
         )}
       </AnimatePresence>
 
-      {/* ── Bottom Nav Bar ── */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50">
+      {/* Bottom nav bar.
+          Hidden while the keyboard is up: it is fixed to the bottom, so it
+          otherwise sits directly over the field being typed into — worst on the
+          order form, where the quantity grid is near the foot of the page.
+          Translated rather than unmounted so the tab order and scroll position
+          survive, and so it slides back rather than popping. */}
+      <nav
+        aria-hidden={keyboardOpen}
+        className={`md:hidden fixed bottom-0 left-0 right-0 bg-card/95 backdrop-blur-md
+                    border-t border-border z-50 transition-transform duration-200 ${
+          keyboardOpen ? 'translate-y-full pointer-events-none' : 'translate-y-0'
+        }`}
+      >
         <div className="flex justify-around items-center h-16 w-full">
 
           {primaryItems.map((item) => {
@@ -175,16 +190,16 @@ export default function BottomNav() {
                 key={item.path}
                 onClick={() => router.push(item.path)}
                 className={`flex flex-col items-center justify-center flex-1 min-w-0 h-full px-0.5 transition-all duration-200 transform active:scale-95 relative ${
-                  isActive ? 'text-blue-600' : 'text-gray-500 hover:text-gray-700'
+                  isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 <Icon className={`w-5 h-5 mb-0.5 shrink-0 transition-all duration-200 ${isActive ? 'scale-110' : ''}`} />
-                {/* Six slots at 360px leaves ~58px each — "Exhibitions" needs
-                    the smaller size and truncation to stay on one line. */}
-                <span className="text-[9px] font-medium leading-tight w-full text-center truncate">
+                {/* Four slots at 360px leaves ~88px each, so the labels can go
+                    back to a readable size. They were 9px to fit six. */}
+                <span className="text-[11px] font-medium leading-tight w-full text-center truncate">
                   {item.name}
                 </span>
-                {isActive && <div className="absolute bottom-0 w-8 h-1 bg-blue-600 rounded-t-full" />}
+                {isActive && <div className="absolute bottom-0 w-8 h-1 bg-primary rounded-t-full" />}
               </button>
             );
           })}
@@ -193,13 +208,13 @@ export default function BottomNav() {
           <button
             onClick={() => setShowMore(v => !v)}
             className={`flex flex-col items-center justify-center flex-1 min-w-0 h-full px-0.5 transition-all duration-200 transform active:scale-95 relative ${
-              isMoreActive || showMore ? 'text-blue-600' : 'text-gray-500 hover:text-gray-700'
+              isMoreActive || showMore ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
             }`}
           >
             <MoreHorizontal className={`w-5 h-5 mb-0.5 shrink-0 transition-all duration-200 ${isMoreActive || showMore ? 'scale-110' : ''}`} />
-            <span className="text-[9px] font-medium leading-tight">More</span>
+            <span className="text-[11px] font-medium leading-tight">More</span>
             {(isMoreActive || showMore) && (
-              <div className="absolute bottom-0 w-8 h-1 bg-blue-600 rounded-t-full" />
+              <div className="absolute bottom-0 w-8 h-1 bg-primary rounded-t-full" />
             )}
           </button>
 

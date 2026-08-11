@@ -33,3 +33,10 @@ backend-dotnet/ELCS.API/uploads/
 npm-debug.log*
 .DS_Store
 Thumbs.db
+
+# Deployment output. Contains a copy of appsettings.json — connection string,
+# OpenAI key and Interakt key — so committing it would publish every secret in
+# a form that text scanning cannot see inside.
+publish/
+publish.zip
+*.publish.zip

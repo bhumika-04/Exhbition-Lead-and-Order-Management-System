@@ -10,6 +10,7 @@ public class ProductsController : ControllerBase
 {
     private readonly ILogger<ProductsController> _logger;
     private readonly IProductService _products;
+    private readonly IProductImportService _import;
     private readonly IWebHostEnvironment _env;
 
     private static readonly string[] AllowedImageTypes =
@@ -18,26 +19,36 @@ public class ProductsController : ControllerBase
     public ProductsController(
         ILogger<ProductsController> logger,
         IProductService products,
+        IProductImportService import,
         IWebHostEnvironment env)
     {
         _logger = logger;
         _products = products;
+        _import = import;
         _env = env;
     }
 
-    /// <summary>The type/category/size matrix, so the UI never has to hard-code it.</summary>
-    [HttpGet("rules")]
-    public IActionResult GetRules() => Ok(new
+    /// <summary>
+    /// Bulk load from the supplier's catalogue sheet.
+    ///
+    /// The browser parses the workbook and posts rows, so the server needs no
+    /// spreadsheet library and the operator gets an instant preview. Call once
+    /// with dryRun to show what would happen, then again to write it — the
+    /// validation is the same code path both times, so the preview cannot
+    /// disagree with the result.
+    /// </summary>
+    [HttpPost("import")]
+    public async Task<IActionResult> Import([FromBody] ImportRequest request)
     {
-        types = ProductRules.Types.Select(t => new
-        {
-            type = t,
-            takes_category = ProductRules.TakesCategory(t),
-        }),
-        categories = ProductRules.Categories,
-        // Readymade carries a size; Stitched is made to measure.
-        size_required_for = new[] { ProductRules.Readymade },
-    });
+        if (request.Rows == null || request.Rows.Count == 0)
+            return BadRequest(new { error = "The sheet has no rows" });
+
+        if (request.Rows.Count > 5000)
+            return BadRequest(new { error = "That sheet is too large — split it into files of 5000 rows or fewer" });
+
+        var report = await _import.ImportAsync(request.Rows, request.DryRun);
+        return Ok(report);
+    }
 
     /// <summary>
     /// Distinct sizes and colours already in the catalogue, for the order form's
@@ -54,16 +65,12 @@ public class ProductsController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> Search(
         [FromQuery] string? search,
-        [FromQuery] string? product_type,
-        [FromQuery] string? category,
         [FromQuery] bool include_inactive = false,
         [FromQuery] int limit = 100,
         [FromQuery] int offset = 0)
     {
         var (products, count) = await _products.SearchAsync(new ProductSearchParams(
             Search: search,
-            ProductType: product_type,
-            Category: category,
             IncludeInactive: include_inactive,
             Limit: limit,
             Offset: offset));
@@ -140,20 +147,38 @@ public class ProductsController : ControllerBase
         if (await _products.GetAsync(productId) == null)
             return NotFound(new { error = "Product not found" });
 
-        // GUID filename: /uploads is served without authentication, and product
-        // images are shown to customers on the public ordering page, so the path
-        // should not double as a way to enumerate the catalogue.
-        var fileName = $"{Guid.NewGuid():N}{ext}";
-        var folder = UploadPaths.Product(productId);
-        var dir = UploadPaths.EnsureFolder(_env.ContentRootPath, folder);
+        // Named after the product rather than a GUID: one image per product, so
+        // the id already identifies it and the folder stays readable. These are
+        // catalogue photos already shown to any visitor on the public ordering
+        // page, so a guessable path costs nothing — unlike lead media, which
+        // keeps its GUID names.
+        UploadPaths.EnsureFolder(UploadPaths.ProductsFolder);
 
-        await using (var stream = System.IO.File.Create(Path.Combine(dir, fileName)))
+        // Replacing a PNG with a JPG would otherwise strand the PNG on disk.
+        foreach (var stale in UploadPaths.ExistingProductImages(productId))
+        {
+            try { System.IO.File.Delete(stale); }
+            catch (IOException ex)
+            {
+                // Not fatal — the new file still lands and the record still points
+                // at it. Worth knowing about, since it leaves an orphan behind.
+                _logger.LogWarning(ex, "Could not remove previous image {Path} for product {ProductId}",
+                    stale, productId);
+            }
+        }
+
+        var relative = UploadPaths.ProductImage(productId, ext);
+
+        await using (var stream = System.IO.File.Create(
+            UploadPaths.Absolute(relative)))
             await image.CopyToAsync(stream);
 
-        var relative = $"{folder}/{fileName}";
         await _products.SetImageAsync(productId, relative);
 
         _logger.LogInformation("Uploaded image for product {ProductId}", productId);
         return Ok(new { success = true, image_path = relative });
     }
 }
+
+/// <summary>Rows read from the sheet by the browser, plus the preview flag.</summary>
+public record ImportRequest(List<ImportRowInput> Rows, bool DryRun = true);

@@ -11,6 +11,7 @@ import { isAuthenticated } from '@/lib/auth';
 import { SETTING_KEYS, type AppSettings } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import PageHeader from '@/components/PageHeader';
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -46,96 +47,45 @@ export default function SettingsPage() {
   };
 
   if (loading) {
-    return <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-slate-300" /></div>;
+    return <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground/50" /></div>;
   }
 
-  const autoSend = settings[SETTING_KEYS.welcomeAutoSend] !== 'false';
+  // Absent counts as off, so a database that predates 024 still behaves as documented.
 
   return (
-    <div className="px-4 md:px-6 py-5 space-y-4 max-w-2xl">
-      <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl bg-slate-800 flex items-center justify-center shrink-0">
-          <SettingsIcon className="w-4 h-4 text-white" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-base font-bold text-slate-900">Settings</h1>
-          <p className="text-[11px] text-slate-400">WhatsApp templates and social links</p>
-        </div>
-        <Button onClick={save} disabled={saving || !dirty} className="h-9 gap-1.5 text-xs shrink-0">
-          {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-          Save
-        </Button>
-      </div>
+    <>
+      <PageHeader
+        icon={SettingsIcon}
+        title="Settings"
+        subtitle="WhatsApp templates, self-service and social links"
+        actions={
+          <Button onClick={save} disabled={saving || !dirty} size="sm" className="gap-1.5">
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            Save
+          </Button>
+        }
+      />
+
+      {/* Two columns from xl. A single 2xl-wide column left most of a desktop
+          window empty, which read as an unfinished page rather than a short one.
+          Masonry-style so the cards pack rather than aligning to the tallest. */}
+      <div className="px-4 md:px-6 py-4 max-w-5xl
+                      xl:columns-2 xl:gap-3 [&>*]:mb-3 xl:[&>*]:break-inside-avoid
+                      space-y-3 xl:space-y-0">
 
       {/* Templates */}
-      <Card className="border-slate-200">
-        <CardContent className="p-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <MessageSquare className="w-4 h-4 text-emerald-600" />
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Interakt templates
-            </span>
-          </div>
-
-          <p className="text-[11px] text-slate-500 flex items-start gap-1.5 bg-slate-50 rounded-lg px-3 py-2">
-            <Info className="w-3.5 h-3.5 shrink-0 mt-px text-slate-400" />
-            <span>
-              Enter the <strong>approved template name</strong> exactly as it appears in Interakt.
-              Templates must be approved by Meta before they can send. Leave a field blank to
-              disable that message — it will be skipped and logged rather than failing.
-            </span>
-          </p>
-
-          <Field
-            label="Welcome"
-            hint="Sent when a lead is created. Carries their team photo and your social links."
-            value={settings[SETTING_KEYS.templateWelcome] ?? ''}
-            onChange={v => set(SETTING_KEYS.templateWelcome, v)}
-          />
-          <Field
-            label="Order confirmation"
-            hint="Sent on confirming an order. Carries the Sales Order PDF."
-            value={settings[SETTING_KEYS.templateOrderConfirmation] ?? ''}
-            onChange={v => set(SETTING_KEYS.templateOrderConfirmation, v)}
-          />
-          <Field
-            label="Testimonial"
-            hint="Sent manually from the lead page with the testimonial link."
-            value={settings[SETTING_KEYS.templateTestimonial] ?? ''}
-            onChange={v => set(SETTING_KEYS.templateTestimonial, v)}
-          />
-          <Field
-            label="OTP"
-            hint="Verification code for self-service ordering. This must be an AUTHENTICATION template — a separate approval from the marketing ones above."
-            value={settings[SETTING_KEYS.templateOtp] ?? ''}
-            onChange={v => set(SETTING_KEYS.templateOtp, v)}
-          />
-
-          <label className="flex items-center gap-2.5 pt-1 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={autoSend}
-              onChange={e => set(SETTING_KEYS.welcomeAutoSend, e.target.checked ? 'true' : 'false')}
-              className="w-4 h-4 rounded border-slate-300"
-            />
-            <span className="text-xs text-slate-600">
-              Send the welcome message automatically when a lead is created
-            </span>
-          </label>
-        </CardContent>
-      </Card>
-
       {/* Social links */}
-      <Card className="border-slate-200">
+      <Card className="border-border">
         <CardContent className="p-4 space-y-3">
           <div className="flex items-center gap-2">
-            <Link2 className="w-4 h-4 text-blue-600" />
-            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <Link2 className="w-4 h-4 text-primary" />
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Social links
             </span>
           </div>
-          <p className="text-[11px] text-slate-400">
-            Included in the welcome message. Blank fields are left out.
+          <p className="text-[11px] text-muted-foreground">
+            Kept for reference. The Instagram and showroom links now travel as
+            buttons on the approved WhatsApp templates, not as message text.
           </p>
 
           <Field label="Website"   value={settings[SETTING_KEYS.socialWebsite] ?? ''}
@@ -149,7 +99,8 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -158,14 +109,14 @@ function Field({ label, hint, value, onChange, placeholder }: {
 }) {
   return (
     <label className="block">
-      <span className="text-xs font-medium text-slate-600">{label}</span>
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
       <input
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
-        className="mt-1 w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm"
+        className="mt-1 w-full h-10 px-3 rounded-lg border border-border bg-card text-sm"
       />
-      {hint && <span className="text-[10px] text-slate-400 mt-1 block leading-snug">{hint}</span>}
+      {hint && <span className="text-[10px] text-muted-foreground mt-1 block leading-snug">{hint}</span>}
     </label>
   );
 }

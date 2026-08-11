@@ -26,21 +26,10 @@ public interface IOrderService
     Task<List<CouponHolderDto>> GetCouponHoldersAsync(int? exhibitionId);
 }
 
-/// <summary>The three item types the client sells. Free text in the DB so more can be added.</summary>
-public static class OrderItemTypes
-{
-    public const string Suit    = "Suit";
-    public const string Lehenga = "Lehenga";
-    public const string Saree   = "Saree";
-
-    public static readonly string[] All = { Suit, Lehenga, Saree };
-}
 
 public record OrderItemDto(
     int OrderItemId,
     int LineNumber,
-    string ItemType,
-    string? Category,     // snapshot: Stitched | Readymade (null for Saree)
     string? Barcode,
     string? Size,
     string? Colour,
@@ -50,7 +39,10 @@ public record OrderItemDto(
     decimal? Amount,      // Rate × Pieces when Rate is given
     string? Customization,
     int? ProductId,       // pointer for traceability; the snapshot above is authoritative
-    string? ProductImagePath
+    // Both, because they are not interchangeable: ImagePath is a local file the
+    // Sales Order PDF can embed, ImageUrl is only ever a browser thumbnail.
+    string? ProductImagePath,
+    string? ProductImageUrl
 );
 
 public record OrderSummaryDto(
@@ -77,6 +69,13 @@ public record OrderDetailDto(
     string? LeadName,
     string? LeadCompanyName,
     string? LeadPhone,
+    // Buyer block on the Sales Order. A tax document has to identify who it is
+    // billed to, so the lead's address, email and GSTIN travel with the order.
+    string? LeadEmail,
+    string? LeadGstNumber,
+    string? LeadAddress,
+    string? LeadCity,
+    string? LeadState,
     int? ExhibitionId,
     string? ExhibitionName,
     string StatusCode,
@@ -176,7 +175,6 @@ public record CouponHolderDto(
 /// the catalogue holds. Fields left null are filled from the product.
 /// </summary>
 public record CreateOrderItemRequest(
-    string ItemType,
     string? Barcode,
     string? Size,
     string? Colour,
@@ -184,7 +182,6 @@ public record CreateOrderItemRequest(
     decimal? Rate,          // optional — leave null when pricing comes from the slab
     string? Customization,
     int? ProductId = null,
-    string? Category = null,
     string? Fabric = null
 );
 

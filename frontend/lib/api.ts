@@ -1,11 +1,13 @@
 // API Client for ELCS Backend
 
 import axios, { AxiosInstance, AxiosError } from 'axios';
+import type { ImportRowInput, ImportReport } from './productImport';
 import type {
   LoginRequest,
   LoginResponse,
   Employee,
   Lead,
+  CreateLeadPayload,
   LeadDetails,
   Exhibition,
   AnalyticsSummary,
@@ -218,7 +220,6 @@ class ApiClient {
       persons: data.persons || [],
       addresses: data.addresses || [],
       websites: data.websites || [],
-      services: data.services || [],
       topics: data.topics || [],
       messages: data.messages || [],
       brands: data.brands || [],
@@ -227,7 +228,13 @@ class ApiClient {
     };
   }
 
-  async createLead(leadData: Partial<Lead>): Promise<{ lead_id: number }> {
+  /**
+   * The payload is listed field by field rather than spread, so a stray key
+   * from the caller cannot reach the API. That is also why every field the
+   * server accepts has to appear here — gst_number, the repeatable lists and
+   * the address were being silently dropped on the way out.
+   */
+  async createLead(leadData: CreateLeadPayload): Promise<{ lead_id: number }> {
     const { data } = await this.client.post('/api/leads', {
       exhibition_id: leadData.exhibition_id,
       source_code: leadData.source_code || 'manual_entry',
@@ -238,8 +245,14 @@ class ApiClient {
       primary_visitor_designation: leadData.primary_visitor_designation,
       primary_visitor_email: leadData.primary_visitor_email,
       discussion_summary: leadData.discussion_summary,
-      segment: leadData.segment,
       priority: leadData.priority,
+      gst_number: leadData.gst_number,
+      phones: leadData.phones,
+      emails: leadData.emails,
+      websites: leadData.websites,
+      address: leadData.address,
+      city: leadData.city,
+      state: leadData.state,
     });
     return data;
   }
@@ -428,7 +441,15 @@ class ApiClient {
     return data;
   }
 
-  async uploadLeadPhoto(leadId: number, file: File, caption?: string): Promise<{ success: boolean; lead_photo_id: number; file_path: string }> {
+  /**
+   * The response reports whether the meeting-photo WhatsApp went out. The
+   * server sends it automatically on the FIRST photo only, so a retake uploads
+   * silently — see LeadMediaController.UploadPhoto.
+   */
+  async uploadLeadPhoto(leadId: number, file: File, caption?: string): Promise<{
+    success: boolean; lead_photo_id: number; file_path: string;
+    whatsapp_sent?: boolean; whatsapp_error?: string | null;
+  }> {
     const form = new FormData();
     form.append('photo', file);
     if (caption) form.append('caption', caption);
@@ -458,6 +479,12 @@ class ApiClient {
     return data;
   }
 
+  /** Touchpoint #4 — showroom invitation, sent after the exhibition. */
+  async sendShowroomInviteWhatsApp(leadId: number): Promise<WhatsAppSendOutcome> {
+    const { data } = await this.client.post(`/api/leads/${leadId}/whatsapp/showroom`);
+    return data;
+  }
+
   async sendTestimonialWhatsApp(leadId: number): Promise<WhatsAppSendOutcome> {
     const { data } = await this.client.post(`/api/leads/${leadId}/whatsapp/testimonial`);
     return data;
@@ -477,8 +504,6 @@ class ApiClient {
   // Products
   async searchProducts(params?: {
     search?: string;
-    product_type?: string;
-    category?: string;
     include_inactive?: boolean;
     limit?: number;
     offset?: number;
@@ -501,6 +526,23 @@ class ApiClient {
 
   async createProduct(req: SaveProductRequest): Promise<{ success: boolean; product_id: number; product: Product }> {
     const { data } = await this.client.post('/api/products', req);
+    return data;
+  }
+
+  /**
+   * Bulk load from the catalogue sheet. Call with dryRun to preview, then again
+   * without it to write — same validation both times.
+   *
+   * The commit downloads every image link on the server, so this is slow by
+   * nature: the timeout is raised well above the client default rather than
+   * letting a 200-row sheet abort halfway with rows already written.
+   */
+  async importProducts(rows: ImportRowInput[], dryRun: boolean): Promise<ImportReport> {
+    const { data } = await this.client.post(
+      '/api/products/import',
+      { rows, dry_run: dryRun },
+      { timeout: dryRun ? 60_000 : 10 * 60_000 },
+    );
     return data;
   }
 

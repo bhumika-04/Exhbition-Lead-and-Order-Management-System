@@ -60,7 +60,6 @@ public class AuthService : IAuthService
             Email:       employee.Email,
             Phone:       employee.Phone,
             Designation: employee.Designation,
-            CompanyName: employee.CompanyName,
             RoleId:      employee.RoleId,
             RoleName:    roleName,
             Permissions: permissions
@@ -82,15 +81,13 @@ public class AuthService : IAuthService
             UPDATE Employees
             SET FullName    = @FullName,
                 Phone       = @Phone,
-                Designation = @Designation,
-                CompanyName = @CompanyName
+                Designation = @Designation
             WHERE EmployeeId = @EmployeeId AND IsActive = 1",
             new
             {
                 FullName    = request.FullName,
                 Phone       = request.Phone,
                 Designation = request.Designation,
-                CompanyName = request.CompanyName,
                 EmployeeId  = employeeId,
             });
         return rows > 0;
