@@ -52,6 +52,9 @@ public static class UploadPaths
     public static string LeadTeam(int leadId)    => $"leads/{leadId}/team";
     public static string LeadOrders(int leadId)  => $"leads/{leadId}/orders";
 
+    /// <summary>Receipt/screenshot for the advance collected on one order. One file — a re-upload replaces it.</summary>
+    public static string OrderPayment(int orderId) => $"orders/{orderId}/payment";
+
     public const string ProductsFolder = "products";
 
     /// <summary>

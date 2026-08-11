@@ -442,8 +442,18 @@ export default function PublicOrderPage() {
    * it is the right garment. The scanner stays open with the reason shown.
    */
   const addScanned = async (barcode: string) => {
-    const code = barcode.trim();
+    const code = barcode.trim().toUpperCase();
     if (!code) return;
+
+    // One letter + seven digits — every barcode this catalogue prints, e.g.
+    // A1131041. Checked here, customer-side only: staff scan real printed tags
+    // so a malformed read there is a scanner problem to fix, not a typo to
+    // catch; a customer typing the code by hand is the one who mistypes it,
+    // and a request that was never going to resolve is a wasted round trip.
+    if (!/^[A-Z]\d{7}$/.test(code)) {
+      setScanError(`"${code}" doesn't look like a barcode from our tags — it should be a letter followed by 7 digits, e.g. A1131041.`);
+      return;
+    }
 
     setScanError(null);
     setScanBusy(true);
@@ -772,6 +782,8 @@ export default function PublicOrderPage() {
                     <QtyMatrix
                       sizes={row.sizes}
                       colours={row.colours}
+                      sizeIsSet={row.sizeIsSet}
+                      colourIsSet={row.colourIsSet}
                       qty={row.qty}
                       comboKey={comboKey}
                       onChange={(k, v) => setRow(i, { qty: { ...row.qty, [k]: v } })}

@@ -27,10 +27,21 @@ import { cn } from '@/lib/utils';
  *    every cell by hand is the exception. Hence the quick-fill row.
  */
 export default function QtyMatrix({
-  sizes, colours, qty, onChange, onBulk, comboKey, invalid = false,
+  sizes, colours, qty, onChange, onBulk, comboKey,
+  sizeIsSet = false, colourIsSet = false, invalid = false,
 }: {
   sizes: string[];
   colours: string[];
+  /**
+   * A set ships whole — one indivisible unit — so it cannot carry different
+   * counts per size or per colour: asking for "1 in M, 2 in L" of something
+   * sold as a set invites an order the supplier cannot fill piecemeal. Either
+   * flag therefore collapses the WHOLE matrix to a SINGLE box, regardless of
+   * how many sizes or colours the set spans; the value typed there is written
+   * to every underlying combination.
+   */
+  sizeIsSet?: boolean;
+  colourIsSet?: boolean;
   qty: Record<string, number>;
   onChange: (key: string, value: number) => void;
   /** Replaces the whole map: quick fill and clear. */
@@ -41,18 +52,50 @@ export default function QtyMatrix({
 }) {
   const get = (s: string | null, c: string | null) => qty[comboKey(s, c)] ?? 0;
 
-  const set = (s: string | null, c: string | null, raw: string) => {
+  const clean = (raw: string) => {
     // Strip anything that is not a digit, so a stray character from a phone
     // keyboard cannot silently wipe the cell.
-    const digits = raw.replace(/\D/g, '');
-    const n = parseInt(digits, 10);
-    onChange(comboKey(s, c), Number.isFinite(n) && n > 0 ? Math.min(n, 9999) : 0);
+    const n = parseInt(raw.replace(/\D/g, ''), 10);
+    return Number.isFinite(n) && n > 0 ? Math.min(n, 9999) : 0;
   };
+
+  const set = (s: string | null, c: string | null, raw: string) =>
+    onChange(comboKey(s, c), clean(raw));
 
   const axisSizes: (string | null)[] = sizes.length ? sizes : [null];
   const axisColours: (string | null)[] = colours.length ? colours : [null];
+
+  // Sold as a set: either flag collapses every size AND every colour into one
+  // box. The operator types one number — how many sets — not one per size.
+  const isSet = sizeIsSet || colourIsSet;
+
+  const boxSizes:   (string | null)[] = isSet ? [null] : axisSizes;
+  const boxColours: (string | null)[] = isSet ? [null] : axisColours;
+
+  /** Every combination one box stands for. */
+  const membersOf = (s: string | null, c: string | null) =>
+    isSet
+      ? axisSizes.flatMap(x => axisColours.map(y => ({ size: x, colour: y })))
+      : [{ size: s, colour: c }];
+
+  const boxValue = (s: string | null, c: string | null) => {
+    const first = membersOf(s, c)[0];
+    return get(first.size, first.colour);
+  };
+
+  const setBox = (s: string | null, c: string | null, raw: string) => {
+    const n = clean(raw);
+    // Written through onBulk so all members change in one update — one onChange
+    // per member would each read a stale qty and the last would win alone.
+    if (!onBulk) { for (const m of membersOf(s, c)) set(m.size, m.colour, raw); return; }
+    const next = { ...qty };
+    for (const m of membersOf(s, c)) next[comboKey(m.size, m.colour)] = n;
+    onBulk(next);
+  };
   const total = Object.values(qty).reduce((a, b) => a + b, 0);
-  const cellCount = axisSizes.length * axisColours.length;
+  // Counted in BOXES, not combinations: a set is one thing to type.
+  const cellCount = boxSizes.length * boxColours.length;
+  const perBox = (axisSizes.length * axisColours.length) / cellCount;
 
   const fillAll = (n: number) => {
     if (!onBulk) return;
@@ -64,12 +107,16 @@ export default function QtyMatrix({
   // Single combination: one field, no grid.
   if (cellCount === 1) {
     return (
-      <div className="flex items-center gap-3">
-        <span className="text-xs font-medium text-muted-foreground">Quantity</span>
-        <Cell value={get(axisSizes[0], axisColours[0])}
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="text-xs font-medium text-muted-foreground">
+          {perBox > 1 ? 'Sets' : 'Quantity'}
+        </span>
+        <Cell value={boxValue(boxSizes[0], boxColours[0])}
               invalid={invalid && total === 0}
-              onChange={v => set(axisSizes[0], axisColours[0], v)} />
-        <span className="text-xs text-muted-foreground">pieces</span>
+              onChange={v => setBox(boxSizes[0], boxColours[0], v)} />
+        <span className="text-xs text-muted-foreground">
+          {perBox > 1 ? `x ${perBox} pcs = ${total} pieces` : 'pieces'}
+        </span>
       </div>
     );
   }
@@ -114,7 +161,10 @@ export default function QtyMatrix({
         takes its own line.
       */}
       <div className="flex flex-wrap gap-1.5">
-        {axisColours.map(c => {
+        {/* isSet never reaches this branch (it always collapses to cellCount
+            === 1 above), so boxColours/boxSizes are the real axes here and
+            get/set need no indirection through a box's members. */}
+        {boxColours.map(c => {
           const rowTotal = axisSizes.reduce((sum, sz) => sum + get(sz, c), 0);
           return (
             <div key={c ?? '_'}
@@ -132,7 +182,7 @@ export default function QtyMatrix({
               )}
 
               <div className="flex flex-wrap gap-1.5">
-                {axisSizes.map(sz => (
+                {boxSizes.map(sz => (
                   <label key={sz ?? '_'} className="flex flex-col items-center gap-0.5">
                     {sz && (
                       <span className="text-[10px] font-semibold text-muted-foreground uppercase leading-none">
@@ -173,6 +223,8 @@ export default function QtyMatrix({
           is common enough to be worth a tap rather than six. */}
       {onBulk && (
         <div className="flex items-center gap-1.5">
+          {/* perBox is always 1 here — isSet always collapses to the single-box
+              branch above, so this grid never renders for a set. */}
           <span className="text-[10px] text-muted-foreground">Quick fill</span>
           {[1, 2, 5].map(n => (
             <button key={n} type="button" onClick={() => fillAll(n)}

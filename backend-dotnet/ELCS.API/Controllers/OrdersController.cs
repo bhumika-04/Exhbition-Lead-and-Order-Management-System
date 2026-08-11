@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using ELCS.API.Services;
+using ELCS.API.Utils;
 
 namespace ELCS.API.Controllers;
 
@@ -9,19 +10,21 @@ public class OrdersController : ControllerBase
 {
     private readonly ILogger<OrdersController> _logger;
     private readonly IOrderService _orderService;
+    private readonly IAuthService _auth;
     private readonly ISalesOrderPdfService _pdfService;
     private readonly IWhatsAppService _whatsApp;
     private readonly IConfiguration _config;
 
     public OrdersController(
         ILogger<OrdersController> logger,
-        IOrderService orderService,
+        IOrderService orderService, IAuthService auth,
         ISalesOrderPdfService pdfService,
         IWhatsAppService whatsApp,
         IConfiguration config)
     {
         _logger = logger;
         _orderService = orderService;
+        _auth = auth;
         _pdfService = pdfService;
         _whatsApp = whatsApp;
         _config = config;
@@ -31,9 +34,6 @@ public class OrdersController : ControllerBase
         Request.Headers.TryGetValue("X-Employee-Id", out var raw) && int.TryParse(raw, out var id)
             ? id
             : null;
-
-    /// <summary>Item types offered (Suit / Lehenga / Saree).</summary>
-    [HttpGet("item-types")]
 
     /// <summary>
     /// Slab options for the payment step. Each slab suggests ₹11,000 × slab as the
@@ -115,6 +115,45 @@ public class OrdersController : ControllerBase
         }
     }
 
+    private static readonly string[] AllowedProofTypes = { ".jpg", ".jpeg", ".png", ".webp", ".pdf" };
+
+    /// <summary>
+    /// Uploads the payment-proof image (or PDF) for the advance collected on
+    /// this order. One file per order — a re-upload replaces whatever was
+    /// there, matching how there is one advance to evidence, not several.
+    /// </summary>
+    [HttpPost("{orderId:int}/payment-proof")]
+    [RequestSizeLimit(20 * 1024 * 1024)]
+    public async Task<IActionResult> UploadPaymentProof(int orderId, IFormFile proof)
+    {
+        if (proof == null || proof.Length == 0)
+            return BadRequest(new { error = "No file supplied" });
+
+        var ext = Path.GetExtension(proof.FileName).ToLowerInvariant();
+        if (!AllowedProofTypes.Contains(ext))
+            return BadRequest(new { error = "Payment proof must be a JPG, PNG, WebP or PDF" });
+
+        var fileName = $"{Guid.NewGuid():N}{ext}";
+        var folder = UploadPaths.OrderPayment(orderId);
+        var dir = UploadPaths.EnsureFolder(folder);
+
+        await using (var stream = System.IO.File.Create(Path.Combine(dir, fileName)))
+            await proof.CopyToAsync(stream);
+
+        var relative = $"{folder}/{fileName}";
+
+        try
+        {
+            await _orderService.SetPaymentProofPathAsync(orderId, relative);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound(new { error = "Order not found" });
+        }
+
+        return Ok(new { success = true, path = relative });
+    }
+
     [HttpGet("{orderId:int}")]
     public async Task<IActionResult> GetOrder(int orderId)
     {
@@ -164,6 +203,13 @@ public class OrdersController : ControllerBase
     [HttpDelete("{orderId:int}")]
     public async Task<IActionResult> DeleteOrder(int orderId)
     {
+        // Deleting is administrators only. Enforced HERE and not merely by
+        // hiding the button, because the endpoint is reachable directly and a
+        // deleted order takes its lines, its Sales Order and the customer's
+        // history with it.
+        if (!await _auth.CanDeleteRecordsAsync(CallerEmployeeId))
+            return StatusCode(StatusCodes.Status403Forbidden,
+                new { error = "Only an administrator can delete this." });
         try
         {
             await _orderService.DeleteOrderAsync(orderId);

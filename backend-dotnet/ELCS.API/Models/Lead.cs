@@ -34,6 +34,13 @@ public class Lead
     public string? FrontImagePath { get; set; }
     public string? BackImagePath { get; set; }
 
+    // NULL = no override, coupons follow the advance actually taken (the
+    // normal case). Set by an admin to REPLACE that calculation with
+    // AdvanceCalculator.CouponsForSlab(this value) — see OrderService.
+    public int? CouponOverrideSlab { get; set; }
+    // JSON array of physical coupon numbers handed to this lead, e.g.
+    // ["A-102","A-103"]. Same shape as PhoneNumbers/Websites above.
+    public string? CouponNumbers { get; set; }
 }
 
 public class LeadPerson

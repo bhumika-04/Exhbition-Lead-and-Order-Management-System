@@ -13,6 +13,20 @@ public interface ILeadService
     Task<int> AddMessageAsync(int leadId, string senderType, string text, int? employeeId = null);
     Task<List<LeadMessage>> GetMessagesAsync(int leadId);
     Task<List<LeadListDto>> SearchLeadsByNameAsync(string name);
+
+    /// <summary>
+    /// Admin override: REPLACES the earned-coupon calculation for this lead
+    /// with AdvanceCalculator.CouponsForSlab(slab), regardless of advance
+    /// actually taken. Null clears the override.
+    /// </summary>
+    Task SetCouponOverrideAsync(int leadId, int? slab);
+
+    /// <summary>
+    /// Records the physical coupon numbers handed to this lead. Rejects a
+    /// number already recorded against a different lead. Returns the cleaned
+    /// (trimmed, deduplicated) list actually stored.
+    /// </summary>
+    Task<List<string>> SetCouponNumbersAsync(int leadId, List<string> numbers);
 }
 
 public record LeadQueryParams(
@@ -38,7 +52,12 @@ public record LeadListDto(
     DateTime CreatedAt,
     string? City,
     string? State,
-    string? PrimaryVisitorEmail
+    string? PrimaryVisitorEmail,
+    // Combined value of this lead's non-cancelled orders, and the most
+    // recently created order's status — a list-row summary, not the
+    // lead-level position GetLeadOrderSummaryAsync computes for one lead.
+    decimal OrderValue,
+    string? OrderStatus
 );
 
 public record LeadDetailDto(
@@ -50,7 +69,12 @@ public record LeadDetailDto(
     List<LeadMessage> Messages,
     List<LeadBrand> Brands,
     List<LeadPhone> Phones,
-    List<LeadEmail> Emails
+    List<LeadEmail> Emails,
+    // Combined value of this lead's non-cancelled orders, and its most
+    // recently created order's status — same summary shown per row on the
+    // Leads list, surfaced here too.
+    decimal OrderValue,
+    string? OrderStatus
 );
 
 public record CreateLeadDto(

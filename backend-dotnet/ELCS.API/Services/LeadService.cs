@@ -50,6 +50,16 @@ public class LeadService : ILeadService
             "SELECT * FROM LeadMessages WHERE LeadId = @LeadId ORDER BY MessageId ASC",
             new { LeadId = leadId })).ToList();
 
+        var orderValue = await conn.ExecuteScalarAsync<decimal?>(@"
+            SELECT SUM(COALESCE(OrderValue, OrderTotal))
+            FROM Orders WHERE LeadId = @LeadId AND StatusCode <> 'cancelled'",
+            new { LeadId = leadId }) ?? 0m;
+
+        var orderStatus = await conn.ExecuteScalarAsync<string?>(@"
+            SELECT TOP 1 StatusCode FROM Orders
+            WHERE LeadId = @LeadId ORDER BY CreatedAt DESC",
+            new { LeadId = leadId });
+
         return new LeadDetailDto(
             Lead: lead,
             Persons: persons,
@@ -59,7 +69,9 @@ public class LeadService : ILeadService
             Messages: messages,
             Brands: brands,
             Phones: phones,
-            Emails: emails
+            Emails: emails,
+            OrderValue: orderValue,
+            OrderStatus: orderStatus
         );
     }
 
@@ -297,9 +309,20 @@ public class LeadService : ILeadService
                    l.PrimaryVisitorPhone, l.Priority, l.StatusCode, l.CreatedAt,
                    JSON_VALUE(l.Addresses, '$[0].city') as City,
                    JSON_VALUE(l.Addresses, '$[0].state') as State,
-                   l.PrimaryVisitorEmail
+                   l.PrimaryVisitorEmail,
+                   ISNULL(agg.OrderValue, 0) AS OrderValue,
+                   latest.StatusCode AS OrderStatus
             FROM Leads l
             LEFT JOIN Exhibitions e ON l.ExhibitionId = e.ExhibitionId
+            OUTER APPLY (
+                SELECT SUM(COALESCE(o.OrderValue, o.OrderTotal)) AS OrderValue
+                FROM Orders o WHERE o.LeadId = l.LeadId AND o.StatusCode <> 'cancelled'
+            ) agg
+            OUTER APPLY (
+                SELECT TOP 1 o2.StatusCode
+                FROM Orders o2 WHERE o2.LeadId = l.LeadId
+                ORDER BY o2.CreatedAt DESC
+            ) latest
             {whereClause}
             ORDER BY l.CreatedAt DESC
             OFFSET @Offset ROWS FETCH NEXT @Limit ROWS ONLY";
@@ -315,6 +338,40 @@ public class LeadService : ILeadService
 
         // Use 'manual_entry' as default source code if not provided
         var sourceCode = dto.SourceCode ?? "manual_entry";
+
+        // A mobile number identifies a person, so it may appear on only one
+        // lead. Two leads sharing a number split that customer's orders,
+        // coupons and WhatsApp history in half — and the self-service page
+        // matches on phone, so the QR would reach whichever it found first.
+        //
+        // Compared on digits only: the same number is stored as "9691139890",
+        // "+91 9691139890" and "096911 39890" depending on who typed it.
+        var phone = dto.PrimaryVisitorPhone ?? dto.Phones?.FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(phone))
+        {
+            var digits = new string(phone.Where(char.IsDigit).ToArray());
+            if (digits.Length >= 10)
+            {
+                var last10 = digits[^10..];
+                // Compares the PERSISTED, INDEXED column directly — not a
+                // function of it — so this is an index seek, not a table
+                // scan. See migration 026.
+                var clash = await conn.QueryFirstOrDefaultAsync<dynamic>(@"
+                    SELECT TOP 1 LeadId, PrimaryVisitorName, CompanyName
+                    FROM Leads
+                    WHERE PhoneLast10 = @Last10
+                    ORDER BY CreatedAt DESC",
+                    new { Last10 = last10 });
+
+                if (clash != null)
+                {
+                    var who = (string?)clash.PrimaryVisitorName ?? (string?)clash.CompanyName ?? "an existing lead";
+                    throw new InvalidOperationException(
+                        $"{phone} already belongs to {who} (lead #{clash.LeadId}). " +
+                        "Open that lead and add the order to it, or use a different number.");
+                }
+            }
+        }
 
         var sql = @"
             INSERT INTO Leads (ExhibitionId, SourceCode, StatusCode, AssignedEmployeeId,
@@ -408,6 +465,77 @@ public class LeadService : ILeadService
         
         _logger.LogInformation("Hard deleted lead {LeadId}: {VisitorName} ({Company})", 
             leadId, lead.PrimaryVisitorName, lead.CompanyName);
+    }
+
+    public async Task SetCouponOverrideAsync(int leadId, int? slab)
+    {
+        if (slab is < 0)
+            throw new ArgumentException("Slab cannot be negative");
+
+        using var conn = _db.CreateConnection();
+        var rows = await conn.ExecuteAsync(
+            "UPDATE Leads SET CouponOverrideSlab = @Slab, UpdatedAt = GETUTCDATE() WHERE LeadId = @LeadId",
+            new { Slab = slab, LeadId = leadId });
+
+        if (rows == 0)
+            throw new KeyNotFoundException($"Lead {leadId} not found");
+
+        _logger.LogInformation("Coupon override for lead {LeadId} set to slab {Slab}",
+            leadId, slab.HasValue ? slab.Value.ToString() : "cleared");
+    }
+
+    public async Task<List<string>> SetCouponNumbersAsync(int leadId, List<string> numbers)
+    {
+        using var conn = _db.CreateConnection();
+
+        var exists = await conn.ExecuteScalarAsync<int?>(
+            "SELECT LeadId FROM Leads WHERE LeadId = @LeadId", new { LeadId = leadId });
+        if (exists == null)
+            throw new KeyNotFoundException($"Lead {leadId} not found");
+
+        var clean = (numbers ?? new List<string>())
+            .Select(n => n?.Trim() ?? "")
+            .Where(n => n.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // A coupon number identifies one physical coupon, so it may sit against
+        // only one lead. Same shape as the phone-number guard in
+        // CreateLeadAsync: load what exists elsewhere and compare in memory,
+        // since coupon numbers live in a JSON column rather than a queryable
+        // table of their own.
+        if (clean.Count > 0)
+        {
+            var others = await conn.QueryAsync<(int LeadId, string? Name, string? CompanyName, string? CouponNumbers)>(@"
+                SELECT LeadId, PrimaryVisitorName AS Name, CompanyName, CouponNumbers
+                FROM Leads
+                WHERE LeadId <> @LeadId AND CouponNumbers IS NOT NULL",
+                new { LeadId = leadId });
+
+            foreach (var other in others)
+            {
+                List<string>? theirNumbers;
+                try { theirNumbers = JsonSerializer.Deserialize<List<string>>(other.CouponNumbers!); }
+                catch { continue; }
+                if (theirNumbers == null) continue;
+
+                var clash = clean.FirstOrDefault(n => theirNumbers.Contains(n, StringComparer.OrdinalIgnoreCase));
+                if (clash != null)
+                {
+                    var who = other.Name ?? other.CompanyName ?? "another lead";
+                    throw new InvalidOperationException(
+                        $"Coupon {clash} is already recorded against {who} (lead #{other.LeadId}).");
+                }
+            }
+        }
+
+        var json = clean.Count > 0 ? JsonSerializer.Serialize(clean) : null;
+        await conn.ExecuteAsync(
+            "UPDATE Leads SET CouponNumbers = @Json, UpdatedAt = GETUTCDATE() WHERE LeadId = @LeadId",
+            new { Json = json, LeadId = leadId });
+
+        _logger.LogInformation("Lead {LeadId} coupon numbers set to [{Numbers}]", leadId, string.Join(", ", clean));
+        return clean;
     }
 
     public async Task<int> AddMessageAsync(int leadId, string senderType, string text, int? employeeId = null)

@@ -10,7 +10,7 @@ import type { Lead } from '@/lib/types';
 import {
   Search, Plus, Building2, User, Phone, Trash2,
   AlertTriangle, X, SlidersHorizontal, ChevronRight, Loader2,
-  Users, Download, CheckCircle2, Upload, ChevronLeft,
+  Users, Download, CheckCircle2, Upload, ChevronLeft, Camera,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { Button } from '@/components/ui/button';
@@ -19,6 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AnimatedList, AnimatedListItem } from '@/components/ui/animated-list';
 import { cn } from '@/lib/utils';
+import { money, ORDER_STATUS_LABELS, ORDER_STATUS_STYLES } from '@/lib/orders';
 
 const AVATAR_COLORS = [
   { bg: 'bg-primary/12',   text: 'text-primary'   },
@@ -310,6 +311,16 @@ export default function LeadsPage() {
           <Button
             variant="outline"
             size="sm"
+            onClick={() => router.push('/leads/photos')}
+            className="gap-1.5 h-9 text-xs px-3 shrink-0"
+            title="Attach a team photo to leads without opening each one"
+          >
+            <Camera className="w-3 h-3" />
+            <span className="hidden sm:inline">Photos</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             onClick={toggleSelectMode}
             className="gap-1.5 h-9 text-xs px-3 shrink-0"
             title="Select contacts to export as .vcf"
@@ -550,6 +561,20 @@ export default function LeadsPage() {
                           )}
                         </div>
                       </div>
+
+                      {/* Order value + status — blank when the lead has no order yet,
+                          rather than a "₹0" that reads as a priced-then-cancelled order. */}
+                      {lead.order_status && (
+                        <div className="flex items-center gap-1.5 mt-2">
+                          <span className={cn('text-[10px] font-medium rounded-full px-2 py-0.5',
+                            ORDER_STATUS_STYLES[lead.order_status] || 'bg-secondary text-muted-foreground')}>
+                            {ORDER_STATUS_LABELS[lead.order_status] || lead.order_status}
+                          </span>
+                          <span className="text-[11px] font-semibold text-foreground tabular">
+                            {money(lead.order_value ?? 0)}
+                          </span>
+                        </div>
+                      )}
 
                       {/* Card footer */}
                       <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-border">

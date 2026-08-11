@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
 import { getEmployee, hasPermission } from '@/lib/auth';
 import {
-  ScanLine, Building2, Users, BarChart3,
+  ScanLine, Building2, Users, BarChart3, Camera,
   FileSpreadsheet, LogOut, ChevronLeft, ChevronRight,
   UserCog, Shield, Package, ShoppingBag, Settings as SettingsIcon,
 } from 'lucide-react';
@@ -14,6 +14,7 @@ import {
 const NAV_ITEMS = [
   { name: 'Scan',        path: '/chat',        icon: ScanLine,        permission: null },
   { name: 'Leads',       path: '/leads',       icon: Users,           permission: 'view_leads' },
+  { name: 'Photos',      path: '/leads/photos', icon: Camera,         permission: 'view_leads' },
   { name: 'Dashboard',   path: '/dashboard',   icon: BarChart3,       permission: 'view_dashboard' },
   { name: 'Exhibitions', path: '/exhibitions', icon: Building2,       permission: 'view_exhibitions' },
   { name: 'Orders',      path: '/orders',      icon: ShoppingBag,     permission: 'manage_orders' },
@@ -41,6 +42,11 @@ export default function Sidebar() {
   }, []);
 
   const initial = employeeName.trim().charAt(0).toUpperCase() || 'U';
+
+  const activeNavPath = visibleItems
+    .map(i => i.path)
+    .filter(p => pathname === p || pathname.startsWith(p + '/'))
+    .sort((a, b) => b.length - a.length)[0];
 
   const handleLogout = () => {
     api.logout();
@@ -80,9 +86,9 @@ export default function Sidebar() {
       {/* Navigation links */}
       <nav className="flex-1 py-3 space-y-0.5 px-2 overflow-y-auto">
         {visibleItems.map(({ name, path, icon: Icon }) => {
-          const active =
-            pathname === path ||
-            (path !== '/' && pathname.startsWith(path + '/'));
+          // Longest-matching path wins, so a nested route like /leads/photos
+          // highlights only "Photos" and not also its "Leads" parent.
+          const active = path === activeNavPath;
           return (
             <button
               key={path}

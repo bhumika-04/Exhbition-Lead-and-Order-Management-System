@@ -21,6 +21,10 @@ public class SalesOrderPdfService : ISalesOrderPdfService
 
     private static readonly CultureInfo Inr = CultureInfo.GetCultureInfo("en-IN");
 
+    // Flat rate for every GST-registered buyer. Not configurable: a single
+    // showroom catalogue sold under one GSTIN doesn't need a per-order rate.
+    private const decimal GstRate = 0.18m;
+
     public SalesOrderPdfService(
         ILogger<SalesOrderPdfService> logger,
         IWebHostEnvironment env,
@@ -253,7 +257,36 @@ public class SalesOrderPdfService : ISalesOrderPdfService
                         c.Item().PaddingVertical(4).LineHorizontal(1).LineColor(Colors.Grey.Lighten1);
 
                         Line("Advance received", Money(summary.TotalAdvance));
-                        Line("Balance due", Money(summary.Balance), bold: true);
+
+                        // A GSTIN on file means this document is a tax invoice, not a
+                        // pro-forma WSP figure — GST is computed and added here only.
+                        // OrderValue, the advance slabs and coupon thresholds all stay
+                        // on pre-tax WSP everywhere else; nothing upstream of this PDF
+                        // changes.
+                        if (!string.IsNullOrWhiteSpace(order.LeadGstNumber))
+                        {
+                            var gstAmount     = Math.Round(summary.LeadTotal * GstRate, 2);
+                            var totalInclGst  = summary.LeadTotal + gstAmount;
+                            var balanceDue    = Math.Max(totalInclGst - summary.TotalAdvance, 0m);
+
+                            Line("Subtotal", Money(summary.LeadTotal));
+                            Line("GST @ 18%", Money(gstAmount));
+                            Line("Total (incl. GST)", Money(totalInclGst));
+                            Line("Balance due", Money(balanceDue), bold: true);
+                        }
+                        else
+                        {
+                            Line("Balance due", Money(summary.Balance), bold: true);
+
+                            // Stated on the document rather than assumed. Every
+                            // figure above comes from the catalogue's WSP, which is
+                            // pre-tax, so a customer reconciling this against a tax
+                            // invoice needs to know the difference is GST and not a
+                            // discrepancy.
+                            c.Item().PaddingTop(4).AlignRight()
+                                .Text("Excluding GST")
+                                .FontSize(7).Italic().FontColor(Colors.Grey.Darken1);
+                        }
                     });
 
                     if (!string.IsNullOrWhiteSpace(order.Notes))

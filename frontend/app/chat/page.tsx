@@ -468,18 +468,18 @@ export default function ScanPage() {
               )}
             </div>
 
-            <Input label="Name" value={form.primary_visitor_name} className={flagged('primary_visitor_name')}
+            <Input label="Name" required value={form.primary_visitor_name} className={flagged('primary_visitor_name')}
                    onChange={v => set('primary_visitor_name', v)} />
             <div className="grid grid-cols-2 gap-3">
               <Input label="Designation" value={form.primary_visitor_designation}
                      onChange={v => set('primary_visitor_designation', v)} />
               {/* Labelled Agency in the UI; the field is still company_name
                   everywhere below this line, so the API is untouched. */}
-              <Input label="Agency" value={form.company_name} className={flagged('company_name')}
+              <Input label="Agency" required value={form.company_name} className={flagged('company_name')}
                      onChange={v => set('company_name', v)} />
             </div>
 
-            <ChipInput label="Phone numbers" values={form.phones}
+            <ChipInput label="Phone numbers" required values={form.phones}
                        onChange={v => set('phones', v)}
                        onDraft={v => { chipDrafts.current.phones = v; }}
                        placeholder="Add a number" inputMode="tel" />
@@ -690,12 +690,15 @@ function StateSelect({ value, onChange }: {
   );
 }
 
-function Input({ label, value, onChange, className = '' }: {
-  label: string; value: string; onChange: (v: string) => void; className?: string;
+function Input({ label, value, onChange, className = '', required = false }: {
+  label: string; value: string; onChange: (v: string) => void;
+  className?: string; required?: boolean;
 }) {
   return (
     <label className="block text-xs">
-      <span className="text-muted-foreground font-medium">{label}</span>
+      <span className="text-muted-foreground font-medium">
+        {label}{required && <RequiredMark />}
+      </span>
       <input
         value={value}
         onChange={e => onChange(e.target.value)}
@@ -713,10 +716,10 @@ function Input({ label, value, onChange, className = '' }: {
  * value survives every way out of the field: tabbing away, tapping Save, or
  * hitting Save with the caret still in the box.
  */
-function ChipInput({ label, values, onChange, onDraft, placeholder, inputMode }: {
+function ChipInput({ label, values, onChange, onDraft, placeholder, inputMode, required = false }: {
   label: string; values: string[]; onChange: (v: string[]) => void;
   onDraft?: (v: string) => void;
-  placeholder: string; inputMode?: 'tel';
+  placeholder: string; inputMode?: 'tel'; required?: boolean;
 }) {
   const [draft, setDraft] = useState('');
 
@@ -730,7 +733,9 @@ function ChipInput({ label, values, onChange, onDraft, placeholder, inputMode }:
 
   return (
     <div className="text-xs">
-      <span className="text-muted-foreground font-medium">{label}</span>
+      <span className="text-muted-foreground font-medium">
+        {label}{required && <RequiredMark />}
+      </span>
       <div className="flex flex-wrap gap-1.5 mt-1">
         {values.map(v => (
           <span key={v} className="inline-flex items-center gap-1 bg-secondary text-foreground rounded-lg pl-2.5 pr-1 py-1 text-[11px]">
@@ -758,5 +763,21 @@ function ChipInput({ label, values, onChange, onDraft, placeholder, inputMode }:
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * Marks a field the save will refuse without.
+ *
+ * aria-hidden with a visually-hidden word beside it: a bare asterisk is
+ * announced as "star" or skipped entirely by a screen reader, which tells
+ * somebody filling this in on a phone nothing at all.
+ */
+function RequiredMark() {
+  return (
+    <>
+      <span aria-hidden className="text-destructive ml-0.5">*</span>
+      <span className="sr-only"> (required)</span>
+    </>
   );
 }

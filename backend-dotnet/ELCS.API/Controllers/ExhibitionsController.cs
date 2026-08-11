@@ -1,5 +1,6 @@
 using Dapper;
 using Microsoft.AspNetCore.Mvc;
+using ELCS.API.Services;
 using ELCS.API.Data;
 using ELCS.API.Models;
 using System.Text.Json.Serialization;
@@ -12,12 +13,19 @@ public class ExhibitionsController : ControllerBase
 {
     private readonly ILogger<ExhibitionsController> _logger;
     private readonly IDbConnection _db;
+    private readonly IAuthService _auth;
 
-    public ExhibitionsController(ILogger<ExhibitionsController> logger, IDbConnection db)
+    public ExhibitionsController(ILogger<ExhibitionsController> logger, IDbConnection db, IAuthService auth)
     {
         _logger = logger;
         _db = db;
+        _auth = auth;
     }
+
+    private int? CallerEmployeeId =>
+        Request.Headers.TryGetValue("X-Employee-Id", out var raw) && int.TryParse(raw, out var id)
+            ? id
+            : null;
 
     [HttpGet]
     public async Task<IActionResult> GetExhibitions()
@@ -146,6 +154,13 @@ public class ExhibitionsController : ControllerBase
     [HttpDelete("{exhibitionId:int}")]
     public async Task<IActionResult> DeleteExhibition(int exhibitionId)
     {
+        // Deleting is administrators only. Enforced HERE and not merely by
+        // hiding the button, because the endpoint is reachable directly and a
+        // deleted order takes its lines, its Sales Order and the customer's
+        // history with it.
+        if (!await _auth.CanDeleteRecordsAsync(CallerEmployeeId))
+            return StatusCode(StatusCodes.Status403Forbidden,
+                new { error = "Only an administrator can delete this." });
         using var conn = _db.CreateConnection();
 
         var exhibition = await conn.QueryFirstOrDefaultAsync<Exhibition>(

@@ -49,13 +49,21 @@ export interface Lead {
   front_image_path?: string | null;
   back_image_path?: string | null;
 
-
+  /** Admin override that REPLACES the earned-from-advance coupon count. Null = no override. */
+  coupon_override_slab?: number | null;
+  /** Raw JSON array of physical coupon numbers, e.g. '["A-102","A-103"]'. Parse before use. */
+  coupon_numbers?: string | null;
 
   // Joined fields
   exhibition_name?: string;
   assigned_employee_name?: string;
   source_name?: string;
   status_name?: string;
+
+  /** Combined value of this lead's non-cancelled orders. 0 when it has none. */
+  order_value?: number;
+  /** Most recently created order's status — null when the lead has no orders yet. */
+  order_status?: string | null;
 }
 
 /**
@@ -374,6 +382,7 @@ export interface OrderDetail {
   order_coupons: number;
   notes?: string | null;
   so_pdf_path?: string | null;
+  payment_proof_path?: string | null;
   confirmed_at?: string | null;
   created_at: string;
   items: OrderItem[];

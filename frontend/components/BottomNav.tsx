@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import {
   ScanLine, Building2, Users, BarChart3, FileSpreadsheet,
   UserCog, Shield, MoreHorizontal, X, LogOut,
-  ShoppingBag, Package, Settings as SettingsIcon,
+  ShoppingBag, Package, Settings as SettingsIcon, Camera,
 } from 'lucide-react';
 import { getEmployee, hasPermission } from '@/lib/auth';
 import { useKeyboardOpen } from '@/lib/useKeyboardOpen';
@@ -13,12 +13,13 @@ import { api } from '@/lib/api';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // The bar carries only what a CRR touches repeatedly at a stall: capture a
-// lead, look one up, take an order. Three slots plus More means each is a
-// comfortable target at 360px instead of six cramped ones.
+// lead, look one up, take an order, attach a team photo. Four slots plus More
+// keeps each a comfortable target at 360px instead of six cramped ones.
 const PRIMARY_NAV = [
-  { name: 'Scan',   path: '/chat',   icon: ScanLine,    permission: null },
-  { name: 'Leads',  path: '/leads',  icon: Users,       permission: 'view_leads' },
-  { name: 'Orders', path: '/orders', icon: ShoppingBag, permission: 'manage_orders' },
+  { name: 'Scan',   path: '/chat',         icon: ScanLine,    permission: null },
+  { name: 'Leads',  path: '/leads',        icon: Users,       permission: 'view_leads' },
+  { name: 'Photos', path: '/leads/photos', icon: Camera,      permission: 'view_leads' },
+  { name: 'Orders', path: '/orders',       icon: ShoppingBag, permission: 'manage_orders' },
 ];
 
 // Everything consulted rather than operated. Dashboard and Exhibitions sit here
@@ -59,6 +60,12 @@ export default function BottomNav() {
   const isMoreActive = [...SECONDARY_NAV.map(i => i.path), '/profile'].some(
     p => pathname === p || pathname.startsWith(p + '/')
   );
+
+  // Longest-matching primary path wins — see the comment at its one use below.
+  const activePrimaryPath = primaryItems
+    .map(i => i.path)
+    .filter(p => pathname === p || pathname.startsWith(p + '/'))
+    .sort((a, b) => b.length - a.length)[0];
 
   const navigate = (path: string) => {
     router.push(path);
@@ -184,7 +191,9 @@ export default function BottomNav() {
 
           {primaryItems.map((item) => {
             const Icon = item.icon;
-            const isActive = pathname === item.path || (item.path !== '/' && pathname.startsWith(item.path + '/'));
+            // Longest-matching path wins, so /leads/photos lights up only
+            // "Photos" and not also its "Leads" parent.
+            const isActive = item.path === activePrimaryPath;
             return (
               <button
                 key={item.path}

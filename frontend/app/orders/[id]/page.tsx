@@ -1,19 +1,22 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import {
   ArrowLeft, Loader2, FileText, CheckCircle2, Ticket, Send,
-  AlertTriangle, Download, Check, X, ImageIcon, Pencil,
+  AlertTriangle, Download, Check, X, ImageIcon, Pencil, Camera, Upload, Receipt,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
+import { useIsMobile } from '@/lib/useIsMobile';
 import type { OrderDetail, SlabOption } from '@/lib/types';
 import { NumberInput } from '@/components/ui/number-input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import LeadCouponsCard from '@/components/LeadCouponsCard';
+import CameraDialog from '@/components/CameraDialog';
 import {
   money, couponsFor, couponsForSlab, slabForValue, ADVANCE_PER_SLAB, SLAB_SIZE,
   ORDER_STATUS_LABELS, ORDER_STATUS_STYLES,
@@ -41,6 +44,18 @@ export default function OrderDetailPage() {
    */
   const [advanceEdited, setAdvanceEdited] = useState(false);
 
+  // Payment proof
+  const isMobile = useIsMobile();
+  const [proofBusy, setProofBusy] = useState(false);
+  const [showProofChoice, setShowProofChoice] = useState(false);
+  const [showProofCamera, setShowProofCamera] = useState(false);
+  const [webcamAvailable, setWebcamAvailable] = useState(false);
+  const proofCamRef = useRef<HTMLInputElement>(null);
+  const proofFileRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    setWebcamAvailable(typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia);
+  }, []);
+
   const load = async () => {
     try {
       const o = await api.getOrder(orderId);
@@ -60,6 +75,19 @@ export default function OrderDetailPage() {
     api.getOrderSlabs(8).then(setSlabs).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId]);
+
+  const uploadProof = async (file: File) => {
+    setProofBusy(true);
+    try {
+      await api.uploadPaymentProof(orderId, file);
+      toast.success('Payment proof saved');
+      await load();
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Could not upload the payment proof');
+    } finally {
+      setProofBusy(false);
+    }
+  };
 
   // Picking a slab pre-fills the suggested advance. It stays editable —
   // the customer may pay less, and coupons follow what is actually taken.
@@ -439,6 +467,41 @@ export default function OrderDetailPage() {
                 )}
               </div>
 
+              {/* Payment proof — a photo or screenshot of the receipt for the
+                  advance actually collected. Same take-photo-or-upload choice
+                  as a lead's team photo. */}
+              <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-border">
+                {order.payment_proof_path ? (
+                  order.payment_proof_path.toLowerCase().endsWith('.pdf') ? (
+                    <a href={api.uploadUrl(order.payment_proof_path)} target="_blank" rel="noopener noreferrer"
+                       className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center shrink-0">
+                      <FileText className="w-4 h-4 text-muted-foreground" />
+                    </a>
+                  ) : (
+                    <a href={api.uploadUrl(order.payment_proof_path)} target="_blank" rel="noopener noreferrer"
+                       className="w-10 h-10 rounded-lg overflow-hidden bg-secondary shrink-0 block">
+                      <img src={api.uploadUrl(order.payment_proof_path)} alt="Payment proof" className="w-full h-full object-cover" />
+                    </a>
+                  )
+                ) : (
+                  <span className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center shrink-0">
+                    <Receipt className="w-4 h-4 text-muted-foreground/50" />
+                  </span>
+                )}
+                <span className="flex-1 min-w-0">
+                  <span className="block text-xs font-semibold text-foreground">Payment proof</span>
+                  <span className="block text-[11px] text-muted-foreground truncate">
+                    {order.payment_proof_path ? 'Receipt saved — tap to view' : 'Not added yet'}
+                  </span>
+                </span>
+                <Button size="sm" variant="outline" disabled={proofBusy}
+                        onClick={() => setShowProofChoice(true)}
+                        className="h-8 gap-1.5 text-xs shrink-0">
+                  {proofBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                  {order.payment_proof_path ? 'Replace' : 'Add'}
+                </Button>
+              </div>
+
               {!isConfirmed && (
                 <Button
                   variant={paymentDirty ? 'default' : 'outline'}
@@ -474,6 +537,11 @@ export default function OrderDetailPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Same admin override + coupon-number recording as the lead page —
+            coupons are a lead-level figure, so this reaches the same lead
+            record whether opened from here or from the lead itself. */}
+        <LeadCouponsCard leadId={order.lead_id} />
 
         {order.notes && (
           <Card className="border-border">
@@ -582,6 +650,78 @@ export default function OrderDetailPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Payment proof — take a photo or upload an existing one, same choice
+          as a lead's team photo. */}
+      <input
+        ref={proofCamRef} type="file" accept="image/*" capture="environment" className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) uploadProof(f); e.target.value = ''; }}
+      />
+      <input
+        ref={proofFileRef} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) uploadProof(f); e.target.value = ''; }}
+      />
+
+      <AnimatePresence>
+        {showProofChoice && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={() => setShowProofChoice(false)}
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+          >
+            <motion.div
+              initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-card w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5"
+            >
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-bold text-foreground">Add payment proof</p>
+                <button onClick={() => setShowProofChoice(false)} className="p-1 rounded-lg hover:bg-secondary">
+                  <X className="w-4 h-4 text-muted-foreground" />
+                </button>
+              </div>
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => {
+                    setShowProofChoice(false);
+                    if (isMobile || !webcamAvailable) proofCamRef.current?.click(); else setShowProofCamera(true);
+                  }}
+                  className="flex items-center gap-3 px-3 py-3 rounded-xl bg-secondary/50 hover:bg-secondary transition-colors text-left"
+                >
+                  <span className="w-9 h-9 rounded-lg bg-card flex items-center justify-center shrink-0">
+                    <Camera className="w-4 h-4 text-muted-foreground" />
+                  </span>
+                  <span>
+                    <span className="block text-sm font-semibold text-foreground">Take photo</span>
+                    <span className="block text-[11px] text-muted-foreground">
+                      {isMobile || !webcamAvailable ? 'Opens your camera' : 'Opens your webcam'}
+                    </span>
+                  </span>
+                </button>
+                <button
+                  onClick={() => { setShowProofChoice(false); proofFileRef.current?.click(); }}
+                  className="flex items-center gap-3 px-3 py-3 rounded-xl bg-secondary/50 hover:bg-secondary transition-colors text-left"
+                >
+                  <span className="w-9 h-9 rounded-lg bg-card flex items-center justify-center shrink-0">
+                    <Upload className="w-4 h-4 text-muted-foreground" />
+                  </span>
+                  <span>
+                    <span className="block text-sm font-semibold text-foreground">Upload</span>
+                    <span className="block text-[11px] text-muted-foreground">Photo, screenshot or PDF</span>
+                  </span>
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <CameraDialog
+        open={showProofCamera}
+        title="Payment proof"
+        onCapture={uploadProof}
+        onClose={() => setShowProofCamera(false)}
+      />
     </div>
   );
 }

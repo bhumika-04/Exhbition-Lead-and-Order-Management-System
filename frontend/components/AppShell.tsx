@@ -6,7 +6,7 @@ import Sidebar from './Sidebar';
 import BottomNav from './BottomNav';
 
 // Pages that manage their own internal scrolling (fixed-height layout)
-const FIXED_HEIGHT_PATHS = ['/chat', '/leads', '/exhibitions'];
+const FIXED_HEIGHT_PATHS = ['/chat', '/leads', '/leads/photos', '/exhibitions'];
 
 // Same, but with a dynamic segment. These screens pin a header at the top and
 // scroll their body, which only works inside a bounded container — an exact

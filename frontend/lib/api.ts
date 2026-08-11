@@ -225,6 +225,8 @@ class ApiClient {
       brands: data.brands || [],
       phones: data.phones || [],
       emails: data.emails || [],
+      order_value: data.order_value ?? 0,
+      order_status: data.order_status ?? null,
     };
   }
 
@@ -263,6 +265,27 @@ class ApiClient {
 
   async deleteLead(leadId: number): Promise<void> {
     await this.client.delete(`/api/leads/${leadId}`);
+  }
+
+  /**
+   * Admin-only. Sets or clears a coupon-slab override that REPLACES the
+   * earned-from-advance coupon count for this lead — see AdvanceCalculator.
+   * Pass slab: null to clear it and go back to earning coupons normally.
+   */
+  async setLeadCouponOverride(leadId: number, slab: number | null): Promise<{ slab: number | null; coupons: number | null }> {
+    const { data } = await this.client.put(`/api/leads/${leadId}/coupon-override`, { slab });
+    return data;
+  }
+
+  /**
+   * Records the physical coupon numbers handed to this lead. Rejects (409) a
+   * number already recorded against a different lead. Returns the cleaned
+   * list actually stored, which may differ from what was sent (trimmed,
+   * deduplicated).
+   */
+  async setLeadCouponNumbers(leadId: number, numbers: string[]): Promise<string[]> {
+    const { data } = await this.client.put(`/api/leads/${leadId}/coupon-numbers`, { numbers });
+    return data.numbers ?? [];
   }
 
   // Card Extraction (immediate — creates lead)
@@ -351,6 +374,16 @@ class ApiClient {
 
   async getOrder(orderId: number): Promise<OrderDetail> {
     const { data } = await this.client.get(`/api/orders/${orderId}`);
+    return data;
+  }
+
+  /** Uploads (or replaces) the payment-proof image/PDF for an order's advance. */
+  async uploadPaymentProof(orderId: number, file: File): Promise<{ success: boolean; path: string }> {
+    const form = new FormData();
+    form.append('proof', file);
+    const { data } = await this.client.post(`/api/orders/${orderId}/payment-proof`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
     return data;
   }
 

@@ -38,5 +38,6 @@ Thumbs.db
 # OpenAI key and Interakt key — so committing it would publish every secret in
 # a form that text scanning cannot see inside.
 publish/
-publish.zip
+publish*/
+publish*.zip
 *.publish.zip

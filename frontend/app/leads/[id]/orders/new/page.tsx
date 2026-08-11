@@ -95,6 +95,7 @@ export default function PlaceOrderPage() {
 
   const [rows, setRows] = useState<Row[]>([]);
   const [notes, setNotes] = useState('');
+  const [orderNumber, setOrderNumber] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -117,7 +118,10 @@ export default function PlaceOrderPage() {
         ]);
         setLead(l);
         setExisting(orders.summary);
-        setDrafts(orders.orders.filter(o => o.status_code === 'draft'));
+        // Excludes the order THIS screen is editing — it is a draft too, so
+        // without the exclusion the "unfinished order" banner pointed back at
+        // the very order already open here.
+        setDrafts(orders.orders.filter(o => o.status_code === 'draft' && o.order_id !== editOrderId));
         setSizeOptions(opts.sizes);
         setColourOptions(opts.colours);
 
@@ -131,6 +135,7 @@ export default function PlaceOrderPage() {
             router.replace(`/orders/${editOrderId}`);
             return;
           }
+          setOrderNumber(existingOrder.order_number);
           setRows(await rowsFromOrder(existingOrder.items));
           setNotes(existingOrder.notes ?? '');
         }
@@ -388,7 +393,9 @@ export default function PlaceOrderPage() {
         </button>
         <div className="min-w-0 flex-1">
           <p className="text-sm md:text-base font-semibold text-foreground truncate leading-tight">
-            {editOrderId !== null ? 'Edit Order' : 'Place Order'}
+            {editOrderId !== null
+              ? `Edit Order${orderNumber ? ` · ${orderNumber}` : ''}`
+              : 'Place Order'}
           </p>
           <p className="text-[11px] text-muted-foreground truncate leading-tight">
             {lead?.primary_visitor_name || 'Lead'}
@@ -584,6 +591,8 @@ export default function PlaceOrderPage() {
                           <QtyMatrix
                             sizes={r.sizes}
                             colours={r.colours}
+                            sizeIsSet={r.sizeIsSet}
+                            colourIsSet={r.colourIsSet}
                             qty={r.qty}
                             comboKey={comboKey}
                             invalid={showErrors}
@@ -819,6 +828,8 @@ function ItemSheet({
           <QtyMatrix
             sizes={row.sizes}
             colours={row.colours}
+            sizeIsSet={row.sizeIsSet}
+            colourIsSet={row.colourIsSet}
             qty={row.qty}
             comboKey={comboKey}
             onChange={(k, v) => onChange({ qty: { ...row.qty, [k]: v } })}

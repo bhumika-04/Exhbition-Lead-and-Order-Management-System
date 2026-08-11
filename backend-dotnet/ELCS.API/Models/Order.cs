@@ -13,6 +13,7 @@ public class Order
     public decimal AdvanceAmount { get; set; }   // advance actually taken
     public string? Notes { get; set; }
     public string? SoPdfPath { get; set; }
+    public string? PaymentProofPath { get; set; }
     public DateTime? ConfirmedAt { get; set; }
     public int? CreatedByEmployeeId { get; set; }
     public DateTime CreatedAt { get; set; }

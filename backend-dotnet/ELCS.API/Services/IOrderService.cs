@@ -19,6 +19,9 @@ public interface IOrderService
 
     Task SetSoPdfPathAsync(int orderId, string relativePath);
 
+    /// <summary>Records (or replaces) the payment-proof image path for an order.</summary>
+    Task SetPaymentProofPathAsync(int orderId, string relativePath);
+
     /// <summary>Order list for the Orders page — filters, barcode search and totals.</summary>
     Task<OrderListResultDto> SearchOrdersAsync(OrderSearchParams p);
 
@@ -88,6 +91,7 @@ public record OrderDetailDto(
     int OrderCoupons,          // coupons this order's advance alone would earn
     string? Notes,
     string? SoPdfPath,
+    string? PaymentProofPath,
     DateTime? ConfirmedAt,
     DateTime CreatedAt,
     List<OrderItemDto> Items,

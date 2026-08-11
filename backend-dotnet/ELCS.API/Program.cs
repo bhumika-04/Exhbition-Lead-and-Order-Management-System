@@ -58,19 +58,33 @@ builder.Services.AddHttpClient();
 // Rate limiting for the public self-service endpoints. These have no login in
 // front of them, so without a cap the OTP endpoint is a free WhatsApp cannon
 // and the order endpoint is an open write to the database.
+//
+// Partitioned by session token when the request carries one, not by IP: an
+// exhibition is exactly the case where many genuine customers share one
+// venue Wi-Fi's public IP, so an IP-keyed limit throttled all of them
+// together as if they were one caller. Before a session exists — the OTP /
+// session-start endpoint, the actual abuse target — there is nothing better
+// to key on than IP, which is where this still protects what it was for.
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
     options.AddPolicy("public", context =>
-        System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+    {
+        var sessionToken = context.Request.Headers["X-Public-Session"].FirstOrDefault();
+        var partitionKey = !string.IsNullOrEmpty(sessionToken)
+            ? $"session:{sessionToken}"
+            : $"ip:{context.Connection.RemoteIpAddress}";
+
+        return System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey,
             factory: _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
             {
-                PermitLimit = 30,
+                PermitLimit = 60,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
-            }));
+            });
+    });
 });
 
 // QuestPDF Community licence — free for organisations under USD 1M annual revenue.

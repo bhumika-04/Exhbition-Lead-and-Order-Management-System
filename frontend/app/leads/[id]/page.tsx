@@ -10,7 +10,7 @@ import type { LeadDetails } from '@/lib/types';
 import {
   ArrowLeft, Edit3, Check, X, Phone, Mail, Building2, Globe,
   MapPin, Users, MessageSquare, Zap, Loader2, CheckCircle2,
-  Tag, Image, Plus, Share2, Copy, ExternalLink,
+  Tag, Image, Plus, Share2, Copy, ExternalLink, Ticket,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -19,6 +19,7 @@ import { BlurFade } from '@/components/ui/blur-fade';
 import LeadOrdersCard from '@/components/LeadOrdersCard';
 import LeadMediaCard from '@/components/LeadMediaCard';
 import { cn } from '@/lib/utils';
+import { money, ORDER_STATUS_LABELS, ORDER_STATUS_STYLES } from '@/lib/orders';
 
 export default function LeadDetailPage() {
   const router = useRouter();
@@ -247,6 +248,11 @@ export default function LeadDetailPage() {
 
   const inputCls = 'w-full px-3 py-2 text-sm border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-ring/30 bg-secondary/50 focus:bg-card transition';
 
+  // Read-only display — recording or changing codes stays on the order page,
+  // where the coupon count and the advance that earns it live together.
+  let couponCodes: string[] = [];
+  try { couponCodes = lead.coupon_numbers ? JSON.parse(lead.coupon_numbers) : []; } catch { /* leave empty */ }
+
   return (
     <div className="bg-background min-h-full">
 
@@ -262,6 +268,27 @@ export default function LeadDetailPage() {
             </p>
             {lead.company_name && (
               <p className="text-xs text-muted-foreground truncate">{lead.company_name}</p>
+            )}
+            {lead.order_status && (
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className={cn('text-[10px] font-medium rounded-full px-2 py-0.5',
+                  ORDER_STATUS_STYLES[lead.order_status] || 'bg-secondary text-muted-foreground')}>
+                  {ORDER_STATUS_LABELS[lead.order_status] || lead.order_status}
+                </span>
+                <span className="text-[11px] font-semibold text-foreground tabular">
+                  {money(lead.order_value ?? 0)}
+                </span>
+              </div>
+            )}
+            {couponCodes.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1 mt-1">
+                <Ticket className="w-3 h-3 text-warning shrink-0" />
+                {couponCodes.map(code => (
+                  <span key={code} className="text-[10px] font-mono font-semibold bg-warning/[0.1] text-warning rounded px-1.5 py-0.5">
+                    {code}
+                  </span>
+                ))}
+              </div>
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">

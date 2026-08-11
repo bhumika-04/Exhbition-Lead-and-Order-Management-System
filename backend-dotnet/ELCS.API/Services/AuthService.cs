@@ -66,6 +66,40 @@ public class AuthService : IAuthService
         );
     }
 
+    public async Task<bool> CanDeleteRecordsAsync(int? employeeId)
+    {
+        // No caller at all is not an administrator. The header is unsigned, so
+        // this is a guard against mistakes rather than against an attacker —
+        // but an unauthenticated request should still never delete.
+        if (employeeId is null or <= 0) return false;
+
+        using var conn = _db.CreateConnection();
+        var row = await conn.QueryFirstOrDefaultAsync<dynamic>(@"
+            SELECT e.RoleId, r.Permissions
+            FROM Employees e
+            LEFT JOIN Roles r ON r.RoleId = e.RoleId
+            WHERE e.EmployeeId = @Id AND e.IsActive = 1",
+            new { Id = employeeId.Value });
+
+        if (row == null) return false;
+        if (row.RoleId == null) return true;          // no role = full access
+
+        var permissions = (string?)row.Permissions;
+        if (string.IsNullOrWhiteSpace(permissions)) return false;
+
+        try
+        {
+            var granted = System.Text.Json.JsonSerializer.Deserialize<List<string>>(permissions);
+            return granted?.Contains("manage_roles", StringComparer.OrdinalIgnoreCase) == true;
+        }
+        catch
+        {
+            // Malformed permissions deny rather than allow.
+            _logger.LogWarning("Employee {EmployeeId} has unreadable role permissions", employeeId);
+            return false;
+        }
+    }
+
     public async Task<Employee?> GetEmployeeByIdAsync(int employeeId)
     {
         using var conn = _db.CreateConnection();

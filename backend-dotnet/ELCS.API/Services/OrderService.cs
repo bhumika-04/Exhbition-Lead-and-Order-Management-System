@@ -111,6 +111,7 @@ public class OrderService : IOrderService
                                   order.OrderValue ?? order.OrderTotal, order.AdvanceAmount),
             Notes:            order.Notes,
             SoPdfPath:        order.SoPdfPath,
+            PaymentProofPath: order.PaymentProofPath,
             ConfirmedAt:      order.ConfirmedAt,
             CreatedAt:        order.CreatedAt,
             Items:            items,
@@ -297,13 +298,19 @@ public class OrderService : IOrderService
 
         var pos = AdvanceCalculator.Calculate(agg?.TotalValue ?? 0m, agg?.TotalAdvance ?? 0m);
 
+        // An admin override REPLACES the earned figure, it does not add to it —
+        // see ILeadService.SetCouponOverrideAsync.
+        var overrideSlab = await conn.ExecuteScalarAsync<int?>(
+            "SELECT CouponOverrideSlab FROM Leads WHERE LeadId = @LeadId", new { LeadId = leadId });
+        var coupons = overrideSlab.HasValue ? AdvanceCalculator.CouponsForSlab(overrideSlab.Value) : pos.Coupons;
+
         return new LeadOrderSummaryDto(
             LeadId:       leadId,
             OrderCount:   agg?.OrderCount ?? 0,
             LeadTotal:    pos.TotalValue,
             TotalAdvance: pos.TotalAdvance,
             Slab:         pos.Slab,
-            Coupons:      pos.Coupons,
+            Coupons:      coupons,
             Balance:      pos.Balance,
             IsOverpaid:   pos.IsOverpaid);
     }
@@ -314,6 +321,21 @@ public class OrderService : IOrderService
         await conn.ExecuteAsync(
             "UPDATE Orders SET SoPdfPath = @Path, UpdatedAt = GETUTCDATE() WHERE OrderId = @OrderId",
             new { Path = relativePath, OrderId = orderId });
+    }
+
+    public async Task SetPaymentProofPathAsync(int orderId, string relativePath)
+    {
+        using var conn = _db.CreateConnection();
+        // Unlike SetSoPdfPathAsync (called only with an id this process just
+        // created), this is reached directly from an upload endpoint with a
+        // caller-supplied id — checked so a bad id 404s instead of writing a
+        // file that nothing will ever be able to find again.
+        var rows = await conn.ExecuteAsync(
+            "UPDATE Orders SET PaymentProofPath = @Path, UpdatedAt = GETUTCDATE() WHERE OrderId = @OrderId",
+            new { Path = relativePath, OrderId = orderId });
+
+        if (rows == 0)
+            throw new KeyNotFoundException($"Order {orderId} not found");
     }
 
     public async Task<OrderListResultDto> SearchOrdersAsync(OrderSearchParams p)
@@ -406,13 +428,24 @@ public class OrderService : IOrderService
         // because two ₹6k advances earn 4 coupons together and 0 apiece.
         // Value AND advance per lead: coupons need both, so summing advance
         // alone would over-count every lead holding under ₹1L of orders.
-        var perLead = await conn.QueryAsync<(decimal Value, decimal Advance)>($@"
-            SELECT SUM({EffectiveValueSql}) AS Value, SUM(o.AdvanceAmount) AS Advance
+        //
+        // An override REPLACES the earned figure for its lead (see
+        // GetCouponHoldersAsync). Not reflected here for a lead with an
+        // override but NO order matching the current filter — this tile is
+        // rooted at Orders so it can honour the date/status/source filters,
+        // and there is no order row to hang such a lead off. The Coupon
+        // Holders list is the source of truth for those; this is a filtered
+        // summary tile.
+        var perLead = await conn.QueryAsync<(int LeadId, decimal Value, decimal Advance, int? OverrideSlab)>($@"
+            SELECT o.LeadId, SUM({EffectiveValueSql}) AS Value, SUM(o.AdvanceAmount) AS Advance,
+                   l.CouponOverrideSlab AS OverrideSlab
             FROM Orders o JOIN Leads l ON l.LeadId = o.LeadId
             {where} AND o.{ActiveOnly}
-            GROUP BY o.LeadId", args);
+            GROUP BY o.LeadId, l.CouponOverrideSlab", args);
 
-        var couponTotal = perLead.Sum(r => AdvanceCalculator.CouponsFor(r.Value, r.Advance));
+        var couponTotal = perLead.Sum(r => r.OverrideSlab.HasValue
+            ? AdvanceCalculator.CouponsForSlab(r.OverrideSlab.Value)
+            : AdvanceCalculator.CouponsFor(r.Value, r.Advance));
 
         // Counted across the whole database, not the current filter: this is the
         // work queue, and it should not disappear because someone filtered by a
@@ -435,20 +468,26 @@ public class OrderService : IOrderService
     {
         using var conn = _db.CreateConnection();
 
-        var filter = exhibitionId.HasValue ? " AND o.ExhibitionId = @ExhibitionId" : "";
+        // LEFT JOIN from Leads, not INNER JOIN from Orders: an admin can grant
+        // an override to a lead that has placed no order at all, and that lead
+        // must still show up here. exhibitionId then has to filter on the
+        // LEAD's exhibition (every lead has exactly one), not the order's —
+        // an override-only lead has no order row to filter by.
+        var filter = exhibitionId.HasValue ? " AND l.ExhibitionId = @ExhibitionId" : "";
 
         var rows = (await conn.QueryAsync<CouponHolderRow>($@"
-            SELECT o.LeadId,
+            SELECT l.LeadId,
                    l.PrimaryVisitorName  AS LeadName,
                    l.CompanyName         AS CompanyName,
                    l.PrimaryVisitorPhone AS Phone,
-                   SUM({EffectiveValueSql}) AS TotalValue,
-                   SUM(o.AdvanceAmount)     AS TotalAdvance,
-                   COUNT(*)                 AS OrderCount
-            FROM Orders o
-            JOIN Leads l ON l.LeadId = o.LeadId
-            WHERE o.{ActiveOnly}{filter}
-            GROUP BY o.LeadId, l.PrimaryVisitorName, l.CompanyName, l.PrimaryVisitorPhone",
+                   l.CouponOverrideSlab  AS OverrideSlab,
+                   ISNULL(SUM({EffectiveValueSql}), 0) AS TotalValue,
+                   ISNULL(SUM(o.AdvanceAmount), 0)     AS TotalAdvance,
+                   COUNT(o.OrderId)                    AS OrderCount
+            FROM Leads l
+            LEFT JOIN Orders o ON o.LeadId = l.LeadId AND o.{ActiveOnly}
+            WHERE 1 = 1{filter}
+            GROUP BY l.LeadId, l.PrimaryVisitorName, l.CompanyName, l.PrimaryVisitorPhone, l.CouponOverrideSlab",
             new { ExhibitionId = exhibitionId })).ToList();
 
         return rows
@@ -459,7 +498,9 @@ public class OrderService : IOrderService
                 Phone:        r.Phone,
                 TotalValue:   r.TotalValue,
                 TotalAdvance: r.TotalAdvance,
-                Coupons:      AdvanceCalculator.CouponsFor(r.TotalValue, r.TotalAdvance),
+                Coupons:      r.OverrideSlab.HasValue
+                                  ? AdvanceCalculator.CouponsForSlab(r.OverrideSlab.Value)
+                                  : AdvanceCalculator.CouponsFor(r.TotalValue, r.TotalAdvance),
                 OrderCount:   r.OrderCount))
             .Where(c => c.Coupons > 0)
             .OrderByDescending(c => c.Coupons)
@@ -473,6 +514,7 @@ public class OrderService : IOrderService
         public string? LeadName { get; set; }
         public string? CompanyName { get; set; }
         public string? Phone { get; set; }
+        public int? OverrideSlab { get; set; }
         public decimal TotalValue { get; set; }
         public decimal TotalAdvance { get; set; }
         public int OrderCount { get; set; }
