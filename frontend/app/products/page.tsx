@@ -65,7 +65,7 @@ export default function ProductsPage() {
     try {
       const res = await api.searchProducts({
         search: search || undefined,
-        limit: 200,
+        limit: 500,
       });
       setProducts(res.products);
     } catch {
@@ -266,13 +266,20 @@ export default function ProductsPage() {
           {products.map(p => (
             <div key={p.product_id}
                  className="rounded-xl border border-border bg-card p-3 flex gap-3">
-              <div className="w-16 h-20 rounded-lg bg-secondary shrink-0 overflow-hidden flex items-center justify-center">
+              <div className="relative w-16 h-20 rounded-lg bg-secondary shrink-0 overflow-hidden flex items-center justify-center">
                 {/* The local upload wins: it is the copy the Sales Order PDF
                     embeds, so what staff see here is what the customer gets. */}
                 {p.image_path || p.image_url
                   ? <img src={p.image_path ? api.uploadUrl(p.image_path) : p.image_url!}
                          alt={p.barcode} className="w-full h-full object-cover" />
                   : <ImageIcon className="w-5 h-5 text-muted-foreground/50" />}
+                {/* A marker that fabric info exists, not the value — same as the
+                    chip below, by request. */}
+                {p.fabric && (p.image_path || p.image_url) && (
+                  <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[8px] text-center py-0.5">
+                    Fabric
+                  </span>
+                )}
               </div>
 
               <div className="flex-1 min-w-0">
@@ -292,9 +299,12 @@ export default function ProductsPage() {
                       say so rather than let it look like a list of choices. */}
                   {p.size_is_set && <Chip tone="blue">Size set</Chip>}
                   {p.colour_is_set && <Chip tone="blue">Colour set</Chip>}
+                  {/* No SIZE at all is not a gap — it is the signal for unstitched
+                      material, which never carries a size. See Product.cs. */}
+                  {splitCsv(p.size).length === 0 && <Chip tone="blue">Unstitched</Chip>}
                   {splitCsv(p.size).map(s => <Chip key={`s-${s}`}>{s}</Chip>)}
                   {splitCsv(p.colour).map(c => <Chip key={`c-${c}`}>{c}</Chip>)}
-                  {p.fabric && <Chip>{p.fabric}</Chip>}
+                  {p.fabric && <Chip>Fabric</Chip>}
                 </div>
 
                 {canManage && (

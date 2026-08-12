@@ -62,12 +62,25 @@ function unmuteZxingNoise() {
 export default function BarcodeScanner({
   value,
   onChange,
+  onScanComplete,
   placeholder = 'Scan or type barcode',
   label,
   autoStart = false,
 }: {
   value: string;
+  /** Fires on every keystroke of the typed fallback, same as before — a plain
+   *  text field (e.g. a form's barcode input) only ever needs this one. */
   onChange: (v: string) => void;
+  /**
+   * Fires once, with a value the caller should treat as final: a camera scan
+   * (a decoder result is already a complete code, never a partial one), or
+   * Enter pressed in the typed field. A USB scanner at the counter also types
+   * into this field and sends Enter after, so this is the same event either
+   * way — the field is not asking "does anything match yet", it is reporting
+   * "here is the code, go look it up". Optional: a caller that only wants the
+   * live text (see onChange) has no reason to pass this.
+   */
+  onScanComplete?: (v: string) => void;
   placeholder?: string;
   label?: string;
   /** Opens the camera on mount — for a dedicated "scan" screen where pressing
@@ -118,9 +131,10 @@ export default function BarcodeScanner({
     const trimmed = code.trim();
     if (!trimmed) return;
     onChange(trimmed);
+    onScanComplete?.(trimmed);
     if (navigator.vibrate) navigator.vibrate(60);
     stop();
-  }, [onChange, stop]);
+  }, [onChange, onScanComplete, stop]);
 
   /** Native BarcodeDetector: our own stream plus a per-frame detect loop. */
   const startNative = useCallback(async () => {
@@ -239,6 +253,16 @@ export default function BarcodeScanner({
           type="text"
           value={value}
           onChange={e => onChange(e.target.value)}
+          onKeyDown={e => {
+            // Enter means "this is the whole code, not a work-in-progress" —
+            // same signal a completed camera scan sends. Also how a USB
+            // scanner announces it is done: it types the code into this same
+            // field and sends Enter immediately after.
+            if (e.key === 'Enter' && value.trim()) {
+              e.preventDefault();
+              onScanComplete?.(value.trim());
+            }
+          }}
           placeholder={placeholder}
           autoCapitalize="characters"
           autoComplete="off"

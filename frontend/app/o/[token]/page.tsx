@@ -127,6 +127,9 @@ export default function PublicOrderPage() {
   const [scanOpen, setScanOpen] = useState(false);
   const [scanBusy, setScanBusy] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [scanQuery, setScanQuery] = useState('');
+  const [scanResults, setScanResults] = useState<ScannedProduct[]>([]);
+  const [searching, setSearching] = useState(false);
   const [notes, setNotes] = useState('');
   const [orderNumber, setOrderNumber] = useState('');
   const [pastOrders, setPastOrders] = useState<PastOrder[]>([]);
@@ -490,6 +493,54 @@ export default function PublicOrderPage() {
     } finally {
       setScanBusy(false);
     }
+  };
+
+  /**
+   * Live search behind the typed fallback — mirrors the staff order screen.
+   * Debounced so it searches once typing pauses, not once per keystroke; the
+   * strict 1-letter-7-digit check in addScanned means a customer typing the
+   * code by hand used to see "doesn't look like a barcode" flash after every
+   * partial character instead of a way to find the item by name or colour.
+   */
+  useEffect(() => {
+    if (!scanOpen || !session) { setScanResults([]); return; }
+    const q = scanQuery.trim();
+    if (q.length < 2) { setScanResults([]); return; }
+
+    let cancelled = false;
+    setSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        const data = await call(`/products/search?q=${encodeURIComponent(q)}`);
+        if (!cancelled) setScanResults(data.products || []);
+      } catch {
+        if (!cancelled) setScanResults([]);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 300);
+
+    return () => { cancelled = true; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scanQuery, scanOpen, session]);
+
+  const selectSearchResult = (data: ScannedProduct) => {
+    const sizes   = splitCsv(data.size);
+    const colours = splitCsv(data.colour);
+
+    setRows(rs => [...rs, reconcileQty({
+      barcode: data.barcode,
+      sizes:   data.size_is_set   || sizes.length === 1   ? sizes   : [],
+      colours: data.colour_is_set || colours.length === 1 ? colours : [],
+      sizeIsSet:   !!data.size_is_set,
+      colourIsSet: !!data.colour_is_set,
+      qty: {},
+      customization: '',
+      product: data,
+    })]);
+    setScanOpen(false);
+    setScanQuery('');
+    setScanResults([]);
   };
 
   if (step === 'loading') {
@@ -881,7 +932,13 @@ export default function PublicOrderPage() {
                 </button>
               </div>
 
-              <BarcodeScanner value="" onChange={addScanned} autoStart />
+              <BarcodeScanner
+                value={scanQuery}
+                onChange={setScanQuery}
+                onScanComplete={addScanned}
+                autoStart
+                placeholder="Scan, or type a barcode, name or colour"
+              />
 
               {scanBusy && (
                 <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
@@ -894,6 +951,47 @@ export default function PublicOrderPage() {
                               rounded-lg px-3 py-2">
                   {scanError}
                 </p>
+              )}
+
+              {/* Matches as you type — the strict barcode format check in
+                  addScanned only makes sense once a code looks complete, so a
+                  customer typing by hand searches here first instead. */}
+              {scanQuery.trim().length >= 2 && (
+                <div className="max-h-64 overflow-y-auto -mx-1 px-1 space-y-1">
+                  {searching ? (
+                    <p className="text-[11px] text-muted-foreground flex items-center gap-1.5 py-2">
+                      <Loader2 className="w-3 h-3 animate-spin" /> Searching…
+                    </p>
+                  ) : scanResults.length > 0 ? (
+                    scanResults.map(p => (
+                      <button
+                        key={p.product_id}
+                        onClick={() => selectSearchResult(p)}
+                        className="w-full flex items-center gap-2.5 rounded-lg border border-border bg-card px-2.5 py-2 text-left hover:border-primary/40 hover:bg-secondary/40"
+                      >
+                        <div className="w-9 h-11 rounded-md bg-secondary shrink-0 overflow-hidden">
+                          {(p.image_path || p.image_url) && (
+                            <img
+                              src={p.image_path ? `${API_BASE}/uploads/${p.image_path}` : p.image_url!}
+                              alt="" className="w-full h-full object-cover"
+                            />
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-semibold text-foreground truncate">{p.name || p.barcode}</p>
+                          <p className="text-[10px] font-mono text-muted-foreground truncate">
+                            {p.barcode}{p.colour ? ` · ${p.colour}` : ''}
+                          </p>
+                        </div>
+                        <span className="text-xs font-bold text-foreground shrink-0">{money(p.price)}</span>
+                      </button>
+                    ))
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground py-2">
+                      No matches for "{scanQuery.trim()}" — please check with our staff.
+                    </p>
+                  )}
+                </div>
               )}
             </motion.div>
           </motion.div>

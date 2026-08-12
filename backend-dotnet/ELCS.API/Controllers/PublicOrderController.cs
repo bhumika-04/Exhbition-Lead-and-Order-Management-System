@@ -182,6 +182,44 @@ public class PublicOrderController : ControllerBase
     }
 
     /// <summary>
+    /// Live search while typing, for when the printed barcode will not scan.
+    /// Without this a mistyped or partial code just 404s — which the customer
+    /// cannot tell apart from "not in the catalogue" — and there is no way to
+    /// find the right item except retyping blind. Same session gate and same
+    /// public-safe field shape as LookupProduct; capped short because this is
+    /// a type-ahead dropdown, not a catalogue browse.
+    /// </summary>
+    [HttpGet("products/search")]
+    public async Task<IActionResult> SearchProducts([FromQuery] string q)
+    {
+        var session = await RequireSessionAsync();
+        if (session == null) return Unauthorized(new { error = "Your session has ended — please scan the code again" });
+
+        if (string.IsNullOrWhiteSpace(q) || q.Trim().Length < 2)
+            return Ok(new { products = Array.Empty<object>() });
+
+        var (products, _) = await _products.SearchAsync(new ProductSearchParams(Search: q.Trim(), Limit: 8));
+
+        return Ok(new
+        {
+            products = products.Select(product => new
+            {
+                product_id   = product.ProductId,
+                barcode      = product.Barcode,
+                size         = product.Size,
+                colour       = product.Colour,
+                fabric       = product.Fabric,
+                price        = product.Price,
+                name         = product.Name,
+                image_path   = product.ImagePath,
+                image_url    = product.ImageUrl,
+                colour_is_set = product.ColourIsSet,
+                size_is_set   = product.SizeIsSet,
+            }),
+        });
+    }
+
+    /// <summary>
     /// Orders already placed by the customer behind this session.
     ///
     /// Without this the QR page is a blank slate on every visit: a customer who
