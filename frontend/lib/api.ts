@@ -561,6 +561,47 @@ class ApiClient {
   }
 
   // Products
+  /**
+   * Re-attempts the image download for specific products — sent in whatever
+   * batch the caller passes (the page itself splits a large selection into
+   * chunks of 10 so one retry run cannot tie up a request or fire dozens of
+   * Drive fetches at once).
+   */
+  async retryProductImages(productIds: number[]): Promise<{
+    results: { product_id: number; ok: boolean; error: string | null }[];
+  }> {
+    const { data } = await this.client.post('/api/products/retry-images', { product_ids: productIds });
+    return data;
+  }
+
+  /**
+   * Every lead/order whose most recent WhatsApp attempt at a touchpoint did
+   * not succeed — "sent" here only ever meant Interakt accepted the request,
+   * never that WhatsApp delivered it, so this is genuinely the only list of
+   * "may not have received it" the app can produce.
+   */
+  async getWhatsAppIssues(): Promise<{
+    issues: {
+      lead_id: number; lead_name: string | null; company_name: string | null;
+      order_id: number | null; order_number: string | null;
+      touchpoint: string; recipient: string | null; status_code: string;
+      error_message: string | null; created_at: string;
+    }[];
+  }> {
+    const { data } = await this.client.get('/api/whatsapp/issues');
+    return data;
+  }
+
+  /** Re-sends one touchpoint. order_id is required for order_confirmation, ignored otherwise. */
+  async resendWhatsApp(leadId: number, touchpoint: string, orderId?: number | null): Promise<{
+    sent: boolean; status: string; error: string | null;
+  }> {
+    const { data } = await this.client.post('/api/whatsapp/resend', {
+      lead_id: leadId, order_id: orderId ?? null, touchpoint,
+    });
+    return data;
+  }
+
   async searchProducts(params?: {
     search?: string;
     include_inactive?: boolean;

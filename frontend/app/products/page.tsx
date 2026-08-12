@@ -6,7 +6,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import {
   Package, Plus, Search, X, Loader2, Pencil, Trash2, ImageIcon, Upload,
-  FileSpreadsheet, Download, FileDown, AlertTriangle,
+  FileSpreadsheet, Download, FileDown, AlertTriangle, CheckSquare, Square,
+  RefreshCw,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { isAuthenticated, hasPermission } from '@/lib/auth';
@@ -35,7 +36,9 @@ const blankForm = (): SaveProductRequest => ({
 export default function ProductsPage() {
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [search, setSearch] = useState('');
 
   const [editing, setEditing] = useState<Product | null>(null);
@@ -60,14 +63,74 @@ export default function ProductsPage() {
 
   const canManage = usePermission('manage_products');
 
+  // Retry image download — a product with a link but no stored picture (the
+  // download failed at import time, often because the file was not shared
+  // publicly yet, or simply predates the Drive API key being configured).
+  // Sent in chunks of 10 rather than all at once: a large selection would
+  // otherwise fire dozens of Drive fetches from one request, risking a
+  // timeout or a burst of load with no visible progress in between.
+  const [retrySelected, setRetrySelected] = useState<Set<number>>(new Set());
+  const [retrying, setRetrying] = useState(false);
+  const [retryProgress, setRetryProgress] = useState<{ done: number; total: number } | null>(null);
+  const RETRY_CHUNK = 10;
+
+  const missingImageProducts = products.filter(p => p.image_url && !p.image_path);
+
+  const toggleRetrySelect = (productId: number) => {
+    setRetrySelected(s => {
+      const next = new Set(s);
+      if (next.has(productId)) next.delete(productId); else next.add(productId);
+      return next;
+    });
+  };
+
+  const retryImages = async () => {
+    const ids = [...retrySelected];
+    if (ids.length === 0 || retrying) return;
+
+    setRetrying(true);
+    setRetryProgress({ done: 0, total: ids.length });
+    let fixed = 0, failed = 0;
+    try {
+      for (let i = 0; i < ids.length; i += RETRY_CHUNK) {
+        const chunk = ids.slice(i, i + RETRY_CHUNK);
+        try {
+          const res = await api.retryProductImages(chunk);
+          fixed += res.results.filter(r => r.ok).length;
+          failed += res.results.filter(r => !r.ok).length;
+        } catch {
+          failed += chunk.length;
+        }
+        setRetryProgress({ done: Math.min(i + RETRY_CHUNK, ids.length), total: ids.length });
+      }
+    } finally {
+      toast.success(
+        `${fixed} image${fixed === 1 ? '' : 's'} fixed` +
+        (failed > 0 ? ` — ${failed} still couldn't be downloaded` : '')
+      );
+      setRetrySelected(new Set());
+      setRetrying(false);
+      setRetryProgress(null);
+      await load();
+    }
+  };
+
+  // A hardcoded ceiling here is a bug waiting for the catalogue to outgrow it
+  // again — this was 200, then 500, silently truncating both times. 2000
+  // covers years of growth for a catalogue this size, and totalCount (the
+  // server's real count, not products.length) makes truncation visible
+  // instead of silent if it is ever hit anyway.
+  const FETCH_LIMIT = 2000;
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await api.searchProducts({
         search: search || undefined,
-        limit: 500,
+        limit: FETCH_LIMIT,
       });
       setProducts(res.products);
+      setTotalCount(res.count);
     } catch {
       toast.error('Could not load products');
     } finally {
@@ -198,7 +261,7 @@ export default function ProductsPage() {
       <PageHeader
         icon={Package}
         title="Product Master"
-        subtitle={`${products.length} product${products.length === 1 ? '' : 's'} · barcodes resolve at the counter and on the customer's phone`}
+        subtitle={`${totalCount} product${totalCount === 1 ? '' : 's'} · barcodes resolve at the counter and on the customer's phone`}
         actions={(
           <div className="flex items-center gap-1.5">
             {/* Export and Template need no write permission — they only read
@@ -208,13 +271,27 @@ export default function ProductsPage() {
               <FileDown className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Template</span>
             </Button>
-            <Button size="sm" variant="ghost"
-                    onClick={() => {
-                      if (products.length === 0) { toast.error('Nothing to export yet'); return; }
-                      exportProducts(products);
+            <Button size="sm" variant="ghost" disabled={exporting}
+                    onClick={async () => {
+                      if (totalCount === 0) { toast.error('Nothing to export yet'); return; }
+                      // Exports whatever the catalogue actually is, not just
+                      // what happened to be loaded on screen — the two can
+                      // differ if a search is narrowing the current view, or
+                      // if the catalogue ever outgrows FETCH_LIMIT.
+                      setExporting(true);
+                      try {
+                        const full = totalCount <= products.length
+                          ? products
+                          : (await api.searchProducts({ search: search || undefined, limit: totalCount })).products;
+                        exportProducts(full);
+                      } catch {
+                        toast.error('Could not export the catalogue');
+                      } finally {
+                        setExporting(false);
+                      }
                     }}
                     className="gap-1.5 h-9 text-xs" title="Download the catalogue as Excel">
-              <Download className="w-3.5 h-3.5" />
+              {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
               <span className="hidden sm:inline">Export</span>
             </Button>
             {canManage && (
@@ -251,7 +328,29 @@ export default function ProductsPage() {
             className="w-full h-10 pl-9 pr-3 rounded-lg border border-border bg-card text-sm"
           />
         </div>
+        {canManage && missingImageProducts.length > 0 && (
+          <Button
+            size="sm" variant="outline"
+            onClick={() => setRetrySelected(new Set(missingImageProducts.map(p => p.product_id)))}
+            className="gap-1.5 h-10 text-xs shrink-0"
+            title="Select every currently-loaded product with a link but no picture"
+          >
+            <ImageIcon className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Missing images</span> ({missingImageProducts.length})
+          </Button>
+        )}
       </div>
+
+      {/* Catches the catalogue outgrowing FETCH_LIMIT — shown instead of
+          silently displaying (and, before this, exporting) a partial list. */}
+      {!loading && !search && products.length < totalCount && (
+        <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/[0.08] px-3 py-2.5">
+          <AlertTriangle className="w-4 h-4 text-warning shrink-0" />
+          <p className="text-[11px] text-foreground">
+            Showing {products.length} of {totalCount} products — search to narrow the list. The catalogue has outgrown what this page loads at once; ask support to raise the limit.
+          </p>
+        </div>
+      )}
 
       {/* List */}
       {loading ? (
@@ -279,6 +378,21 @@ export default function ProductsPage() {
                   <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[8px] text-center py-0.5">
                     Fabric
                   </span>
+                )}
+                {/* A link that never became a stored picture — the one thing
+                    this checkbox is for. Nothing to retry for a product with
+                    no link, or one that already has an image. */}
+                {canManage && p.image_url && !p.image_path && (
+                  <button
+                    type="button"
+                    onClick={() => toggleRetrySelect(p.product_id)}
+                    aria-label={retrySelected.has(p.product_id) ? 'Deselect' : 'Select to retry its image'}
+                    className="absolute top-0.5 left-0.5 p-0.5 rounded bg-card/90 hover:bg-card"
+                  >
+                    {retrySelected.has(p.product_id)
+                      ? <CheckSquare className="w-3.5 h-3.5 text-primary" />
+                      : <Square className="w-3.5 h-3.5 text-muted-foreground" />}
+                  </button>
                 )}
               </div>
 
@@ -322,6 +436,32 @@ export default function ProductsPage() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {retrySelected.size > 0 && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2
+                        bg-card border border-border rounded-full shadow-lg px-3 py-2">
+          <span className="text-xs font-medium text-foreground pl-1.5">
+            {retrySelected.size} selected
+          </span>
+          <Button
+            size="sm" disabled={retrying} onClick={retryImages}
+            className="h-8 gap-1.5 text-xs rounded-full"
+          >
+            {retrying
+              ? <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  {retryProgress ? `${retryProgress.done}/${retryProgress.total}` : 'Retrying…'}
+                </>
+              : <><RefreshCw className="w-3.5 h-3.5" /> Retry images</>}
+          </Button>
+          <button
+            onClick={() => setRetrySelected(new Set())} disabled={retrying}
+            className="text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50 pr-1.5"
+          >
+            Clear
+          </button>
         </div>
       )}
 

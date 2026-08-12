@@ -290,6 +290,31 @@ public class InteraktWhatsAppService : IWhatsAppService
         }
     }
 
+    public async Task<List<WhatsAppIssueDto>> GetDeliveryIssuesAsync()
+    {
+        using var conn = _db.CreateConnection();
+        var rows = await conn.QueryAsync<WhatsAppIssueDto>(@"
+            ;WITH Latest AS (
+                SELECT *,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY LeadId, ISNULL(OrderId, 0), Touchpoint
+                           ORDER BY CreatedAt DESC
+                       ) AS rn
+                FROM WhatsAppMessages
+            )
+            SELECT
+                w.LeadId, l.PrimaryVisitorName AS LeadName, l.CompanyName,
+                w.OrderId, o.OrderNumber,
+                w.Touchpoint, w.Recipient, w.StatusCode, w.ErrorMessage, w.CreatedAt
+            FROM Latest w
+            JOIN Leads l ON l.LeadId = w.LeadId
+            LEFT JOIN Orders o ON o.OrderId = w.OrderId
+            WHERE w.rn = 1 AND w.StatusCode NOT IN ('sent', 'delivered', 'read')
+            ORDER BY w.CreatedAt DESC");
+
+        return rows.ToList();
+    }
+
     private async Task LogAsync(
         int leadId, int? orderId, string touchpoint, string? recipient,
         string? templateName, string? mediaUrl, WhatsAppSendResult result)
@@ -329,13 +354,57 @@ public class InteraktWhatsAppService : IWhatsAppService
     /// Indian numbers are stored inconsistently across the app (with +91, with a
     /// leading 0, or bare 10 digits), so normalise rather than trust the field.
     /// </summary>
+    /// <summary>
+    /// ITU-T E.164 calling codes for the countries visitors actually come
+    /// from — the Gulf, UK/Europe, North America and South-East Asia, on top
+    /// of India. Not the full ~240-entry table: an exhibition lead from a
+    /// country missing here still falls back to being treated as unusable,
+    /// same as before this list existed, so a gap here is a missed
+    /// improvement, not a regression.
+    ///
+    /// Checked longest-prefix-first (3 digits, then 2, then 1) — "91" (India)
+    /// and "971" (UAE) both start with "9", so matching the single digit
+    /// first would misread a UAE number as a malformed Indian one.
+    /// </summary>
+    private static readonly string[] CallingCodes3 =
+        { "971", "972", "966", "968", "973", "974", "965", "962", "852", "886", "961", "960" };
+    private static readonly string[] CallingCodes2 =
+        { "91", "44", "49", "33", "39", "34", "31", "32", "41", "43", "46", "47", "45", "48",
+          "86", "81", "82", "65", "60", "62", "63", "66", "84", "20", "27", "61", "64" };
+    // 1-digit: "1" (US/Canada), "7" (Russia/Kazakhstan) — the only two ITU
+    // reserves whole. Every other single leading digit is shared across many
+    // 2- or 3-digit codes, so treating it as complete here would misparse.
+    private static readonly string[] CallingCodes1 = { "1", "7" };
+
     private static (string CountryCode, string Number, string Full)? NormalisePhone(
         string? raw, string defaultCountryCode)
     {
         if (string.IsNullOrWhiteSpace(raw)) return null;
 
+        var hasPlus = raw.TrimStart().StartsWith('+');
         var digits = new string(raw.Where(char.IsDigit).ToArray());
         if (digits.Length == 0) return null;
+
+        // Explicitly international — the visitor's own number already carries
+        // a country code (typed with a leading "+"), so it is split on a real
+        // calling code and sent as-is rather than forced through the
+        // India-only assumption below, which used to reject every one of
+        // these outright as "no usable phone number".
+        if (hasPlus && digits.Length is >= 8 and <= 15 && !digits.StartsWith("91"))
+        {
+            var code =
+                CallingCodes3.FirstOrDefault(c => digits.StartsWith(c)) ??
+                CallingCodes2.FirstOrDefault(c => digits.StartsWith(c)) ??
+                CallingCodes1.FirstOrDefault(c => digits.StartsWith(c));
+
+            if (code != null && digits.Length > code.Length)
+            {
+                var local = digits[code.Length..];
+                return ("+" + code, local, "+" + digits);
+            }
+            // Not a calling code this list knows — falls through to the
+            // India-only path below, which will reject it exactly as before.
+        }
 
         if (digits.Length == 12 && digits.StartsWith("91"))
             digits = digits[2..];

@@ -19,6 +19,17 @@ public interface IProductImportService
     /// price, image or set flag someone already corrected by hand in the app.
     /// </param>
     Task<ImportReport> ImportAsync(List<ImportRowInput> rows, bool dryRun, bool skipExisting = false);
+
+    /// <summary>
+    /// Re-attempts the image download for specific existing products — for
+    /// links that failed the first time (private at import, made public
+    /// since, or imported before the Drive API key existed) but work now.
+    /// Skips a product that already has a stored image rather than
+    /// overwriting it — that image may have been uploaded by hand, which
+    /// always outranks a re-fetched link. Only ImagePath ever changes; the
+    /// rest of the product is untouched.
+    /// </summary>
+    Task<List<RetryImageResult>> RetryImagesAsync(List<int> productIds);
 }
 
 /// <summary>One row of the sheet, as read by the browser. All text — the sheet
@@ -60,3 +71,5 @@ public record ImportReport(
     bool DryRun,
     List<ImportRowResult> Rows
 );
+
+public record RetryImageResult(int ProductId, bool Ok, string? Error);

@@ -8,6 +8,7 @@ import {
   ScanLine, Building2, Users, BarChart3, Camera,
   FileSpreadsheet, LogOut, ChevronLeft, ChevronRight,
   UserCog, Shield, Package, ShoppingBag, Settings as SettingsIcon,
+  MessageSquare,
 } from 'lucide-react';
 
 // permission: null = always visible
@@ -18,6 +19,7 @@ const NAV_ITEMS = [
   { name: 'Dashboard',   path: '/dashboard',   icon: BarChart3,       permission: 'view_dashboard' },
   { name: 'Exhibitions', path: '/exhibitions', icon: Building2,       permission: 'view_exhibitions' },
   { name: 'Orders',      path: '/orders',      icon: ShoppingBag,     permission: 'manage_orders' },
+  { name: 'Messages',    path: '/whatsapp',    icon: MessageSquare,   permission: 'manage_orders' },
   { name: 'Report',      path: '/report',      icon: FileSpreadsheet, permission: 'view_report' },
   { name: 'Products',    path: '/products',    icon: Package,         permission: 'manage_products' },
   { name: 'Users',       path: '/users',       icon: UserCog,         permission: 'manage_users' },

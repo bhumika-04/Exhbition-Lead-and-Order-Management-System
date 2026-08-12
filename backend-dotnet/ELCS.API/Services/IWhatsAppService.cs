@@ -26,7 +26,30 @@ public interface IWhatsAppService
     /// the exhibition is over. Sent to everyone, whether or not they ordered.
     /// </summary>
     Task<WhatsAppSendResult> SendShowroomInviteAsync(int leadId, string? name, string? phone);
+
+    /// <summary>
+    /// The most recent attempt at each (lead, order, touchpoint) that did not
+    /// end in "sent" — the list this app can actually see, since there is no
+    /// webhook to learn about a delivery that failed after Interakt accepted
+    /// it. A touchpoint whose latest attempt succeeded is not an issue even
+    /// if an earlier one failed, so this reads the newest row per group, not
+    /// every failed row ever logged.
+    /// </summary>
+    Task<List<WhatsAppIssueDto>> GetDeliveryIssuesAsync();
 }
+
+public record WhatsAppIssueDto(
+    int LeadId,
+    string? LeadName,
+    string? CompanyName,
+    int? OrderId,
+    string? OrderNumber,
+    string Touchpoint,
+    string? Recipient,
+    string StatusCode,
+    string? ErrorMessage,
+    DateTime CreatedAt
+);
 
 public static class WhatsAppTouchpoints
 {

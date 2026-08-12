@@ -173,6 +173,37 @@ public class ProductImportService : IProductImportService
             Rows: results);
     }
 
+    public async Task<List<RetryImageResult>> RetryImagesAsync(List<int> productIds)
+    {
+        if (productIds == null || productIds.Count == 0) return new List<RetryImageResult>();
+
+        using var conn = _db.CreateConnection();
+        var products = (await conn.QueryAsync<(int ProductId, string? ImageUrl, string? ImagePath)>(
+            "SELECT ProductId, ImageUrl, ImagePath FROM Products WHERE ProductId IN @Ids",
+            new { Ids = productIds })).ToList();
+
+        var results = new List<RetryImageResult>();
+        foreach (var p in products)
+        {
+            if (!string.IsNullOrWhiteSpace(p.ImagePath))
+            {
+                results.Add(new RetryImageResult(p.ProductId, false, "Already has an image — not overwritten"));
+                continue;
+            }
+            if (string.IsNullOrWhiteSpace(p.ImageUrl))
+            {
+                results.Add(new RetryImageResult(p.ProductId, false, "No image link on this product"));
+                continue;
+            }
+
+            var stored = await TryStoreImageAsync(p.ProductId, p.ImageUrl, conn);
+            results.Add(new RetryImageResult(
+                p.ProductId, stored,
+                stored ? null : "Could not download — check the link is shared publicly"));
+        }
+        return results;
+    }
+
     /// <summary>
     /// Fetches the sheet's image into uploads/products/{id}.{ext}.
     ///

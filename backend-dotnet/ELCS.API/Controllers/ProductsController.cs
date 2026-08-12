@@ -51,6 +51,22 @@ public class ProductsController : ControllerBase
     }
 
     /// <summary>
+    /// Re-attempts the image download for the given products. The frontend
+    /// sends this in small batches (its own concern, not enforced server
+    /// side) so retrying a large selection cannot tie up one request or fire
+    /// dozens of Drive fetches at once.
+    /// </summary>
+    [HttpPost("retry-images")]
+    public async Task<IActionResult> RetryImages([FromBody] RetryImagesRequest request)
+    {
+        if (request.ProductIds == null || request.ProductIds.Count == 0)
+            return BadRequest(new { error = "Select at least one product" });
+
+        var results = await _import.RetryImagesAsync(request.ProductIds);
+        return Ok(new { results });
+    }
+
+    /// <summary>
     /// Distinct sizes and colours already in the catalogue, for the order form's
     /// size/colour pickers. Derived rather than hard-coded so the options track
     /// what is actually stocked without anyone maintaining a second list.
@@ -182,3 +198,5 @@ public class ProductsController : ControllerBase
 
 /// <summary>Rows read from the sheet by the browser, plus the preview flag.</summary>
 public record ImportRequest(List<ImportRowInput> Rows, bool DryRun = true, bool SkipExisting = false);
+
+public record RetryImagesRequest(List<int> ProductIds);

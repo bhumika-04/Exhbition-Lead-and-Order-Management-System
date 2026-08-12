@@ -34,7 +34,10 @@ public class ProductService : IProductService
         var total = await conn.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM Products {where}", args);
 
         args.Add("Offset", Math.Max(0, p.Offset));
-        args.Add("Limit", Math.Clamp(p.Limit, 1, 500));
+        // Was capped at 500 — the catalogue is past that now (523 and
+        // growing), and the cap silently truncated the page below what the
+        // caller asked for. Matches the frontend's own FETCH_LIMIT.
+        args.Add("Limit", Math.Clamp(p.Limit, 1, 2000));
 
         var rows = (await conn.QueryAsync<ProductDto>($@"
             SELECT {Columns} FROM Products
