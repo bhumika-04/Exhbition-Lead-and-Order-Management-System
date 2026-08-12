@@ -46,7 +46,7 @@ public class ProductsController : ControllerBase
         if (request.Rows.Count > 5000)
             return BadRequest(new { error = "That sheet is too large — split it into files of 5000 rows or fewer" });
 
-        var report = await _import.ImportAsync(request.Rows, request.DryRun);
+        var report = await _import.ImportAsync(request.Rows, request.DryRun, request.SkipExisting);
         return Ok(report);
     }
 
@@ -181,4 +181,4 @@ public class ProductsController : ControllerBase
 }
 
 /// <summary>Rows read from the sheet by the browser, plus the preview flag.</summary>
-public record ImportRequest(List<ImportRowInput> Rows, bool DryRun = true);
+public record ImportRequest(List<ImportRowInput> Rows, bool DryRun = true, bool SkipExisting = false);

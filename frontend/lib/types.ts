@@ -53,6 +53,8 @@ export interface Lead {
   coupon_override_slab?: number | null;
   /** Raw JSON array of physical coupon numbers, e.g. '["A-102","A-103"]'. Parse before use. */
   coupon_numbers?: string | null;
+  /** This lead's personal ordering QR token, once generated. Null until then. */
+  public_token?: string | null;
 
   // Joined fields
   exhibition_name?: string;

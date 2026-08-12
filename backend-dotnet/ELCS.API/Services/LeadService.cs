@@ -467,6 +467,35 @@ public class LeadService : ILeadService
             leadId, lead.PrimaryVisitorName, lead.CompanyName);
     }
 
+    private sealed class LeadTokenRow { public string? PublicToken { get; set; } }
+
+    public async Task<string> SetLeadPublicTokenAsync(int leadId, bool rotate)
+    {
+        using var conn = _db.CreateConnection();
+
+        // A class, not a scalar: QueryFirstOrDefaultAsync returns a real null
+        // when no row matches, so a typo'd id 404s instead of quietly minting
+        // a token for nothing — a scalar string can't tell "no lead" apart
+        // from "lead exists with a NULL token".
+        var row = await conn.QueryFirstOrDefaultAsync<LeadTokenRow>(
+            "SELECT PublicToken FROM Leads WHERE LeadId = @LeadId", new { LeadId = leadId });
+        if (row == null)
+            throw new KeyNotFoundException($"Lead {leadId} not found");
+
+        if (!rotate && !string.IsNullOrWhiteSpace(row.PublicToken))
+            return row.PublicToken;
+
+        var token = Guid.NewGuid().ToString("N");
+        await conn.ExecuteAsync(
+            "UPDATE Leads SET PublicToken = @Token WHERE LeadId = @LeadId",
+            new { Token = token, LeadId = leadId });
+
+        _logger.LogInformation("Public ordering token {Action} for lead {LeadId}",
+            rotate ? "rotated" : "minted", leadId);
+
+        return token;
+    }
+
     public async Task SetCouponOverrideAsync(int leadId, int? slab)
     {
         if (slab is < 0)

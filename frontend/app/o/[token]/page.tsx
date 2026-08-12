@@ -16,6 +16,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Loader2, ShoppingBag, Plus, Minus, Trash2, CheckCircle2, AlertTriangle,
   ShieldCheck, ArrowRight, Store, ScanLine, X, ChevronRight, FileText, Pencil,
+  UserCheck,
 } from 'lucide-react';
 import BarcodeScanner from '@/components/BarcodeScanner';
 import {
@@ -25,12 +26,17 @@ import QtyMatrix from '@/components/QtyMatrix';
 import ChipRow from '@/components/ChipRow';
 import { NumberInput } from '@/components/ui/number-input';
 
-type Step = 'loading' | 'invalid' | 'mobile' | 'register' | 'items' | 'done';
+type Step = 'loading' | 'invalid' | 'mobile' | 'confirm-identity' | 'register' | 'items' | 'done';
 
 interface ExhibitionInfo {
   exhibition_id: number;
   name: string;
   location?: string | null;
+  /** True when the scanned token is a specific lead's personal QR, not the
+   *  exhibition's general one — the page skips straight to a name
+   *  confirmation instead of asking for a mobile number. */
+  is_lead_link?: boolean;
+  lead_name?: string | null;
 }
 
 interface PastOrder {
@@ -177,7 +183,11 @@ export default function PublicOrderPage() {
       try {
         const res = await fetch(`${API_BASE}/api/public/exhibition/${token}`);
         if (!res.ok) { setStep('invalid'); return; }
-        setExhibition(await res.json());
+        const exhibitionData: ExhibitionInfo = await res.json();
+        setExhibition(exhibitionData);
+        // A lead's own link has no mobile number to ask for — every fallback
+        // below that would otherwise land on 'mobile' goes here instead.
+        const freshStep: Step = exhibitionData.is_lead_link ? 'confirm-identity' : 'mobile';
 
         const saved = sessionStorage.getItem(cacheKey);
         if (saved) {
@@ -191,12 +201,16 @@ export default function PublicOrderPage() {
             // the items and ask for the number again, rather than throwing the
             // order away because the token went stale.
             if (c.session) { setSession(c.session); setStep('items'); return; }
-            setStep('mobile');
-            setError('Your session timed out — enter your number to pick up where you left off.');
+            setStep(freshStep);
+            setError(
+              exhibitionData.is_lead_link
+                ? 'Your session timed out — tap Continue to pick up where you left off.'
+                : 'Your session timed out — enter your number to pick up where you left off.'
+            );
             return;
           }
         }
-        setStep('mobile');
+        setStep(freshStep);
       } catch {
         setStep('invalid');
       }
@@ -324,6 +338,26 @@ export default function PublicOrderPage() {
 
   const continueFromMobile = () => startSession();
 
+  /** A lead's own QR — the token already says who this is, so there is
+   *  nothing to type, just a name to confirm. */
+  const confirmIdentity = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await call('/session/lead', {
+        method: 'POST',
+        body: JSON.stringify({ token }),
+      });
+      setSession(res.session_token);
+      setLead(res.known_lead);
+      setStep('items');
+    } catch (e: any) {
+      setError(e.message);
+    } finally { setBusy(false); }
+  };
+
+  const notMe = () => { setError(null); setStep('mobile'); };
+
   const register = async () => {
     setError(null);
     if (!name.trim()) { setError('Please enter your name'); return; }
@@ -397,10 +431,15 @@ export default function PublicOrderPage() {
       // The basket is kept and the customer re-enters their number, rather than
       // being shown an error they cannot act on with their order still on screen.
       if (res.status === 401) {
-        sessionStorage.setItem(cacheKey, JSON.stringify({ session: null, lead, rows, notes }));
+        sessionStorage.setItem(cacheKey, JSON.stringify({ session: null, lead, rows, notes, editingOrder }));
         setSession(null);
-        setStep('mobile');
-        setError('Your session timed out — enter your number and we will submit your order.');
+        if (exhibition?.is_lead_link) {
+          setStep('confirm-identity');
+          setError('Your session timed out — confirm it’s you and we will submit your order.');
+        } else {
+          setStep('mobile');
+          setError('Your session timed out — enter your number and we will submit your order.');
+        }
         return;
       }
 
@@ -564,9 +603,12 @@ export default function PublicOrderPage() {
   }
 
   return (
-    // The mobile step carries its own logo and title, so the Shell's
-    // exhibition chip would be a second header stacked on the first.
-    <Shell centered={step === 'mobile'} exhibition={step === 'mobile' ? null : exhibition}>
+    // The mobile and confirm-identity steps carry their own logo and title,
+    // so the Shell's exhibition chip would be a second header stacked on the first.
+    <Shell
+      centered={step === 'mobile' || step === 'confirm-identity'}
+      exhibition={step === 'mobile' || step === 'confirm-identity' ? null : exhibition}
+    >
       <AnimatePresence mode="wait">
         <motion.div
           key={step}
@@ -646,6 +688,72 @@ export default function PublicOrderPage() {
                   {busy
                     ? <><Loader2 className="w-4 h-4 animate-spin" /> Please wait…</>
                     : <>Continue <ArrowRight className="w-4 h-4" /></>}
+                </button>
+              </div>
+
+              <p className="text-center text-[11px] text-muted-foreground mt-5">
+                Tejoo Fashion Exhibition Management System
+                <br />
+                powered by Indus Analytics Private Limited
+              </p>
+            </div>
+          )}
+
+          {step === 'confirm-identity' && (
+            // Mirrors the mobile step's layout (logo, title, one card, one
+            // primary action) but with nothing to type — the QR already
+            // identifies the customer, this just guards against a shared or
+            // reused link landing on the wrong person's basket.
+            <div>
+              <div className="text-center mb-7">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/tejoo-logo.png"
+                  alt="Tejoo"
+                  className="h-16 w-auto mx-auto mb-4 rounded-lg"
+                  onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                />
+                <h1 className="text-lg font-semibold text-foreground tracking-tight">
+                  Place your order
+                </h1>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {exhibition?.name ? `At ${exhibition.name}` : 'Welcome back'}
+                </p>
+              </div>
+
+              <div className="bg-card border border-border rounded-xl shadow-sm p-6 space-y-4 text-center">
+                <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
+                  <UserCheck className="w-6 h-6 text-primary" />
+                </div>
+                <div>
+                  <p className="text-base font-semibold text-foreground">
+                    Hi{exhibition?.lead_name ? ` ${exhibition.lead_name.split(' ')[0]}` : ''}, is this you?
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    This link is yours — confirm to start ordering
+                  </p>
+                </div>
+
+                <button
+                  onClick={confirmIdentity}
+                  disabled={busy}
+                  className="w-full h-11 rounded-lg bg-primary text-primary-foreground font-medium text-sm
+                             inline-flex items-center justify-center gap-2 shadow-sm
+                             hover:bg-primary/90 hover:shadow active:translate-y-px
+                             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40
+                             disabled:opacity-50 disabled:pointer-events-none transition-all"
+                >
+                  {busy
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Please wait…</>
+                    : <>Yes, continue <ArrowRight className="w-4 h-4" /></>}
+                </button>
+
+                <button
+                  onClick={notMe}
+                  disabled={busy}
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                >
+                  Not you? Enter a different number
                 </button>
               </div>
 

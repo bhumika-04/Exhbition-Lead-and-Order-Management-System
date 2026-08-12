@@ -11,6 +11,18 @@ public interface IOrderService
     Task DeleteOrderAsync(int orderId);
     Task ConfirmOrderAsync(int orderId);
 
+    /// <summary>
+    /// Applies ONE payment across several of a lead's draft orders and confirms
+    /// them together — for a customer who placed more than one order and pays
+    /// once for all of it. Drafts only: the Sales Order and its payment are a
+    /// one-time step at confirmation, not something bulk-editable afterwards.
+    /// The advance is allocated to each order up to its own value in turn
+    /// (oldest first), so no single order ends up recorded with more advance
+    /// than its own worth, while the combined total across the selection still
+    /// matches what was actually collected. Returns the confirmed order ids.
+    /// </summary>
+    Task<List<int>> BulkConfirmDraftsAsync(int leadId, List<int> orderIds, int slabBand, decimal advanceAmount);
+
     /// <summary>Sets the slab, order value and the advance actually taken on an order.</summary>
     Task SetOrderPaymentAsync(int orderId, SetOrderPaymentRequest request);
 
@@ -118,6 +130,7 @@ public record SetOrderPaymentRequest(
     decimal? OrderValue,
     decimal AdvanceAmount
 );
+
 
 public record OrderSearchParams(
     int? ExhibitionId = null,

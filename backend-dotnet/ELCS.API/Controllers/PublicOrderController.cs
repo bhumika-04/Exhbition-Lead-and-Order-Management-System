@@ -49,19 +49,36 @@ public class PublicOrderController : ControllerBase
 
     private const string SessionHeader = "X-Public-Session";
 
-    /// <summary>Resolves the QR token. Returns only the exhibition's public face.</summary>
+    /// <summary>
+    /// Resolves the QR token — either an exhibition's (customer types their
+    /// mobile next) or a specific lead's personal one (customer is already
+    /// known, so the page skips straight to a confirmation step instead).
+    /// Returns only the exhibition's public face either way.
+    /// </summary>
     [HttpGet("exhibition/{token}")]
     public async Task<IActionResult> GetExhibition(string token)
     {
         var ex = await FindExhibitionAsync(token);
-        if (ex == null)
+        if (ex != null)
+            return Ok(new
+            {
+                exhibition_id = ex.ExhibitionId,
+                name          = ex.Name,
+                location      = ex.Location,
+                is_lead_link  = false,
+            });
+
+        var lead = await FindLeadLinkAsync(token);
+        if (lead == null)
             return NotFound(new { error = "This ordering link is not valid" });
 
         return Ok(new
         {
-            exhibition_id = ex.ExhibitionId,
-            name          = ex.Name,
-            location      = ex.Location,
+            exhibition_id = lead.ExhibitionId,
+            name          = lead.ExhibitionName,
+            location      = lead.ExhibitionLocation,
+            is_lead_link  = true,
+            lead_name     = lead.Name,
         });
     }
 
@@ -84,6 +101,44 @@ public class PublicOrderController : ControllerBase
             success       = true,
             session_token = result.SessionToken,
             known_lead    = await MatchLeadAsync(mobile, session),
+        });
+    }
+
+    /// <summary>
+    /// Opens a session for a lead's personal QR — the token already says who
+    /// this is, so there is no mobile number to type and no phone match to
+    /// run: it goes straight from token to bound session.
+    /// </summary>
+    [HttpPost("session/lead")]
+    public async Task<IActionResult> StartLeadSession([FromBody] PublicLeadSessionRequest request)
+    {
+        var lead = await FindLeadLinkAsync(request.Token);
+        if (lead == null)
+            return NotFound(new { error = "This ordering link is not valid" });
+
+        using var conn = _db.CreateConnection();
+        var phone = await conn.ExecuteScalarAsync<string?>(
+            "SELECT PrimaryVisitorPhone FROM Leads WHERE LeadId = @LeadId", new { lead.LeadId });
+
+        // Every lead is created with a phone, so this is a data problem, not a
+        // normal path — but a null here must not reach StartSessionAsync,
+        // which expects a real (if possibly invalid) string to normalise.
+        if (string.IsNullOrWhiteSpace(phone))
+            return BadRequest(new { error = "This lead has no phone number on file — please check with our staff" });
+
+        var result = await _sessions.StartSessionAsync(phone, lead.ExhibitionId);
+        if (!result.Success)
+            return BadRequest(new { error = result.Error });
+
+        var session = await _sessions.GetSessionAsync(result.SessionToken);
+        if (session != null)
+            await _sessions.BindLeadAsync(session.PublicSessionId, lead.LeadId);
+
+        return Ok(new
+        {
+            success       = true,
+            session_token = result.SessionToken,
+            known_lead    = new PublicLeadDto(lead.LeadId, lead.Name, null),
         });
     }
 
@@ -444,17 +499,46 @@ public class PublicOrderController : ControllerBase
             new { Token = token.Trim() });
     }
 
+    /// <summary>
+    /// A lead's personal token, resolved to the exhibition it opens onto. Not
+    /// gated on Exhibitions.SelfServiceEnabled — a lead's own QR is handed to
+    /// them directly by staff, unlike the printed booth code, so it works
+    /// even for an exhibition that never turned the general QR on.
+    /// </summary>
+    private async Task<PublicLeadLinkRow?> FindLeadLinkAsync(string? token)
+    {
+        if (string.IsNullOrWhiteSpace(token)) return null;
+        using var conn = _db.CreateConnection();
+        return await conn.QueryFirstOrDefaultAsync<PublicLeadLinkRow>(@"
+            SELECT l.LeadId, l.ExhibitionId, l.PrimaryVisitorName AS Name,
+                   e.Name AS ExhibitionName, e.Location AS ExhibitionLocation
+            FROM Leads l
+            JOIN Exhibitions e ON e.ExhibitionId = l.ExhibitionId
+            WHERE l.PublicToken = @Token AND e.IsActive = 1",
+            new { Token = token.Trim() });
+    }
+
     public sealed class PublicExhibitionRow
     {
         public int ExhibitionId { get; set; }
         public string? Name { get; set; }
         public string? Location { get; set; }
     }
+
+    public sealed class PublicLeadLinkRow
+    {
+        public int LeadId { get; set; }
+        public int ExhibitionId { get; set; }
+        public string? Name { get; set; }
+        public string? ExhibitionName { get; set; }
+        public string? ExhibitionLocation { get; set; }
+    }
 }
 
 public record PublicLeadDto(int LeadId, string? Name, string? CompanyName);
 
 public record PublicSessionRequest(string Token, string Mobile);
+public record PublicLeadSessionRequest(string Token);
 public record PublicRegisterRequest(string Name, string? CompanyName, string? Email);
 
 public record PublicOrderItemRequest(

@@ -1,14 +1,18 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ShoppingBag, Plus, Ticket, ChevronRight, Loader2, FileText, FileClock } from 'lucide-react';
+import {
+  ShoppingBag, Plus, Ticket, ChevronRight, Loader2, FileText, FileClock,
+  CheckSquare, Square, Send,
+} from 'lucide-react';
 import { api } from '@/lib/api';
 import { hasPermission } from '@/lib/auth';
 import type { OrderSummary, LeadOrderSummary } from '@/lib/types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { money, ORDER_STATUS_LABELS, ORDER_STATUS_STYLES } from '@/lib/orders';
+import BulkPaymentModal from '@/components/BulkPaymentModal';
 
 /**
  * Orders placed by a lead, plus their advance/coupon position.
@@ -32,26 +36,42 @@ export default function LeadOrdersCard({ leadId, show = 'placed' }: {
   const [summary, setSummary] = useState<LeadOrderSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Bulk payment — several of this lead's orders, paid for in one go, because
+  // they are one customer settling up once, not several. Works in both views:
+  // a draft picked up here is confirmed as part of taking its share, an
+  // already-placed order just has its advance updated.
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [showBulk, setShowBulk] = useState(false);
+
   const canManage = hasPermission('manage_orders');
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await api.getOrdersForLead(leadId);
-        if (cancelled) return;
-        setOrders(res.orders.filter(o =>
-          show === 'drafts' ? o.status_code === 'draft' : o.status_code !== 'draft'));
-        setSummary(res.summary);
-      } catch {
-        // A lead with no orders is the normal case; stay quiet rather than
-        // showing an error toast on every lead detail view.
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
+  const load = useCallback(async () => {
+    try {
+      const res = await api.getOrdersForLead(leadId);
+      setOrders(res.orders.filter(o =>
+        show === 'drafts' ? o.status_code === 'draft' : o.status_code !== 'draft'));
+      setSummary(res.summary);
+    } catch {
+      // A lead with no orders is the normal case; stay quiet rather than
+      // showing an error toast on every lead detail view.
+    } finally {
+      setLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leadId, show]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const toggleSelect = (orderId: number) => {
+    setSelected(s => {
+      const next = new Set(s);
+      if (next.has(orderId)) next.delete(orderId); else next.add(orderId);
+      return next;
+    });
+  };
+
+  const selectedOrders = orders.filter(o => selected.has(o.order_id));
+  const selectedValue = selectedOrders.reduce((sum, o) => sum + o.effective_value, 0);
 
   return (
     <Card className="shadow-sm border-border">
@@ -85,26 +105,44 @@ export default function LeadOrdersCard({ leadId, show = 'placed' }: {
           <>
             <div className="space-y-1.5">
               {orders.map(o => (
-                <button
-                  key={o.order_id}
-                  onClick={() => router.push(`/orders/${o.order_id}`)}
-                  className="w-full flex items-center gap-2 px-3 py-2 lg:py-2.5 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors text-left"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs lg:text-sm font-semibold text-foreground truncate">{o.order_number}</span>
-                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${ORDER_STATUS_STYLES[o.status_code]}`}>
-                        {ORDER_STATUS_LABELS[o.status_code]}
+                <div key={o.order_id} className="flex items-center gap-1.5">
+                  {/* Selecting more than one draft only makes sense when there
+                      is more than one — a single draft is confirmed the plain
+                      way, from its own page. The Sales Order and its payment
+                      are a one-time step at confirmation, not something
+                      bulk-editable on an already-placed order afterwards. */}
+                  {show === 'drafts' && canManage && orders.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => toggleSelect(o.order_id)}
+                      aria-label={selected.has(o.order_id) ? 'Deselect' : 'Select'}
+                      className="p-1 text-muted-foreground hover:text-primary shrink-0"
+                    >
+                      {selected.has(o.order_id)
+                        ? <CheckSquare className="w-4 h-4 text-primary" />
+                        : <Square className="w-4 h-4" />}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => router.push(`/orders/${o.order_id}`)}
+                    className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 lg:py-2.5 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors text-left"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs lg:text-sm font-semibold text-foreground truncate">{o.order_number}</span>
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${ORDER_STATUS_STYLES[o.status_code]}`}>
+                          {ORDER_STATUS_LABELS[o.status_code]}
+                        </span>
+                        {o.so_pdf_path && <FileText className="w-3 h-3 text-muted-foreground/50 shrink-0" />}
+                      </div>
+                      <span className="text-[10px] lg:text-[11px] text-muted-foreground">
+                        {o.item_count} item{o.item_count === 1 ? '' : 's'} · {o.total_pieces} pc
                       </span>
-                      {o.so_pdf_path && <FileText className="w-3 h-3 text-muted-foreground/50 shrink-0" />}
                     </div>
-                    <span className="text-[10px] lg:text-[11px] text-muted-foreground">
-                      {o.item_count} item{o.item_count === 1 ? '' : 's'} · {o.total_pieces} pc
-                    </span>
-                  </div>
-                  <span className="text-xs lg:text-sm font-bold text-foreground shrink-0">{money(o.order_total)}</span>
-                  <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
-                </button>
+                    <span className="text-xs lg:text-sm font-bold text-foreground shrink-0">{money(o.order_total)}</span>
+                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
+                  </button>
+                </div>
               ))}
             </div>
 
@@ -118,6 +156,16 @@ export default function LeadOrdersCard({ leadId, show = 'placed' }: {
           </>
         )}
 
+        {show === 'drafts' && selected.size > 0 && (
+          <Button
+            onClick={() => setShowBulk(true)}
+            className="w-full h-10 gap-1.5 text-xs"
+          >
+            <Send className="w-3.5 h-3.5" />
+            Set payment &amp; confirm {selected.size} order{selected.size === 1 ? '' : 's'} · {money(selectedValue)}
+          </Button>
+        )}
+
         {show === 'placed' && canManage && (
           <Button
             variant="outline"
@@ -128,6 +176,15 @@ export default function LeadOrdersCard({ leadId, show = 'placed' }: {
           </Button>
         )}
       </CardContent>
+
+      {showBulk && (
+        <BulkPaymentModal
+          leadId={leadId}
+          orders={selectedOrders}
+          onClose={() => setShowBulk(false)}
+          onDone={() => { setSelected(new Set()); setShowBulk(false); load(); }}
+        />
+      )}
     </Card>
   );
 }

@@ -8,16 +8,17 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+import { cn, siteOrigin } from '@/lib/utils';
 
 /**
  * Self-service ordering QR for an exhibition.
  *
  * The QR encodes the FRONTEND origin (where the visitor's browser goes), not
  * the API origin — a common way to get this wrong, since every other URL in the
- * app points at the backend. It also means the printed code must be generated
- * from the deployed site: print from localhost and the stall gets a code
- * pointing at a machine nobody can reach.
+ * app points at the backend. siteOrigin() prefers NEXT_PUBLIC_SITE_URL over
+ * window.location.origin for exactly this reason: printed from a preview
+ * deployment or localhost, window.location.origin would bake in an address
+ * nobody but that machine can reach.
  */
 
 /**
@@ -30,8 +31,9 @@ const BRAND_LOGO = '/tejoo-logo.png';
 
 /** Builds the visitor URL, or null when self-service is off. */
 export function publicOrderUrl(token?: string | null) {
-  if (!token || typeof window === 'undefined') return null;
-  return `${window.location.origin}/o/${token}`;
+  if (!token) return null;
+  const origin = siteOrigin();
+  return origin ? `${origin}/o/${token}` : null;
 }
 
 function QrCanvas({ url, size, className }: { url: string; size: number; className?: string }) {

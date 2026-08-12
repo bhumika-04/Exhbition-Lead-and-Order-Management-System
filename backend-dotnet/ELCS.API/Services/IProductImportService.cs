@@ -13,7 +13,12 @@ public interface IProductImportService
     /// row, because the point of the preview is to show the operator everything
     /// wrong at once instead of one problem per attempt.
     /// </summary>
-    Task<ImportReport> ImportAsync(List<ImportRowInput> rows, bool dryRun);
+    /// <param name="skipExisting">
+    /// A row whose barcode already exists is left completely untouched instead
+    /// of updated — for re-importing a supplier sheet without overwriting a
+    /// price, image or set flag someone already corrected by hand in the app.
+    /// </param>
+    Task<ImportReport> ImportAsync(List<ImportRowInput> rows, bool dryRun, bool skipExisting = false);
 }
 
 /// <summary>One row of the sheet, as read by the browser. All text — the sheet
@@ -33,7 +38,7 @@ public record ImportRowResult(
     int Line,
     string? Barcode,
     bool Ok,
-    string Action,                  // create | update | skip
+    string Action,                  // create | update | ignored | skip
     List<string> Colours,
     List<string> Sizes,
     bool ColourIsSet,
@@ -51,6 +56,7 @@ public record ImportReport(
     int Invalid,
     int Created,
     int Updated,
+    int Ignored,     // matched an existing barcode but skipExisting left it untouched
     bool DryRun,
     List<ImportRowResult> Rows
 );

@@ -274,6 +274,69 @@ public class OrdersController : ControllerBase
     }
 
     /// <summary>
+    /// One payment applied across several of a lead's drafts, all confirmed
+    /// together — for a customer who built more than one order and is paying
+    /// once for the lot. Same per-order side effects as confirming one at a
+    /// time: each still gets its own Sales Order PDF and its own WhatsApp
+    /// confirmation, because each is a distinct document even though the
+    /// payment behind them was a single conversation at the counter.
+    /// </summary>
+    [HttpPost("lead/{leadId:int}/bulk-confirm")]
+    public async Task<IActionResult> BulkConfirmDrafts(int leadId, [FromBody] BulkConfirmRequest request)
+    {
+        List<int> confirmedIds;
+        try
+        {
+            confirmedIds = await _orderService.BulkConfirmDraftsAsync(
+                leadId, request.OrderIds, request.SlabBand, request.AdvanceAmount);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { error = ex.Message });
+        }
+
+        var results = new List<object>();
+        foreach (var orderId in confirmedIds)
+        {
+            var order = await _orderService.GetOrderAsync(orderId);
+            if (order == null) continue;
+
+            string? pdfUrl = null;
+            string? pdfError = null;
+            try
+            {
+                var pdfPath = await _pdfService.GenerateAsync(order);
+                await _orderService.SetSoPdfPathAsync(orderId, pdfPath);
+                pdfUrl = BuildPublicUrl(pdfPath);
+            }
+            catch (Exception ex)
+            {
+                pdfError = ex.Message;
+                _logger.LogError(ex, "Sales Order PDF generation failed for order {OrderId}", orderId);
+            }
+
+            var whatsApp = await _whatsApp.SendOrderConfirmationAsync(order, pdfUrl);
+
+            results.Add(new
+            {
+                order_id = orderId,
+                so_pdf   = new { url = pdfUrl, error = pdfError },
+                whatsapp = new { sent = whatsApp.Sent, status = whatsApp.StatusCode, error = whatsApp.Error },
+            });
+        }
+
+        return Ok(new { success = true, confirmed = results });
+    }
+
+    /// <summary>
     /// Absolute URL for an uploaded file. Interakt fetches media by URL, so this
     /// must be publicly reachable — PublicBaseUrl should be the internet-facing
     /// backend origin, not localhost, in any environment that sends WhatsApp.
@@ -287,3 +350,5 @@ public class OrdersController : ControllerBase
         return $"{origin}/uploads/{relativePath.TrimStart('/')}";
     }
 }
+
+public record BulkConfirmRequest(List<int> OrderIds, int SlabBand, decimal AdvanceAmount);

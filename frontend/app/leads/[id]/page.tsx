@@ -18,6 +18,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BlurFade } from '@/components/ui/blur-fade';
 import LeadOrdersCard from '@/components/LeadOrdersCard';
 import LeadMediaCard from '@/components/LeadMediaCard';
+import LeadQrCard from '@/components/LeadQrCard';
+import LeadCouponsCard from '@/components/LeadCouponsCard';
 import { cn } from '@/lib/utils';
 import { money, ORDER_STATUS_LABELS, ORDER_STATUS_STYLES } from '@/lib/orders';
 
@@ -347,6 +349,19 @@ export default function LeadDetailPage() {
 
             <BlurFade delay={0.08} inView>
               <LeadMediaCard leadId={leadId} />
+            </BlurFade>
+
+            <BlurFade delay={0.085} inView>
+              <LeadQrCard
+                leadId={leadId}
+                leadName={lead.primary_visitor_name}
+                token={lead.public_token}
+                onTokenChange={t => setLead(l => l ? { ...l, public_token: t } : l)}
+              />
+            </BlurFade>
+
+            <BlurFade delay={0.09} inView>
+              <LeadCouponsCard leadId={leadId} />
             </BlurFade>
 
             <BlurFade delay={0.11} inView>
@@ -747,6 +762,19 @@ export default function LeadDetailPage() {
 
             <BlurFade delay={0.14} inView>
               <LeadMediaCard leadId={leadId} />
+            </BlurFade>
+
+            <BlurFade delay={0.145} inView>
+              <LeadQrCard
+                leadId={leadId}
+                leadName={lead.primary_visitor_name}
+                token={lead.public_token}
+                onTokenChange={t => setLead(l => l ? { ...l, public_token: t } : l)}
+              />
+            </BlurFade>
+
+            <BlurFade delay={0.15} inView>
+              <LeadCouponsCard leadId={leadId} />
             </BlurFade>
 
             {/* Quick Actions */}

@@ -183,7 +183,28 @@ public class LeadsController : ControllerBase
             return Conflict(new { error = ex.Message });
         }
     }
+
+    /// <summary>
+    /// Mints (or rotates) this lead's personal ordering QR token. Any
+    /// authenticated employee — this is a convenience for whoever is at the
+    /// booth with the customer, not an admin-tier action like deleting or
+    /// granting coupons.
+    /// </summary>
+    [HttpPost("{leadId:int}/self-service-token")]
+    public async Task<IActionResult> SetLeadPublicToken(int leadId, [FromBody] SetLeadTokenRequest? request)
+    {
+        try
+        {
+            var token = await _leadService.SetLeadPublicTokenAsync(leadId, request?.Rotate ?? false);
+            return Ok(new { success = true, public_token = token });
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound(new { error = "Lead not found" });
+        }
+    }
 }
 
 public record SetCouponOverrideRequest(int? Slab);
 public record SetCouponNumbersRequest(List<string> Numbers);
+public record SetLeadTokenRequest(bool Rotate = false);

@@ -285,6 +285,73 @@ public class OrderService : IOrderService
             throw new KeyNotFoundException($"Order {orderId} not found or is cancelled");
     }
 
+    public async Task<List<int>> BulkConfirmDraftsAsync(int leadId, List<int> orderIds, int slabBand, decimal advanceAmount)
+    {
+        if (orderIds == null || orderIds.Count == 0)
+            throw new ArgumentException("Select at least one order");
+        if (slabBand < 0)
+            throw new ArgumentException("Slab cannot be negative");
+        if (advanceAmount < 0m)
+            throw new ArgumentException("Advance cannot be negative");
+
+        using var conn = _db.CreateConnection();
+        await conn.OpenAsync();
+
+        // Oldest first, so the allocation below is deterministic and matches
+        // the order the customer actually built these drafts in.
+        var orders = (await conn.QueryAsync<(int OrderId, decimal Value, string StatusCode)>($@"
+            SELECT OrderId, {EffectiveValueSql} AS Value, StatusCode
+            FROM Orders
+            WHERE OrderId IN @OrderIds AND LeadId = @LeadId
+            ORDER BY CreatedAt ASC",
+            new { OrderIds = orderIds, LeadId = leadId })).ToList();
+
+        if (orders.Count != orderIds.Count)
+            throw new KeyNotFoundException("One or more orders were not found for this lead");
+        if (orders.Any(o => !string.Equals(o.StatusCode, "draft", StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("Only draft orders can be confirmed this way");
+
+        var combinedValue = orders.Sum(o => o.Value);
+        if (advanceAmount > combinedValue)
+            throw new ArgumentException(
+                $"Advance of {advanceAmount:N2} is more than the combined order value of {combinedValue:N2}");
+
+        using var tx = conn.BeginTransaction();
+        try
+        {
+            // Filled in order, each up to its own value — so no single order is
+            // ever recorded with more advance than it is actually worth, even
+            // though the customer is thought of as paying one figure for all
+            // of it. GetLeadOrderSummaryAsync sums across orders regardless of
+            // which one the money is attached to, so the split is invisible
+            // everywhere that matters — it exists only to keep each row valid.
+            var remaining = advanceAmount;
+            foreach (var o in orders)
+            {
+                var share = Math.Min(remaining, o.Value);
+                remaining -= share;
+
+                await conn.ExecuteAsync(@"
+                    UPDATE Orders
+                    SET SlabBand    = @SlabBand,
+                        AdvanceAmount = @Advance,
+                        StatusCode  = 'confirmed',
+                        ConfirmedAt = ISNULL(ConfirmedAt, GETUTCDATE()),
+                        UpdatedAt   = GETUTCDATE()
+                    WHERE OrderId = @OrderId",
+                    new { SlabBand = slabBand, Advance = share, OrderId = o.OrderId }, tx);
+            }
+            tx.Commit();
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+
+        return orders.Select(o => o.OrderId).ToList();
+    }
+
     public async Task<LeadOrderSummaryDto> GetLeadOrderSummaryAsync(int leadId)
     {
         using var conn = _db.CreateConnection();

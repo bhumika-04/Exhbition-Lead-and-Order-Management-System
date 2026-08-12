@@ -37,6 +37,10 @@ export default function ProductImportDialog({ open, onClose, onImported }: {
   const [report, setReport] = useState<ImportReport | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Off by default: an import has always updated a matching barcode, and
+  // changing that silently would be a surprise. Set before picking a file —
+  // the preview itself is generated with it, not just the final save.
+  const [skipExisting, setSkipExisting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const reset = () => {
@@ -73,7 +77,7 @@ export default function ProductImportDialog({ open, onClose, onImported }: {
 
       setSheetName(sheet.sheetName ?? '');
       setRows(sheet.rows);
-      const preview = await api.importProducts(sheet.rows, true);
+      const preview = await api.importProducts(sheet.rows, true, skipExisting);
       setReport(preview);
       setStage('preview');
     } catch (err) {
@@ -90,11 +94,14 @@ export default function ProductImportDialog({ open, onClose, onImported }: {
       // Only the rows that passed. Sending the rejects again would just produce
       // the same errors and slow the commit down.
       const good = rows.filter(r => report?.rows.find(x => x.line === r.line)?.ok);
-      const result = await api.importProducts(good, false);
+      const result = await api.importProducts(good, false, skipExisting);
       setReport(result);
       setStage('done');
       onImported();
-      toast.success(`${result.created} added, ${result.updated} updated`);
+      toast.success(
+        `${result.created} added, ${result.updated} updated` +
+        (result.ignored > 0 ? `, ${result.ignored} ignored` : '')
+      );
     } catch (err) {
       setError(apiErrorMessage(err, 'The import failed'));
     } finally {
@@ -180,6 +187,25 @@ export default function ProductImportDialog({ open, onClose, onImported }: {
                     Download the template
                   </button>
                 </div>
+
+                <label className="flex items-start gap-2.5 rounded-lg border border-border px-3.5 py-3 cursor-pointer hover:bg-secondary/40">
+                  <input
+                    type="checkbox"
+                    checked={skipExisting}
+                    onChange={e => setSkipExisting(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="block text-xs font-medium text-foreground">
+                      Ignore barcodes already in the catalogue
+                    </span>
+                    <span className="block text-[11px] text-muted-foreground leading-relaxed mt-0.5">
+                      A row whose barcode already exists is left completely untouched instead of
+                      updated — nothing about that product changes, including a price or image
+                      already corrected by hand in the app.
+                    </span>
+                  </span>
+                </label>
               </div>
             )}
 
@@ -190,6 +216,11 @@ export default function ProductImportDialog({ open, onClose, onImported }: {
                         value={stage === 'done' ? report.created : report.rows.filter(r => r.action === 'create').length} />
                   <Stat label={stage === 'done' ? 'Updated' : 'To update'}
                         value={stage === 'done' ? report.updated : report.rows.filter(r => r.action === 'update').length} />
+                  {(stage === 'done' ? report.ignored : report.rows.filter(r => r.action === 'ignored').length) > 0 && (
+                    <Stat label="Ignored"
+                          value={stage === 'done' ? report.ignored : report.rows.filter(r => r.action === 'ignored').length}
+                          tone="warn" />
+                  )}
                   {report.invalid > 0 && <Stat label="Skipped" value={report.invalid} tone="bad" />}
                   {stage === 'done' && noImage > 0 && <Stat label="No image" value={noImage} tone="warn" />}
                 </div>
@@ -246,9 +277,11 @@ export default function ProductImportDialog({ open, onClose, onImported }: {
                             </Td>
                             <Td className="tabular">{r.price != null ? `₹${r.price.toLocaleString('en-IN')}` : '—'}</Td>
                             <Td>
-                              {r.ok
-                                ? <span className="text-muted-foreground capitalize">{r.action}d</span>
-                                : <span className="text-destructive">{r.errors.join('; ')}</span>}
+                              {r.action === 'ignored'
+                                ? <span className="text-warning">Already in catalogue</span>
+                                : r.ok
+                                  ? <span className="text-muted-foreground capitalize">{r.action}d</span>
+                                  : <span className="text-destructive">{r.errors.join('; ')}</span>}
                             </Td>
                           </tr>
                         ))}

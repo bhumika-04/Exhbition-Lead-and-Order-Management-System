@@ -87,6 +87,21 @@ export default function PlaceOrderPage() {
     return Number.isFinite(n) ? n : null;
   })();
 
+  // Scoped to this lead and this specific draft (or 'new' when starting one) so
+  // a second order for the same lead never restores the first one's rows, and
+  // editing two different drafts never bleeds into each other.
+  const cacheKey = `tejoo.staffOrder.${leadId}.${editOrderId ?? 'new'}`;
+  const readCache = (): { rows: Row[]; notes: string } | null => {
+    try {
+      const raw = sessionStorage.getItem(cacheKey);
+      if (!raw) return null;
+      const c = JSON.parse(raw);
+      return Array.isArray(c?.rows)
+        ? { rows: c.rows, notes: typeof c.notes === 'string' ? c.notes : '' }
+        : null;
+    } catch { return null; }
+  };
+
   const [lead, setLead] = useState<LeadDetails | null>(null);
   const [existing, setExisting] = useState<LeadOrderSummary | null>(null);
   const [drafts, setDrafts] = useState<OrderSummary[]>([]);
@@ -139,14 +154,38 @@ export default function PlaceOrderPage() {
             return;
           }
           setOrderNumber(existingOrder.order_number);
-          setRows(await rowsFromOrder(existingOrder.items));
-          setNotes(existingOrder.notes ?? '');
+
+          // A refresh mid-edit should pick back up from what was on screen,
+          // not silently discard it and reload the last-saved version.
+          const cached = readCache();
+          if (cached) {
+            setRows(cached.rows);
+            setNotes(cached.notes);
+          } else {
+            setRows(await rowsFromOrder(existingOrder.items));
+            setNotes(existingOrder.notes ?? '');
+          }
+        } else {
+          const cached = readCache();
+          if (cached) {
+            setRows(cached.rows);
+            setNotes(cached.notes);
+          }
         }
       } catch {
         toast.error('Could not load lead');
       } finally { setLoading(false); }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leadId, router]);
+
+  // Mirrors the customer-facing order page's sessionStorage persistence.
+  // Skipped while the initial load is still running so the empty starting
+  // state never overwrites a cache the load is about to restore from.
+  useEffect(() => {
+    if (loading) return;
+    sessionStorage.setItem(cacheKey, JSON.stringify({ rows, notes }));
+  }, [rows, notes, loading, cacheKey]);
 
   /**
    * Any change to the size or colour lists reshapes the combination grid, so
@@ -402,10 +441,12 @@ export default function PlaceOrderPage() {
     try {
       if (editOrderId !== null) {
         await api.updateOrder(editOrderId, { items, notes: notes.trim() || null });
+        sessionStorage.removeItem(cacheKey);
         toast.success('Order updated');
         router.push(`/orders/${editOrderId}`);
       } else {
         const res = await api.createOrder({ lead_id: leadId, items, notes: notes.trim() || null });
+        sessionStorage.removeItem(cacheKey);
         toast.success('Order created');
         router.push(`/orders/${res.order_id}`);
       }

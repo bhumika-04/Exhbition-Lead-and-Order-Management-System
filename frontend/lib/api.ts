@@ -268,6 +268,16 @@ class ApiClient {
   }
 
   /**
+   * Mints (or rotates) this lead's personal ordering QR token. Any employee
+   * can do this — it's a convenience for whoever is with the customer, not
+   * an admin-tier action.
+   */
+  async setLeadPublicToken(leadId: number, rotate = false): Promise<{ public_token: string }> {
+    const { data } = await this.client.post(`/api/leads/${leadId}/self-service-token`, { rotate });
+    return data;
+  }
+
+  /**
    * Admin-only. Sets or clears a coupon-slab override that REPLACES the
    * earned-from-advance coupon count for this lead — see AdvanceCalculator.
    * Pass slab: null to clear it and go back to earning coupons normally.
@@ -413,6 +423,22 @@ class ApiClient {
   /** Confirms the order, renders the SO PDF and sends the WhatsApp confirmation. */
   async confirmOrder(orderId: number): Promise<ConfirmOrderResult> {
     const { data } = await this.client.post(`/api/orders/${orderId}/confirm`);
+    return data;
+  }
+
+  /**
+   * One payment applied across several of a lead's drafts, confirmed
+   * together. Each still gets its own Sales Order PDF and WhatsApp message —
+   * only the payment step is combined, not the documents.
+   */
+  async bulkConfirmDrafts(leadId: number, req: {
+    order_ids: number[]; slab_band: number; advance_amount: number;
+  }): Promise<{
+    success: boolean;
+    confirmed: { order_id: number; so_pdf: { url: string | null; error: string | null };
+                 whatsapp: { sent: boolean; status: string; error: string | null } }[];
+  }> {
+    const { data } = await this.client.post(`/api/orders/lead/${leadId}/bulk-confirm`, req);
     return data;
   }
 
@@ -570,10 +596,10 @@ class ApiClient {
    * nature: the timeout is raised well above the client default rather than
    * letting a 200-row sheet abort halfway with rows already written.
    */
-  async importProducts(rows: ImportRowInput[], dryRun: boolean): Promise<ImportReport> {
+  async importProducts(rows: ImportRowInput[], dryRun: boolean, skipExisting = false): Promise<ImportReport> {
     const { data } = await this.client.post(
       '/api/products/import',
-      { rows, dry_run: dryRun },
+      { rows, dry_run: dryRun, skip_existing: skipExisting },
       { timeout: dryRun ? 60_000 : 10 * 60_000 },
     );
     return data;

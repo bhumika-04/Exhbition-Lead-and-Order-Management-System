@@ -31,7 +31,7 @@ public class ProductImportService : IProductImportService
         _config = config;
     }
 
-    public async Task<ImportReport> ImportAsync(List<ImportRowInput> rows, bool dryRun)
+    public async Task<ImportReport> ImportAsync(List<ImportRowInput> rows, bool dryRun, bool skipExisting = false)
     {
         using var conn = _db.CreateConnection();
 
@@ -49,6 +49,7 @@ public class ProductImportService : IProductImportService
         var results = new List<ImportRowResult>();
         var created = 0;
         var updated = 0;
+        var ignored = 0;
 
         foreach (var row in rows)
         {
@@ -76,14 +77,19 @@ public class ProductImportService : IProductImportService
 
             var isUpdate = barcode.Length > 0 && existing.ContainsKey(barcode);
             var ok = errors.Count == 0;
+            // A row that would update an existing product, left alone instead —
+            // re-importing a sheet must not silently overwrite a price, image or
+            // set flag someone already corrected by hand in the app.
+            var ignore = ok && isUpdate && skipExisting;
 
             if (ok && barcode.Length > 0) seen[barcode] = row.Line;
+            if (ignore) ignored++;
 
             var result = new ImportRowResult(
                 Line: row.Line,
                 Barcode: barcode.Length > 0 ? barcode : null,
                 Ok: ok,
-                Action: !ok ? "skip" : isUpdate ? "update" : "create",
+                Action: !ok ? "skip" : ignore ? "ignored" : isUpdate ? "update" : "create",
                 Colours: colour.Values,
                 Sizes: size.Values,
                 ColourIsSet: colour.IsSet,
@@ -94,7 +100,7 @@ public class ProductImportService : IProductImportService
                 ImageStored: false,
                 Errors: errors);
 
-            if (!ok || dryRun)
+            if (!ok || ignore || dryRun)
             {
                 results.Add(result);
                 continue;
@@ -162,6 +168,7 @@ public class ProductImportService : IProductImportService
             Invalid: results.Count - valid,
             Created: created,
             Updated: updated,
+            Ignored: ignored,
             DryRun: dryRun,
             Rows: results);
     }

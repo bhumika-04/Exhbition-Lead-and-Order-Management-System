@@ -41,6 +41,10 @@ public class Lead
     // JSON array of physical coupon numbers handed to this lead, e.g.
     // ["A-102","A-103"]. Same shape as PhoneNumbers/Websites above.
     public string? CouponNumbers { get; set; }
+
+    // NULL until an employee generates this lead's personal ordering QR.
+    // See LeadService.SetLeadPublicTokenAsync.
+    public string? PublicToken { get; set; }
 }
 
 public class LeadPerson

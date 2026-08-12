@@ -23,7 +23,7 @@ export interface ImportRowResult {
   line: number;
   barcode: string | null;
   ok: boolean;
-  action: 'create' | 'update' | 'skip';
+  action: 'create' | 'update' | 'ignored' | 'skip';
   colours: string[];
   sizes: string[];
   colour_is_set: boolean;
@@ -41,6 +41,7 @@ export interface ImportReport {
   invalid: number;
   created: number;
   updated: number;
+  ignored: number;
   dry_run: boolean;
   rows: ImportRowResult[];
 }

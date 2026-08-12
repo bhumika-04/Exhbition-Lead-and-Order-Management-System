@@ -27,6 +27,15 @@ public interface ILeadService
     /// (trimmed, deduplicated) list actually stored.
     /// </summary>
     Task<List<string>> SetCouponNumbersAsync(int leadId, List<string> numbers);
+
+    /// <summary>
+    /// Mints (or returns the existing) opaque token behind this lead's personal
+    /// ordering QR — scanning it opens a self-service session already bound to
+    /// this specific customer, no mobile number to type. Random rather than the
+    /// LeadId so a visitor cannot reach another customer's session by editing
+    /// the URL. Rotating invalidates every copy already printed or sent.
+    /// </summary>
+    Task<string> SetLeadPublicTokenAsync(int leadId, bool rotate);
 }
 
 public record LeadQueryParams(

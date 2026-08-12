@@ -8,16 +8,18 @@ import { formatDistanceToNow } from 'date-fns';
 import {
   ShoppingBag, Loader2, ChevronRight, FileText, Ticket, IndianRupee,
   Wallet, Inbox, Trophy, ScanLine, Smartphone, Search, X,
-  FileClock, CheckCircle2,
+  FileClock, CheckCircle2, CheckSquare, Square, Send,
 } from 'lucide-react';
 import { api } from '@/lib/api';
-import { isAuthenticated } from '@/lib/auth';
+import { isAuthenticated, hasPermission } from '@/lib/auth';
 import type { OrderListItem, OrderListTotals, CouponHolder, Exhibition } from '@/lib/types';
 import { money, ORDER_STATUS_LABELS, ORDER_STATUS_STYLES } from '@/lib/orders';
 import PageHeader from '@/components/PageHeader';
 import { StatCard } from '@/components/ui/stat-card';
 import { EmptyState } from '@/components/ui/panel';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import BulkPaymentModal from '@/components/BulkPaymentModal';
 import { cn } from '@/lib/utils';
 
 /** Shared control styling, so the search box and both selects stay in step. */
@@ -261,8 +263,11 @@ export default function OrdersPage() {
               {orders.length} match{orders.length === 1 ? '' : 'es'}, including orders whose items carry that barcode
             </p>
           )}
-          {orders.map(o => <OrderRow key={o.order_id} order={o}
-                                     onOpen={() => router.push(`/orders/${o.order_id}`)} />)}
+          {groupByLead(orders).map(group => (
+            <LeadOrderGroup key={group[0].lead_id} orders={group}
+                            onOpen={id => router.push(`/orders/${id}`)}
+                            onChanged={load} />
+          ))}
         </div>
       )}
       </div>
@@ -270,17 +275,136 @@ export default function OrdersPage() {
   );
 }
 
-function OrderRow({ order: o, onOpen }: { order: OrderListItem; onOpen: () => void }) {
+/**
+ * Same lead's orders stay next to each other rather than scattered across the
+ * list in plain date order — a customer with three orders reads as one
+ * customer, not three unrelated rows. Preserves the list's own order (most
+ * recent first) by grouping on each lead's first appearance in it.
+ */
+function groupByLead(orders: OrderListItem[]): OrderListItem[][] {
+  const groups = new Map<number, OrderListItem[]>();
+  for (const o of orders) {
+    const g = groups.get(o.lead_id);
+    if (g) g.push(o); else groups.set(o.lead_id, [o]);
+  }
+  return [...groups.values()];
+}
+
+function LeadOrderGroup({ orders, onOpen, onChanged }: {
+  orders: OrderListItem[];
+  onOpen: (orderId: number) => void;
+  /** Refetches the page's order list — called after a bulk payment saves. */
+  onChanged: () => void;
+}) {
+  const canManage = hasPermission('manage_orders');
+
+  // Bulk payment — same mechanism as a lead's own page (BulkPaymentModal):
+  // several of this lead's orders here, paid for in one go. Scoped to this
+  // group's own state so selecting inside one customer's orders never
+  // touches another's, even though every group on the page is expanded at
+  // once.
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [showBulk, setShowBulk] = useState(false);
+
+  const toggleSelect = (orderId: number) => {
+    setSelected(s => {
+      const next = new Set(s);
+      if (next.has(orderId)) next.delete(orderId); else next.add(orderId);
+      return next;
+    });
+  };
+
+  const first = orders[0];
+
+  // A single order reads fine as a bare row — a header above it (and a
+  // checkbox with nothing else to combine it with) would just repeat the
+  // customer name already shown inside the row.
+  if (orders.length === 1) {
+    return <OrderRow order={first} onOpen={() => onOpen(first.order_id)} />;
+  }
+
+  // Drafts only — the Sales Order and its payment are a one-time step at
+  // confirmation, not something bulk-editable on an already-placed order.
+  // A group here can mix drafts, confirmed and cancelled orders (unlike the
+  // lead page's split-by-status cards), so this still needs a per-row check.
+  const selectableOrders = orders.filter(o => o.status_code === 'draft');
+  const selectedOrders = orders.filter(o => selected.has(o.order_id));
+  const selectedValue = selectedOrders.reduce((sum, o) => sum + o.effective_value, 0);
+
+  const value = orders.reduce((s, o) => s + o.effective_value, 0);
+  const advance = orders.reduce((s, o) => s + o.advance_amount, 0);
+
+  return (
+    <div className="rounded-lg border border-border bg-card overflow-hidden shadow-xs">
+      <div className="px-3.5 py-2 bg-secondary/40 border-b border-border">
+        <p className="text-xs font-semibold text-foreground truncate">
+          {first.lead_name || 'Unknown'}
+          {first.lead_company_name && (
+            <span className="text-muted-foreground font-normal"> · {first.lead_company_name}</span>
+          )}
+        </p>
+        <p className="text-[10px] text-muted-foreground">
+          {orders.length} orders · {money(value)}
+          {advance > 0 ? ` · adv ${money(advance)}` : ''}
+        </p>
+      </div>
+      <div className="divide-y divide-border">
+        {orders.map(o => (
+          <div key={o.order_id} className="flex items-center gap-1">
+            {canManage && o.status_code === 'draft' && selectableOrders.length > 1 && (
+              <button
+                type="button"
+                onClick={() => toggleSelect(o.order_id)}
+                aria-label={selected.has(o.order_id) ? 'Deselect' : 'Select'}
+                className="p-1 pl-2 text-muted-foreground hover:text-primary shrink-0"
+              >
+                {selected.has(o.order_id)
+                  ? <CheckSquare className="w-4 h-4 text-primary" />
+                  : <Square className="w-4 h-4" />}
+              </button>
+            )}
+            <div className="flex-1 min-w-0">
+              <OrderRow order={o} onOpen={() => onOpen(o.order_id)} nested />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {selected.size > 0 && (
+        <div className="p-2 border-t border-border">
+          <Button onClick={() => setShowBulk(true)} className="w-full h-9 gap-1.5 text-xs">
+            <Send className="w-3.5 h-3.5" />
+            Set payment &amp; confirm {selected.size} order{selected.size === 1 ? '' : 's'} · {money(selectedValue)}
+          </Button>
+        </div>
+      )}
+
+      {showBulk && (
+        <BulkPaymentModal
+          leadId={first.lead_id}
+          orders={selectedOrders}
+          onClose={() => setShowBulk(false)}
+          onDone={() => { setSelected(new Set()); setShowBulk(false); onChanged(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function OrderRow({ order: o, onOpen, nested }: { order: OrderListItem; onOpen: () => void; nested?: boolean }) {
   const fromCustomer = o.source === 'self_service';
   const needsAction = o.status_code === 'draft';
 
   return (
     <button
       onClick={onOpen}
-      className="group w-full text-left rounded-lg border border-border bg-card overflow-hidden
-                 flex shadow-xs transition-[border-color,box-shadow,transform] duration-150
-                 hover:border-input hover:shadow-sm hover:-translate-y-px
-                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+      className={cn(
+        'group w-full text-left overflow-hidden flex transition-[border-color,box-shadow,transform] duration-150',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+        nested
+          ? 'hover:bg-secondary/40'
+          : 'rounded-lg border border-border bg-card shadow-xs hover:border-input hover:shadow-sm hover:-translate-y-px',
+      )}
     >
       {/* Status accent — a draft needs work, and should read that way at a glance */}
       <span className={cn('w-[3px] shrink-0',
