@@ -92,6 +92,18 @@ public static class ProductImportParser
     }
 
     /// <summary>
+    /// The file id out of any recognisable Drive URL shape — the same pattern
+    /// NormaliseImageUrl matches, exposed so the actual fetch (ProductImportService)
+    /// can call the real Drive API instead of the public link, which Google no
+    /// longer serves reliably to a non-browser request.
+    /// </summary>
+    public static string? ExtractDriveId(string url)
+    {
+        var m = DriveId.Match(url);
+        return m.Success ? m.Groups["id"].Value : null;
+    }
+
+    /// <summary>
     /// Price from the WSP column. Tolerates "6295", "6,295", "₹6295" and
     /// "6295.00"; returns null when there is no number to read, so the caller
     /// can reject the row rather than import it at zero.

@@ -10,6 +10,7 @@ public class ProductImportService : IProductImportService
     private readonly IDbConnection _db;
     private readonly IWebHostEnvironment _env;
     private readonly IHttpClientFactory _http;
+    private readonly IConfiguration _config;
 
     // Matches the single-image upload endpoint, so a picture that arrives by
     // import is subject to the same rules as one a user picked by hand.
@@ -20,12 +21,14 @@ public class ProductImportService : IProductImportService
         ILogger<ProductImportService> logger,
         IDbConnection db,
         IWebHostEnvironment env,
-        IHttpClientFactory http)
+        IHttpClientFactory http,
+        IConfiguration config)
     {
         _logger = logger;
         _db = db;
         _env = env;
         _http = http;
+        _config = config;
     }
 
     public async Task<ImportReport> ImportAsync(List<ImportRowInput> rows, bool dryRun)
@@ -171,10 +174,25 @@ public class ProductImportService : IProductImportService
     {
         try
         {
+            // Drive's public "uc?export=view" link is not a real API — Google
+            // increasingly answers it with an interstitial page or a 404 for a
+            // non-browser request, sharing settings aside. The real Drive API,
+            // called with a key, is what actually serves the bytes reliably.
+            // Falls back to fetching the URL as-is when there is no key
+            // configured, or it is not a Drive link at all.
+            var driveId = url.Contains("drive.google.com", StringComparison.OrdinalIgnoreCase)
+                ? ProductImportParser.ExtractDriveId(url)
+                : null;
+            var driveApiKey = _config["Google:DriveApiKey"];
+
+            var fetchUrl = (driveId != null && !string.IsNullOrWhiteSpace(driveApiKey))
+                ? $"https://www.googleapis.com/drive/v3/files/{driveId}?alt=media&key={driveApiKey}"
+                : url;
+
             var client = _http.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(20);
 
-            using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+            using var response = await client.GetAsync(fetchUrl, HttpCompletionOption.ResponseHeadersRead);
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning("Image for product {ProductId} returned {Status}", productId, response.StatusCode);
