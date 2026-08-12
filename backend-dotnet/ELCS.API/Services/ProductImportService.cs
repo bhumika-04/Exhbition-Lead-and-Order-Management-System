@@ -66,7 +66,10 @@ public class ProductImportService : IProductImportService
 
             if (price == null) errors.Add("WSP is not a number");
             if (colour.Values.Count == 0) errors.Add("COLOUR is empty");
-            if (size.Values.Count == 0) errors.Add("SIZE is empty");
+            // Size is genuinely optional, not merely unfilled: the column is
+            // "Readymade only" (see Product.cs) — unstitched material and
+            // anything else that doesn't come in sizes has no value to give
+            // here, and that is a real product, not a data-entry mistake.
 
             if (!string.IsNullOrWhiteSpace(row.ImageLink) && imageUrl == null)
                 errors.Add("IMAGE LINK is not a URL");
