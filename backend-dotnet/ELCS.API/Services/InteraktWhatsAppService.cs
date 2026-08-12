@@ -56,8 +56,6 @@ public class InteraktWhatsAppService : IWhatsAppService
     public async Task<WhatsAppSendResult> SendWelcomeAsync(
         int leadId, string? name, string? phone, string? photoUrl)
     {
-        var apiKey       = _config["Interakt:ApiKey"];
-        var baseUrl      = _config["Interakt:BaseUrl"] ?? "https://api.interakt.ai/v1/public/message/";
         // Two templates, chosen by whether there is a photograph to attach.
         //
         // A WhatsApp template's header is fixed at approval: one declaring an
@@ -73,6 +71,10 @@ public class InteraktWhatsAppService : IWhatsAppService
         var templateName = hasPhoto
             ? Template("Interakt:Templates:MeetingPhoto")
             : Template("Interakt:Templates:Welcome");
+        // tejoo_meeting_photo is approved under a second WhatsApp number, so it
+        // sends on that account's key; the plain welcome stays on the main one.
+        var apiKey = hasPhoto ? _config["Interakt:AlternateApiKey"] : _config["Interakt:ApiKey"];
+        var baseUrl = _config["Interakt:BaseUrl"] ?? "https://api.interakt.ai/v1/public/message/";
         var languageCode = _config["Interakt:LanguageCode"] ?? "en";
         var countryCode  = _config["Interakt:DefaultCountryCode"] ?? "+91";
 
@@ -108,11 +110,12 @@ public class InteraktWhatsAppService : IWhatsAppService
     ///
     /// No header and one body variable, matching tejoo_showroom_invite. Sent by
     /// hand rather than on a trigger: it is meant to follow the exhibition, and
-    /// only a person knows when that is.
+    /// only a person knows when that is. Approved under, and sent from, the
+    /// second WhatsApp number — same as tejoo_meeting_photo.
     /// </summary>
     public async Task<WhatsAppSendResult> SendShowroomInviteAsync(int leadId, string? name, string? phone)
     {
-        var apiKey       = _config["Interakt:ApiKey"];
+        var apiKey       = _config["Interakt:AlternateApiKey"];
         var baseUrl      = _config["Interakt:BaseUrl"] ?? "https://api.interakt.ai/v1/public/message/";
         var templateName = Template("Interakt:Templates:ShowroomInvite");
         var languageCode = _config["Interakt:LanguageCode"] ?? "en";
