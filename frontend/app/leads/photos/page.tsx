@@ -107,9 +107,19 @@ export default function LeadPhotosPage() {
     if (activeLeadId == null) return;
     setUploadingId(activeLeadId);
     try {
-      await api.uploadLeadPhoto(activeLeadId, file);
+      const res = await api.uploadLeadPhoto(activeLeadId, file);
       setCounts(c => ({ ...c, [activeLeadId]: (c[activeLeadId] ?? 0) + 1 }));
-      toast.success('Photo added');
+      // Same feedback as the lead page's Team Photo button — the server sends
+      // the meeting-photo WhatsApp on the first photo only (see
+      // LeadMediaController.UploadPhoto), so say whether that actually went
+      // rather than a flat "Photo added" that leaves the operator guessing.
+      if (res.whatsapp_sent) toast.success('Photo added · sent to the customer');
+      else if (res.whatsapp_error) {
+        toast.success('Photo added');
+        toast(`Not sent — ${res.whatsapp_error}`, { icon: 'ℹ️' });
+      } else {
+        toast.success('Photo added');
+      }
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Could not upload the photo');
     } finally {
