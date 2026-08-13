@@ -23,18 +23,21 @@ public class InteraktWhatsAppService : IWhatsAppService
     private readonly IHttpClientFactory _httpFactory;
     private readonly IConfiguration _config;
     private readonly IDbConnection _db;
+    private readonly ILeadService _leads;
 
 
     public InteraktWhatsAppService(
         ILogger<InteraktWhatsAppService> logger,
         IHttpClientFactory httpFactory,
         IConfiguration config,
-        IDbConnection db)
+        IDbConnection db,
+        ILeadService leads)
     {
         _logger = logger;
         _httpFactory = httpFactory;
         _config = config;
         _db = db;
+        _leads = leads;
     }
 
     /// <summary>
@@ -88,16 +91,40 @@ public class InteraktWhatsAppService : IWhatsAppService
         else if (target == null)
             result = WhatsAppSendResult.Skipped("Lead has no usable phone number");
         else
+        {
+            // Off by default — see appsettings.json comment. The template
+            // must actually have a second {{2}} body placeholder approved by
+            // Meta before a second value can be sent — one short here and
+            // Meta rejects the whole message. Split per template rather than
+            // one flag for both: Welcome and MeetingPhoto get edited and
+            // approved by Meta on their own separate timelines, so a single
+            // flag would fix one the moment it flipped true while instantly
+            // breaking whichever template had not been approved yet.
+            var linkFlagKey = hasPhoto
+                ? "Interakt:WelcomeLinkReady:MeetingPhoto"
+                : "Interakt:WelcomeLinkReady:Welcome";
+            var bodyValues = new List<string> { name ?? "there" };
+            if (_config.GetValue<bool>(linkFlagKey))
+            {
+                var frontendUrl = _config["Frontend:PublicBaseUrl"];
+                if (!string.IsNullOrWhiteSpace(frontendUrl))
+                {
+                    // Get-or-create: never rotates an already-issued link, so a
+                    // QR already printed or shared for this lead keeps working.
+                    var token = await _leads.SetLeadPublicTokenAsync(leadId, rotate: false);
+                    bodyValues.Add($"{frontendUrl.TrimEnd('/')}/o/{token}");
+                }
+            }
+
             result = await SendTemplateAsync(
                 apiKey, baseUrl, templateName, languageCode,
                 target.Value.CountryCode, target.Value.Number,
                 headerMediaUrl: photoUrl,
-                // One variable only. The links that used to be a second body
-                // value are URL buttons on the template now, which read better
-                // and are tappable — and the count here must match the template
-                // exactly or Meta rejects every send.
-                bodyValues: new[] { name ?? "there" },
+                // Count here must match the template's approved body
+                // placeholders exactly or Meta rejects every send.
+                bodyValues: bodyValues.ToArray(),
                 fileName: null);
+        }
 
         await LogAsync(leadId, null, WhatsAppTouchpoints.Welcome,
             target?.Full, templateName, photoUrl, result);
