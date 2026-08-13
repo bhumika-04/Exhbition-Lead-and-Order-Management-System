@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import {
   ScanLine, Building2, Users, BarChart3, FileSpreadsheet,
   UserCog, Shield, MoreHorizontal, X, LogOut,
-  ShoppingBag, Package, Settings as SettingsIcon, Camera,
+  ShoppingBag, Package, Settings as SettingsIcon, Camera, Award,
 } from 'lucide-react';
 import { getEmployee, hasPermission } from '@/lib/auth';
 import { useKeyboardOpen } from '@/lib/useKeyboardOpen';
@@ -27,6 +27,7 @@ const PRIMARY_NAV = [
 const SECONDARY_NAV = [
   { name: 'Dashboard',   path: '/dashboard',   icon: BarChart3,       permission: 'view_dashboard' },
   { name: 'Exhibitions', path: '/exhibitions', icon: Building2,       permission: 'view_exhibitions' },
+  { name: 'Silver Coupons', path: '/silver-coupons', icon: Award,     permission: 'manage_orders' },
   { name: 'Report',      path: '/report',      icon: FileSpreadsheet, permission: 'view_report' },
   { name: 'Products',    path: '/products',    icon: Package,         permission: 'manage_products' },
   { name: 'Users',       path: '/users',       icon: UserCog,         permission: 'manage_users' },

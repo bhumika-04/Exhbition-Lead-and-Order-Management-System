@@ -29,6 +29,7 @@ import {
   INDIAN_STATES, INDIAN_UNION_TERRITORIES,
   normaliseIndianState, isKnownIndianState,
 } from '@/lib/indianStates';
+import { normaliseIndianPhone, PHONE_ERROR } from '@/lib/phone';
 
 interface FormState {
   company_name: string;
@@ -158,7 +159,16 @@ export default function ScanPage() {
     const out = { ...f };
     (['phones', 'emails', 'websites'] as const).forEach(key => {
       const pending = chipDrafts.current[key].trim();
-      if (pending && !out[key].includes(pending)) out[key] = [...out[key], pending];
+      if (!pending) return;
+      if (key === 'phones') {
+        // Only folds in a pending number that's actually valid — an invalid
+        // one is left for save() to catch and report, rather than silently
+        // dropped or silently stored malformed.
+        const normalised = normaliseIndianPhone(pending);
+        if (normalised && !out.phones.includes(normalised)) out.phones = [...out.phones, normalised];
+      } else if (!out[key].includes(pending)) {
+        out[key] = [...out[key], pending];
+      }
     });
     return out;
   };
@@ -180,12 +190,19 @@ export default function ScanPage() {
       const person = ex.persons?.[0];
       const addr = ex.addresses?.[0];
 
+      // OCR misreads a digit here and there — keep only what actually parses
+      // as a real number rather than storing garbage the operator would have
+      // to notice and fix by hand anyway.
+      const validExtractedPhones = (ex.phones ?? [])
+        .map(normaliseIndianPhone)
+        .filter((p): p is string => p !== null);
+
       setForm(f => ({
         ...f,
         company_name: ex.company_name ?? f.company_name,
         primary_visitor_name: person?.name ?? f.primary_visitor_name,
         primary_visitor_designation: person?.designation ?? f.primary_visitor_designation,
-        phones: ex.phones?.length ? ex.phones : f.phones,
+        phones: validExtractedPhones.length ? validExtractedPhones : f.phones,
         emails: ex.emails?.length ? ex.emails : f.emails,
         address: addr?.address ?? f.address,
         city: addr?.city ?? f.city,
@@ -257,6 +274,16 @@ export default function ScanPage() {
     if (!exhibition) { toast.error('Choose an exhibition'); return; }
     if (!entered.primary_visitor_name.trim() && !entered.company_name.trim()) {
       toast.error('Enter at least a name or a company'); return;
+    }
+    // withPendingChips only folds a pending phone draft in when it's valid —
+    // if the box still holds unvalidated text, that's the operator's typo to
+    // fix, not something to fold in malformed or drop silently.
+    const pendingPhone = chipDrafts.current.phones.trim();
+    if (pendingPhone && !normaliseIndianPhone(pendingPhone)) {
+      toast.error(`"${pendingPhone}" — ${PHONE_ERROR}`); return;
+    }
+    if (entered.phones.length === 0) {
+      toast.error('Add at least one phone number'); return;
     }
     // The checkbox is a promise the operator made — hold Save until it's kept.
     if (hasTeamPhoto && !teamPhoto) {
@@ -482,7 +509,8 @@ export default function ScanPage() {
             <ChipInput label="Phone numbers" required values={form.phones}
                        onChange={v => set('phones', v)}
                        onDraft={v => { chipDrafts.current.phones = v; }}
-                       placeholder="Add a number" inputMode="tel" />
+                       placeholder="Add a number" inputMode="tel"
+                       normalise={normaliseIndianPhone} />
             <ChipInput label="Emails" values={form.emails}
                        onChange={v => set('emails', v)}
                        onDraft={v => { chipDrafts.current.emails = v; }}
@@ -716,18 +744,29 @@ function Input({ label, value, onChange, className = '', required = false }: {
  * value survives every way out of the field: tabbing away, tapping Save, or
  * hitting Save with the caret still in the box.
  */
-function ChipInput({ label, values, onChange, onDraft, placeholder, inputMode, required = false }: {
+function ChipInput({ label, values, onChange, onDraft, placeholder, inputMode, required = false, normalise }: {
   label: string; values: string[]; onChange: (v: string[]) => void;
   onDraft?: (v: string) => void;
   placeholder: string; inputMode?: 'tel'; required?: boolean;
+  /** When given, a committed entry must pass this to be added — e.g. phone-number format. Returns the canonical value to store, or null to reject. */
+  normalise?: (raw: string) => string | null;
 }) {
   const [draft, setDraft] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
-  const edit = (v: string) => { setDraft(v); onDraft?.(v); };
+  const edit = (v: string) => { setDraft(v); setError(null); onDraft?.(v); };
 
   const add = () => {
     const v = draft.trim();
-    if (v && !values.includes(v)) onChange([...values, v]);
+    if (!v) return;
+
+    if (normalise) {
+      const canonical = normalise(v);
+      if (!canonical) { setError(PHONE_ERROR); return; }
+      if (!values.includes(canonical)) onChange([...values, canonical]);
+    } else if (!values.includes(v)) {
+      onChange([...values, v]);
+    }
     edit('');
   };
 
@@ -755,13 +794,14 @@ function ChipInput({ label, values, onChange, onDraft, placeholder, inputMode, r
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
           onBlur={add}
           placeholder={placeholder}
-          className="flex-1 h-9 px-3 rounded-lg border border-border bg-card text-sm"
+          className={`flex-1 h-9 px-3 rounded-lg border bg-card text-sm ${error ? 'border-destructive' : 'border-border'}`}
         />
         <button onClick={add}
                 className="h-9 w-9 rounded-lg bg-secondary hover:bg-secondary flex items-center justify-center shrink-0">
           <Plus className="w-4 h-4 text-muted-foreground" />
         </button>
       </div>
+      {error && <p className="text-destructive mt-1">{error}</p>}
     </div>
   );
 }

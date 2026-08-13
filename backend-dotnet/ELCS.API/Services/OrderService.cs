@@ -30,6 +30,15 @@ public class OrderService : IOrderService
         public decimal? TotalAdvance { get; set; }
     }
 
+    private sealed class OrderListTotalsRow
+    {
+        public int OrderCount { get; set; }
+        public decimal? TotalValue { get; set; }
+        public decimal? TotalAdvance { get; set; }
+        public decimal? DraftValue { get; set; }
+        public decimal? ConfirmedValue { get; set; }
+    }
+
     public async Task<List<OrderSummaryDto>> GetOrdersForLeadAsync(int leadId)
     {
         using var conn = _db.CreateConnection();
@@ -484,10 +493,15 @@ public class OrderService : IOrderService
             OFFSET @Offset ROWS FETCH NEXT @Limit ROWS ONLY", args)).ToList();
 
         // Totals cover every row the filter matches, not just the current page.
-        var totals = await conn.QueryFirstOrDefaultAsync<LeadAggregate>($@"
+        // Draft and confirmed value are summed separately — a draft is work in
+        // progress, not a sale, and a merged figure read as revenue that
+        // hadn't actually been agreed yet.
+        var totals = await conn.QueryFirstOrDefaultAsync<OrderListTotalsRow>($@"
             SELECT COUNT(*)                 AS OrderCount,
                    SUM({EffectiveValueSql}) AS TotalValue,
-                   SUM(o.AdvanceAmount)     AS TotalAdvance
+                   SUM(o.AdvanceAmount)     AS TotalAdvance,
+                   SUM(CASE WHEN o.StatusCode = 'draft'     THEN {EffectiveValueSql} ELSE 0 END) AS DraftValue,
+                   SUM(CASE WHEN o.StatusCode = 'confirmed' THEN {EffectiveValueSql} ELSE 0 END) AS ConfirmedValue
             FROM Orders o JOIN Leads l ON l.LeadId = o.LeadId
             {where} AND o.{ActiveOnly}", args);
 
@@ -528,7 +542,9 @@ public class OrderService : IOrderService
                 TotalValue:         totals?.TotalValue ?? 0m,
                 TotalAdvance:       totals?.TotalAdvance ?? 0m,
                 TotalCoupons:       couponTotal,
-                PendingSelfService: pendingSelfService));
+                PendingSelfService: pendingSelfService,
+                DraftValue:         totals?.DraftValue ?? 0m,
+                ConfirmedValue:     totals?.ConfirmedValue ?? 0m));
     }
 
     public async Task<List<CouponHolderDto>> GetCouponHoldersAsync(int? exhibitionId)

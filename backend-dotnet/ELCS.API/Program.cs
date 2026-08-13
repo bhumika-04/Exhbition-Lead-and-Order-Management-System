@@ -53,6 +53,7 @@ builder.Services.AddScoped<IProductService, ProductService>();
 builder.Services.AddScoped<IProductImportService, ProductImportService>();
 builder.Services.AddScoped<ISettingsService, SettingsService>();
 builder.Services.AddScoped<ILeadMediaService, LeadMediaService>();
+builder.Services.AddScoped<ISilverCouponService, SilverCouponService>();
 builder.Services.AddHttpClient();
 
 // Rate limiting for the public self-service endpoints. These have no login in

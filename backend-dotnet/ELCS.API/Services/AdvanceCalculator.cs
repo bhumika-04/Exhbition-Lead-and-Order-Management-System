@@ -67,6 +67,18 @@ public static class AdvanceCalculator
         slab <= 0 ? 0 : slab * CouponsPerUnit;
 
     /// <summary>
+    /// Silver Coupon Module: one coupon per ₹1L of order VALUE, no advance
+    /// requirement — separate rule and separate pool from the lucky-draw
+    /// coupons above.
+    ///
+    ///   ₹1L–₹2L  → 1 coupon
+    ///   ₹2L–₹3L  → 2 coupons
+    ///   ₹99,999  → 0 (under ₹1L earns nothing)
+    /// </summary>
+    public static int SilverCouponsFor(decimal totalValue) =>
+        totalValue < SlabSize ? 0 : (int)decimal.Floor(totalValue / SlabSize);
+
+    /// <summary>
     /// A lead's full position.
     /// </summary>
     /// <param name="totalValue">Combined value of the lead's non-cancelled orders.</param>

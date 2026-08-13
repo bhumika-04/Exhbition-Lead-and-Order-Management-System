@@ -28,6 +28,10 @@ import type {
   LeadMedia,
   AppSettings,
   WhatsAppSendOutcome,
+  WhatsAppHistoryItem,
+  SilverCouponAllocationResult,
+  SilverCouponAgentSummary,
+  SilverCouponAgentDetail,
 } from './types';
 
 class ApiClient {
@@ -298,6 +302,7 @@ class ApiClient {
     return data.numbers ?? [];
   }
 
+
   // Card Extraction (immediate — creates lead)
   async extractCard(
     frontImage: File,
@@ -379,6 +384,31 @@ class ApiClient {
 
   async getLeadOrderSummary(leadId: number): Promise<LeadOrderSummary> {
     const { data } = await this.client.get(`/api/orders/lead/${leadId}/summary`);
+    return data;
+  }
+
+  /**
+   * Confirms a Silver Coupon hand-off: finds-or-creates the agent by phone,
+   * revalidates the combined value of the selected leads server-side, and
+   * records the coupon numbers. Rejects (400) a coupon-count mismatch, or
+   * (409) a lead already allocated to this agent / a coupon already issued.
+   */
+  async createSilverCouponAllocation(
+    agentName: string, agentPhone: string, leadIds: number[], couponNumbers: string[],
+  ): Promise<SilverCouponAllocationResult> {
+    const { data } = await this.client.post('/api/silver-coupons/allocations', {
+      agent_name: agentName, agent_phone: agentPhone, lead_ids: leadIds, coupon_numbers: couponNumbers,
+    });
+    return data;
+  }
+
+  async getSilverCouponAgents(): Promise<SilverCouponAgentSummary[]> {
+    const { data } = await this.client.get('/api/silver-coupons/agents');
+    return data;
+  }
+
+  async getSilverCouponAgentDetail(agentId: number): Promise<SilverCouponAgentDetail> {
+    const { data } = await this.client.get(`/api/silver-coupons/agents/${agentId}`);
     return data;
   }
 
@@ -586,6 +616,7 @@ class ApiClient {
       order_id: number | null; order_number: string | null;
       touchpoint: string; recipient: string | null; status_code: string;
       error_message: string | null; created_at: string;
+      lead_current_phone: string | null;
     }[];
   }> {
     const { data } = await this.client.get('/api/whatsapp/issues');
@@ -599,6 +630,12 @@ class ApiClient {
     const { data } = await this.client.post('/api/whatsapp/resend', {
       lead_id: leadId, order_id: orderId ?? null, touchpoint,
     });
+    return data;
+  }
+
+  /** Every WhatsApp attempt logged for one lead, newest first — the timeline on the lead page. */
+  async getWhatsAppHistory(leadId: number): Promise<{ history: WhatsAppHistoryItem[] }> {
+    const { data } = await this.client.get(`/api/whatsapp/leads/${leadId}/history`);
     return data;
   }
 

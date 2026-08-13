@@ -88,6 +88,10 @@ public class LeadsController : ControllerBase
         {
             return Conflict(new { error = ex.Message });
         }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
     }
 
     [HttpPut("{leadId:int}")]
@@ -101,6 +105,10 @@ public class LeadsController : ControllerBase
         catch (KeyNotFoundException)
         {
             return NotFound(new { error = "Lead not found" });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
         }
     }
 

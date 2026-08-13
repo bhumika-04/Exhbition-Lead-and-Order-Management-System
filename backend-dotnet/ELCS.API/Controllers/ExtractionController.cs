@@ -120,6 +120,10 @@ public class ExtractionController : ControllerBase
 
             return Ok(result);
         }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Lead confirmation failed");

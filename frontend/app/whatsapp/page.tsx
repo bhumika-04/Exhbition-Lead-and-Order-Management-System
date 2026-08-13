@@ -5,21 +5,16 @@ import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { formatDistanceToNow } from 'date-fns';
 import {
-  MessageSquare, Loader2, Send, AlertTriangle, PhoneOff, ChevronRight,
+  MessageSquare, Loader2, Send, AlertTriangle, PhoneOff, ChevronRight, X, RefreshCw, Pencil,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
+import { normaliseIndianPhone, PHONE_ERROR } from '@/lib/phone';
+import { TOUCHPOINT_LABELS } from '@/lib/whatsapp';
 import PageHeader from '@/components/PageHeader';
 import { EmptyState } from '@/components/ui/panel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-
-const TOUCHPOINT_LABELS: Record<string, string> = {
-  welcome: 'Welcome',
-  order_confirmation: 'Order confirmation',
-  testimonial: 'Testimonial',
-  showroom_invite: 'Showroom invite',
-};
 
 interface Issue {
   lead_id: number;
@@ -32,6 +27,10 @@ interface Issue {
   status_code: string;
   error_message: string | null;
   created_at: string;
+  // The lead's phone as it stands now — recipient above is a historical
+  // snapshot from the failed attempt, which lags behind a since-made edit
+  // and is null for "malformed" the same way it's null for "never set".
+  lead_current_phone: string | null;
 }
 
 const rowKey = (i: Issue) => `${i.lead_id}-${i.order_id ?? 0}-${i.touchpoint}`;
@@ -43,6 +42,8 @@ export default function WhatsAppIssuesPage() {
   const [busyKeys, setBusyKeys] = useState<Set<string>>(new Set());
   const [resendingAll, setResendingAll] = useState(false);
   const [allProgress, setAllProgress] = useState<{ done: number; total: number } | null>(null);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
   const CHUNK = 10;
 
   const load = useCallback(async () => {
@@ -63,8 +64,14 @@ export default function WhatsAppIssuesPage() {
   }, [load, router]);
 
   // Nothing to resend for a lead with no phone at all — that needs a human
-  // to add one, not another attempt that will just skip the same way.
-  const resendable = issues.filter(i => !!i.recipient);
+  // to add one, not another attempt that will just skip the same way. Based
+  // on the lead's CURRENT phone, not the historical logged recipient, so an
+  // edit made since the failure is picked up without waiting for a resend
+  // to re-log it.
+  const resendable = issues.filter(i => !!i.lead_current_phone);
+
+  const sortedIssues = [...issues].sort((a, b) =>
+    (a.lead_name || a.company_name || '').localeCompare(b.lead_name || b.company_name || ''));
 
   const resendOne = async (issue: Issue, { silent = false } = {}) => {
     const key = rowKey(issue);
@@ -106,6 +113,40 @@ export default function WhatsAppIssuesPage() {
     }
   };
 
+  /**
+   * Fixing the number fixes every touchpoint that failed for the same
+   * reason — resends all of this lead's outstanding issues, not just the
+   * row that was edited, so a welcome and an order confirmation both stuck
+   * on a bad number go out together.
+   */
+  const saveNumberAndResendAll = async (issue: Issue) => {
+    const key = rowKey(issue);
+    const normalised = normaliseIndianPhone(editValue);
+    if (!normalised) { toast.error(PHONE_ERROR); return; }
+
+    setBusyKeys(s => new Set(s).add(key));
+    try {
+      await api.updateLead(issue.lead_id, { primary_visitor_phone: normalised } as any);
+
+      const sameLead = issues.filter(i => i.lead_id === issue.lead_id);
+      const results = await Promise.all(sameLead.map(i => resendOne(i, { silent: true })));
+      const sentCount = results.filter(Boolean).length;
+
+      toast.success(
+        sentCount === sameLead.length
+          ? `Number saved — ${sentCount} message${sentCount === 1 ? '' : 's'} sent`
+          : `Number saved — ${sentCount}/${sameLead.length} sent`
+      );
+      setEditingKey(null);
+      setEditValue('');
+      await load();
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Could not save that number');
+    } finally {
+      setBusyKeys(s => { const next = new Set(s); next.delete(key); return next; });
+    }
+  };
+
   return (
     <>
       <PageHeader
@@ -116,16 +157,23 @@ export default function WhatsAppIssuesPage() {
             : issues.length === 0 ? 'Every touchpoint went through'
             : `${issues.length} touchpoint${issues.length === 1 ? '' : 's'} did not send`
         }
-        actions={resendable.length > 0 ? (
-          <Button size="sm" disabled={resendingAll} onClick={resendAll} className="gap-1.5 h-9 text-xs">
-            {resendingAll
-              ? <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  {allProgress ? `${allProgress.done}/${allProgress.total}` : 'Resending…'}
-                </>
-              : <><Send className="w-3.5 h-3.5" /> Resend all ({resendable.length})</>}
-          </Button>
-        ) : undefined}
+        actions={
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" disabled={loading} onClick={load} className="gap-1.5 h-9 text-xs" title="Reload — picks up a number just edited on the lead page">
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
+            </Button>
+            {resendable.length > 0 && (
+              <Button size="sm" disabled={resendingAll} onClick={resendAll} className="gap-1.5 h-9 text-xs">
+                {resendingAll
+                  ? <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      {allProgress ? `${allProgress.done}/${allProgress.total}` : 'Resending…'}
+                    </>
+                  : <><Send className="w-3.5 h-3.5" /> Resend all ({resendable.length})</>}
+              </Button>
+            )}
+          </div>
+        }
       />
 
       <div className="px-4 md:px-6 py-4 space-y-3 max-w-4xl mx-auto">
@@ -149,7 +197,7 @@ export default function WhatsAppIssuesPage() {
                       hint="Every welcome, order confirmation, testimonial and showroom invite sent so far was accepted by Interakt." />
         ) : (
           <div className="space-y-2">
-            {issues.map(issue => {
+            {sortedIssues.map(issue => {
               const key = rowKey(issue);
               const busy = busyKeys.has(key);
               return (
@@ -178,8 +226,8 @@ export default function WhatsAppIssuesPage() {
                       )}
                     </div>
                     <p className="text-[11px] text-muted-foreground truncate mt-0.5">
-                      {issue.recipient
-                        ? `${issue.recipient} · ${issue.error_message || issue.status_code}`
+                      {issue.lead_current_phone
+                        ? `${issue.lead_current_phone} · ${issue.error_message || issue.status_code}`
                         : 'No phone number on file'}
                       {' · '}
                       <span suppressHydrationWarning>
@@ -188,19 +236,61 @@ export default function WhatsAppIssuesPage() {
                     </p>
                   </button>
 
-                  {issue.recipient ? (
-                    <Button
-                      size="sm" variant="outline" disabled={busy}
-                      onClick={() => resendOne(issue)}
-                      className="h-8 gap-1.5 text-xs shrink-0"
-                    >
-                      {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                      Resend
-                    </Button>
+                  {editingKey === key ? (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <input
+                        autoFocus
+                        value={editValue}
+                        onChange={e => setEditValue(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') saveNumberAndResendAll(issue);
+                          if (e.key === 'Escape') { setEditingKey(null); setEditValue(''); }
+                        }}
+                        placeholder="10-digit number"
+                        inputMode="tel"
+                        className="h-8 w-28 px-2 rounded-md border border-border bg-card text-xs"
+                      />
+                      <Button
+                        size="sm" disabled={busy}
+                        onClick={() => saveNumberAndResendAll(issue)}
+                        className="h-8 px-2 text-xs"
+                      >
+                        {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                      </Button>
+                      <button
+                        onClick={() => { setEditingKey(null); setEditValue(''); }}
+                        className="p-1.5 rounded hover:bg-secondary text-muted-foreground"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   ) : (
-                    <span className="flex items-center gap-1 text-[10px] text-muted-foreground shrink-0" title="Add a phone number on the lead first">
-                      <PhoneOff className="w-3.5 h-3.5" />
-                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {issue.lead_current_phone && (
+                        <Button
+                          size="sm" variant="outline" disabled={busy}
+                          onClick={() => resendOne(issue)}
+                          className="h-8 gap-1.5 text-xs"
+                        >
+                          {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                          Resend
+                        </Button>
+                      )}
+                      <Button
+                        size="sm" variant="outline"
+                        onClick={() => {
+                          setEditingKey(key);
+                          setEditValue(issue.lead_current_phone
+                            ? normaliseIndianPhone(issue.lead_current_phone) ?? issue.lead_current_phone
+                            : '');
+                        }}
+                        className="h-8 gap-1.5 text-xs"
+                        title={issue.lead_current_phone ? 'Edit this number' : 'Add a phone number'}
+                      >
+                        {issue.lead_current_phone ? <Pencil className="w-3.5 h-3.5" /> : <PhoneOff className="w-3.5 h-3.5" />}
+                        {issue.lead_current_phone ? '' : 'Add number'}
+                      </Button>
+                    </div>
                   )}
                   <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0" />
                 </div>

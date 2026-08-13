@@ -127,7 +127,7 @@ public class InteraktWhatsAppService : IWhatsAppService
         }
 
         await LogAsync(leadId, null, WhatsAppTouchpoints.Welcome,
-            target?.Full, templateName, photoUrl, result);
+            RecipientForLog(target, phone), templateName, photoUrl, result);
 
         return result;
     }
@@ -164,7 +164,7 @@ public class InteraktWhatsAppService : IWhatsAppService
                 fileName: null);
 
         await LogAsync(leadId, null, WhatsAppTouchpoints.ShowroomInvite,
-            target?.Full, templateName, null, result);
+            RecipientForLog(target, phone), templateName, null, result);
 
         return result;
     }
@@ -194,7 +194,7 @@ public class InteraktWhatsAppService : IWhatsAppService
                 fileName: null);
 
         await LogAsync(leadId, null, WhatsAppTouchpoints.Testimonial,
-            target?.Full, templateName, testimonialUrl, result);
+            RecipientForLog(target, phone), templateName, testimonialUrl, result);
 
         return result;
     }
@@ -238,7 +238,7 @@ public class InteraktWhatsAppService : IWhatsAppService
         }
 
         await LogAsync(order.LeadId, order.OrderId, WhatsAppTouchpoints.OrderConfirmation,
-            phone?.Full, templateName, soPdfUrl, result);
+            RecipientForLog(phone, order.LeadPhone), templateName, soPdfUrl, result);
 
         return result;
     }
@@ -332,12 +332,27 @@ public class InteraktWhatsAppService : IWhatsAppService
             SELECT
                 w.LeadId, l.PrimaryVisitorName AS LeadName, l.CompanyName,
                 w.OrderId, o.OrderNumber,
-                w.Touchpoint, w.Recipient, w.StatusCode, w.ErrorMessage, w.CreatedAt
+                w.Touchpoint, w.Recipient, w.StatusCode, w.ErrorMessage, w.CreatedAt,
+                l.PrimaryVisitorPhone AS LeadCurrentPhone
             FROM Latest w
             JOIN Leads l ON l.LeadId = w.LeadId
             LEFT JOIN Orders o ON o.OrderId = w.OrderId
             WHERE w.rn = 1 AND w.StatusCode NOT IN ('sent', 'delivered', 'read')
             ORDER BY w.CreatedAt DESC");
+
+        return rows.ToList();
+    }
+
+    public async Task<List<WhatsAppMessageDto>> GetLeadMessageHistoryAsync(int leadId)
+    {
+        using var conn = _db.CreateConnection();
+        var rows = await conn.QueryAsync<WhatsAppMessageDto>(@"
+            SELECT w.OrderId, o.OrderNumber, w.Touchpoint, w.Recipient, w.StatusCode, w.ErrorMessage, w.CreatedAt
+            FROM WhatsAppMessages w
+            LEFT JOIN Orders o ON o.OrderId = w.OrderId
+            WHERE w.LeadId = @LeadId
+            ORDER BY w.CreatedAt DESC",
+            new { LeadId = leadId });
 
         return rows.ToList();
     }
@@ -402,6 +417,16 @@ public class InteraktWhatsAppService : IWhatsAppService
     // reserves whole. Every other single leading digit is shared across many
     // 2- or 3-digit codes, so treating it as complete here would misparse.
     private static readonly string[] CallingCodes1 = { "1", "7" };
+
+    /// <summary>
+    /// What to log as the recipient: the clean E.164 form when normalisation
+    /// succeeded, otherwise the raw value that was actually on file — never
+    /// silently null when a phone existed but was just malformed. Distinguishes
+    /// "this lead genuinely has no phone" from "this lead has a phone, it's
+    /// wrong" for the Delivery page, which offers a different fix for each.
+    /// </summary>
+    private static string? RecipientForLog((string CountryCode, string Number, string Full)? target, string? raw) =>
+        target?.Full ?? (string.IsNullOrWhiteSpace(raw) ? null : raw);
 
     private static (string CountryCode, string Number, string Full)? NormalisePhone(
         string? raw, string defaultCountryCode)

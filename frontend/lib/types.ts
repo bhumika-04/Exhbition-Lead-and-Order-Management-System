@@ -365,6 +365,52 @@ export interface LeadOrderSummary {
   is_overpaid: boolean;
 }
 
+/**
+ * Silver Coupon Module: an external Agent referred one or more customers
+ * (Leads). Coupons owed follow AdvanceCalculator.SilverCouponsFor applied to
+ * the COMBINED value of every selected customer at Confirm time — see
+ * SilverCouponService.CreateAllocationAsync.
+ */
+export interface SilverCouponAllocationResult {
+  agent_id: number;
+  agent_name: string;
+  agent_phone: string;
+  allocation_id: number;
+  combined_value: number;
+  coupon_numbers: string[];
+}
+
+export interface SilverCouponAgentSummary {
+  agent_id: number;
+  name: string;
+  phone: string;
+  total_coupons: number;
+  total_order_value: number;
+  customer_count: number;
+  last_allocation_at: string | null;
+}
+
+export interface SilverCouponCustomer {
+  lead_id: number;
+  company_name: string | null;
+  primary_visitor_name: string | null;
+  primary_visitor_phone: string | null;
+  lead_value_at_allocation: number;
+  allocation_id: number;
+  coupon_numbers: string[];
+  allocated_at: string;
+  order_numbers: string[];
+}
+
+export interface SilverCouponAgentDetail {
+  agent_id: number;
+  name: string;
+  phone: string;
+  total_coupons: number;
+  total_order_value: number;
+  customers: SilverCouponCustomer[];
+}
+
 export interface OrderDetail {
   order_id: number;
   order_number: string;
@@ -437,6 +483,10 @@ export interface OrderListTotals {
   total_coupons: number;
   /** Customer-placed orders still waiting on a team member. */
   pending_self_service: number;
+  /** total_value's draft-status share — not a sale yet. */
+  draft_value: number;
+  /** total_value's confirmed-status share. */
+  confirmed_value: number;
 }
 
 // ── Lead media ─────────────────────────────────────────────────────────────
@@ -475,6 +525,17 @@ export interface WhatsAppSendOutcome {
   sent: boolean;
   status: 'sent' | 'failed' | 'skipped';
   error?: string | null;
+}
+
+/** One logged WhatsApp attempt — the per-lead timeline. */
+export interface WhatsAppHistoryItem {
+  order_id: number | null;
+  order_number: string | null;
+  touchpoint: string;
+  recipient: string | null;
+  status_code: string;
+  error_message: string | null;
+  created_at: string;
 }
 
 export interface CouponHolder {

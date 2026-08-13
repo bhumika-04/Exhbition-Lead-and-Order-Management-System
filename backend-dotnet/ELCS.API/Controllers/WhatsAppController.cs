@@ -53,6 +53,14 @@ public class WhatsAppController : ControllerBase
         return Ok(new { issues });
     }
 
+    /// <summary>Every WhatsApp attempt logged for one lead — the timeline shown on the lead page.</summary>
+    [HttpGet("leads/{leadId:int}/history")]
+    public async Task<IActionResult> GetLeadHistory(int leadId)
+    {
+        var history = await _whatsApp.GetLeadMessageHistoryAsync(leadId);
+        return Ok(new { history });
+    }
+
     /// <summary>
     /// Resends one touchpoint for one lead (and order, for order_confirmation).
     /// Reuses each touchpoint's own normal send path rather than duplicating

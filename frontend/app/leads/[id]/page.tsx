@@ -20,8 +20,10 @@ import LeadOrdersCard from '@/components/LeadOrdersCard';
 import LeadMediaCard from '@/components/LeadMediaCard';
 import LeadQrCard from '@/components/LeadQrCard';
 import LeadCouponsCard from '@/components/LeadCouponsCard';
+import WhatsAppTimelineCard from '@/components/WhatsAppTimelineCard';
 import { cn } from '@/lib/utils';
 import { money, ORDER_STATUS_LABELS, ORDER_STATUS_STYLES } from '@/lib/orders';
+import { normaliseIndianPhone, PHONE_ERROR } from '@/lib/phone';
 
 export default function LeadDetailPage() {
   const router = useRouter();
@@ -41,6 +43,7 @@ export default function LeadDetailPage() {
   });
 
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
 
   useEffect(() => {
     try { requireAuth(); } catch { router.push('/auth/login'); return; }
@@ -76,12 +79,21 @@ export default function LeadDetailPage() {
         company_name: lead.company_name || '',
       });
     }
+    setPhoneError(null);
     setIsEditing(!isEditing);
   };
 
   const handleSaveEdit = async () => {
+    const rawPhone = editForm.primary_visitor_phone.trim();
+    const normalisedPhone = rawPhone ? normaliseIndianPhone(rawPhone) : '';
+    if (rawPhone && normalisedPhone === null) {
+      setPhoneError(PHONE_ERROR);
+      toast.error(PHONE_ERROR);
+      return;
+    }
+
     try {
-      await api.updateLead(leadId, { ...editForm } as any);
+      await api.updateLead(leadId, { ...editForm, primary_visitor_phone: normalisedPhone || '' } as any);
       toast.success('Lead updated');
       setIsEditing(false);
       await loadLead();
@@ -372,6 +384,10 @@ export default function LeadDetailPage() {
               <LeadOrdersCard leadId={leadId} show="drafts" />
             </BlurFade>
 
+            <BlurFade delay={0.12} inView>
+              <WhatsAppTimelineCard leadId={leadId} />
+            </BlurFade>
+
             <BlurFade delay={0.08} inView>
               <Card className="shadow-sm border-border">
                 <CardHeader className="pb-3 pt-4 px-5">
@@ -519,10 +535,20 @@ export default function LeadDetailPage() {
                           <input
                             type={type}
                             value={(editForm as any)[key]}
-                            onChange={e => setEditForm({ ...editForm, [key]: e.target.value })}
-                            className={inputCls}
+                            onChange={e => {
+                              setEditForm({ ...editForm, [key]: e.target.value });
+                              if (key === 'primary_visitor_phone') setPhoneError(null);
+                            }}
+                            onBlur={key === 'primary_visitor_phone' ? () => {
+                              const v = editForm.primary_visitor_phone.trim();
+                              setPhoneError(v && !normaliseIndianPhone(v) ? PHONE_ERROR : null);
+                            } : undefined}
+                            className={`${inputCls} ${key === 'primary_visitor_phone' && phoneError ? 'border-destructive' : ''}`}
                             placeholder={placeholder}
                           />
+                          {key === 'primary_visitor_phone' && phoneError && (
+                            <p className="text-xs text-destructive mt-1">{phoneError}</p>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -839,6 +865,10 @@ export default function LeadDetailPage() {
                 read as revenue beside the lead's totals. */}
             <BlurFade delay={0.15} inView>
               <LeadOrdersCard leadId={leadId} show="drafts" />
+            </BlurFade>
+
+            <BlurFade delay={0.155} inView>
+              <WhatsAppTimelineCard leadId={leadId} />
             </BlurFade>
 
             {/* Status info */}

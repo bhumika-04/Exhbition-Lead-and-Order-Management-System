@@ -1,6 +1,7 @@
 ﻿using Dapper;
 using ELCS.API.Data;
 using ELCS.API.Models;
+using ELCS.API.Utils;
 using System.Text.Json;
 
 namespace ELCS.API.Services;
@@ -339,6 +340,17 @@ public class LeadService : ILeadService
         // Use 'manual_entry' as default source code if not provided
         var sourceCode = dto.SourceCode ?? "manual_entry";
 
+        // Reachable directly, not just through the form that already checks
+        // this — a malformed number here breaks WhatsApp sends and the
+        // self-service QR match silently, long after entry.
+        var allPhones = new List<string?> { dto.PrimaryVisitorPhone }.Concat(dto.Phones ?? new List<string>())
+            .Where(p => !string.IsNullOrWhiteSpace(p));
+        foreach (var p in allPhones)
+        {
+            if (!PhoneValidator.IsValid(p!))
+                throw new ArgumentException($"\"{p}\" is not a valid 10-digit mobile number");
+        }
+
         // A mobile number identifies a person, so it may appear on only one
         // lead. Two leads sharing a number split that customer's orders,
         // coupons and WhatsApp history in half — and the self-service page
@@ -428,7 +440,13 @@ public class LeadService : ILeadService
         if (dto.CompanyName != null) { updates.Add("CompanyName = @CompanyName"); parameters.Add("CompanyName", dto.CompanyName); }
         if (dto.PrimaryVisitorName != null) { updates.Add("PrimaryVisitorName = @PrimaryVisitorName"); parameters.Add("PrimaryVisitorName", dto.PrimaryVisitorName); }
         if (dto.PrimaryVisitorDesignation != null) { updates.Add("PrimaryVisitorDesignation = @PrimaryVisitorDesignation"); parameters.Add("PrimaryVisitorDesignation", dto.PrimaryVisitorDesignation); }
-        if (dto.PrimaryVisitorPhone != null) { updates.Add("PrimaryVisitorPhone = @PrimaryVisitorPhone"); parameters.Add("PrimaryVisitorPhone", dto.PrimaryVisitorPhone); }
+        if (dto.PrimaryVisitorPhone != null)
+        {
+            // Empty clears the number — only a non-empty value must parse.
+            if (dto.PrimaryVisitorPhone.Length > 0 && !PhoneValidator.IsValid(dto.PrimaryVisitorPhone))
+                throw new ArgumentException($"\"{dto.PrimaryVisitorPhone}\" is not a valid 10-digit mobile number");
+            updates.Add("PrimaryVisitorPhone = @PrimaryVisitorPhone"); parameters.Add("PrimaryVisitorPhone", dto.PrimaryVisitorPhone);
+        }
         if (dto.PrimaryVisitorEmail != null) { updates.Add("PrimaryVisitorEmail = @PrimaryVisitorEmail"); parameters.Add("PrimaryVisitorEmail", dto.PrimaryVisitorEmail); }
         if (dto.Priority != null) { updates.Add("Priority = @Priority"); parameters.Add("Priority", dto.Priority); }
         if (dto.StatusCode != null) { updates.Add("StatusCode = @StatusCode"); parameters.Add("StatusCode", dto.StatusCode); }

@@ -149,6 +149,15 @@ public class ExtractionService : IExtractionService
         int employeeId,
         string? tempId = null)
     {
+        // Checked before the lead row is even created — a validation failure
+        // here shouldn't leave an orphan Lead with no contact details behind.
+        var primaryPersonPhones = extractionData.Persons.FirstOrDefault()?.Phones ?? new List<string>();
+        foreach (var phone in extractionData.Phones.Concat(primaryPersonPhones))
+        {
+            if (!string.IsNullOrWhiteSpace(phone) && !PhoneValidator.IsValid(phone))
+                throw new ArgumentException($"\"{phone}\" is not a valid 10-digit mobile number");
+        }
+
         using var conn = _db.CreateConnection();
 
         // Create lead

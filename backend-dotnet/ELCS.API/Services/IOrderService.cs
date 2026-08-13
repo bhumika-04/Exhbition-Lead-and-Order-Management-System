@@ -166,7 +166,9 @@ public record OrderListTotalsDto(
     decimal TotalValue,
     decimal TotalAdvance,
     int TotalCoupons,       // summed per lead, not per order
-    int PendingSelfService  // customer orders waiting on a CRR — the work queue
+    int PendingSelfService, // customer orders waiting on a CRR — the work queue
+    decimal DraftValue,     // TotalValue's draft-status share — not a sale yet
+    decimal ConfirmedValue  // TotalValue's confirmed-status share
 );
 
 public record OrderListResultDto(

@@ -36,7 +36,20 @@ public interface IWhatsAppService
     /// every failed row ever logged.
     /// </summary>
     Task<List<WhatsAppIssueDto>> GetDeliveryIssuesAsync();
+
+    /// <summary>Every WhatsApp attempt ever logged for one lead, newest first — the timeline shown on the lead page.</summary>
+    Task<List<WhatsAppMessageDto>> GetLeadMessageHistoryAsync(int leadId);
 }
+
+public record WhatsAppMessageDto(
+    int? OrderId,
+    string? OrderNumber,
+    string Touchpoint,
+    string? Recipient,
+    string StatusCode,
+    string? ErrorMessage,
+    DateTime CreatedAt
+);
 
 public record WhatsAppIssueDto(
     int LeadId,
@@ -48,7 +61,13 @@ public record WhatsAppIssueDto(
     string? Recipient,
     string StatusCode,
     string? ErrorMessage,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    // The lead's phone AS IT STANDS NOW — Recipient above is a historical
+    // snapshot from when this attempt was logged, and can lag behind an edit
+    // made since (on the lead page, or from here). This is what the Delivery
+    // page shows and offers to edit; Recipient without this would leave an
+    // already-corrected number looking unset until the next resend re-logs it.
+    string? LeadCurrentPhone
 );
 
 public static class WhatsAppTouchpoints

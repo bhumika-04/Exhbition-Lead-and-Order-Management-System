@@ -88,13 +88,16 @@ export default function OrdersPage() {
 
   const pendingCustomer = totals?.pending_self_service ?? 0;
 
-  const value   = totals?.total_value ?? 0;
-  const advance = totals?.total_advance ?? 0;
+  const value        = totals?.total_value ?? 0;
+  const advance      = totals?.total_advance ?? 0;
+  const draftValue   = totals?.draft_value ?? 0;
+  const confirmedValue = totals?.confirmed_value ?? 0;
 
   const kpis = [
     { label: 'Orders',  value: String(totals?.order_count ?? 0), icon: ShoppingBag,
       tone: 'primary' as const },
-    { label: 'Value',   value: money(value), icon: IndianRupee },
+    { label: 'Draft value',     value: money(draftValue), icon: FileClock },
+    { label: 'Confirmed value', value: money(confirmedValue), icon: CheckCircle2, tone: 'primary' as const },
     { label: 'Advance', value: money(advance), icon: Wallet, tone: 'success' as const,
       hint: value > 0 ? `${Math.round((advance / value) * 100)}% collected` : undefined },
     { label: 'Coupons', value: String(totals?.total_coupons ?? 0), icon: Ticket },
@@ -147,7 +150,7 @@ export default function OrdersPage() {
       )}
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 auto-rows-fr">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5 auto-rows-fr">
         {kpis.map(k => (
           <StatCard key={k.label} label={k.label} value={k.value} icon={k.icon}
                     tone={k.tone} hint={k.hint} />

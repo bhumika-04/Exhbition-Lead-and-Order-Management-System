@@ -31,6 +31,17 @@ export function couponsForSlab(slab: number): number {
   return slab <= 0 ? 0 : slab * COUPONS_PER_UNIT;
 }
 
+/**
+ * Silver Coupon Module: one coupon per ₹1L of order VALUE, no advance
+ * requirement — separate rule and pool from couponsFor above.
+ *   ₹1L–₹2L → 1, ₹2L–₹3L → 2, under ₹1L → 0.
+ * Mirrors AdvanceCalculator.SilverCouponsFor — keep the two in step.
+ */
+export function silverCouponsFor(totalValue: number): number {
+  if (!Number.isFinite(totalValue) || totalValue < SLAB_SIZE) return 0;
+  return Math.floor(totalValue / SLAB_SIZE);
+}
+
 /* ── Size × colour combinations ───────────────────────────────────────────
    Shared by the staff order form and the customer's own ordering page. A
    single count against "M, S, XL" in "blue, green" is unanswerable — the
