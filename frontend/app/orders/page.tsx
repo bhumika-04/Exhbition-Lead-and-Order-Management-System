@@ -8,12 +8,13 @@ import { formatDistanceToNow } from 'date-fns';
 import {
   ShoppingBag, Loader2, ChevronRight, FileText, Ticket, IndianRupee,
   Wallet, Inbox, Trophy, ScanLine, Smartphone, Search, X,
-  FileClock, CheckCircle2, CheckSquare, Square, Send,
+  FileClock, CheckCircle2, CheckSquare, Square, Send, Download,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { isAuthenticated, hasPermission } from '@/lib/auth';
 import type { OrderListItem, OrderListTotals, CouponHolder, Exhibition } from '@/lib/types';
 import { money, ORDER_STATUS_LABELS, ORDER_STATUS_STYLES } from '@/lib/orders';
+import { exportOrders } from '@/lib/orderExport';
 import PageHeader from '@/components/PageHeader';
 import { StatCard } from '@/components/ui/stat-card';
 import { EmptyState } from '@/components/ui/panel';
@@ -42,6 +43,8 @@ export default function OrdersPage() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [exhibitionId, setExhibitionId] = useState('');
+  const [exporting, setExporting] = useState(false);
+  const [exportItems, setExportItems] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -86,6 +89,31 @@ export default function OrdersPage() {
       .catch(() => toast.error('Could not load coupon holders'));
   }, [tab, exhibitionId]);
 
+  const handleExport = async () => {
+    if (!totals || totals.order_count === 0) { toast.error('Nothing to export yet'); return; }
+    setExporting(true);
+    try {
+      // Same filters as the list on screen, but every matching order rather
+      // than just the loaded page — export should mirror the current view,
+      // not just what happened to already be fetched.
+      const res = await api.searchOrders({
+        search: search || undefined,
+        status_code: tab === 'drafts' ? 'draft'
+          : tab === 'confirmed' ? 'confirmed'
+          : status || undefined,
+        exhibition_id: exhibitionId ? Number(exhibitionId) : undefined,
+        source: tab === 'customer' ? 'self_service' : undefined,
+        limit: totals.order_count,
+        include_items: exportItems,
+      });
+      exportOrders(res.orders, exportItems);
+    } catch {
+      toast.error('Could not export orders');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const pendingCustomer = totals?.pending_self_service ?? 0;
 
   const value        = totals?.total_value ?? 0;
@@ -119,6 +147,21 @@ export default function OrdersPage() {
         subtitle={pendingCustomer > 0
           ? `${pendingCustomer} customer order${pendingCustomer === 1 ? '' : 's'} waiting for you`
           : 'Nothing waiting'}
+        actions={tab !== 'coupons' && (
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground select-none cursor-pointer">
+              <input type="checkbox" checked={exportItems}
+                     onChange={e => setExportItems(e.target.checked)}
+                     className="w-3.5 h-3.5 rounded border-border accent-primary" />
+              <span className="hidden sm:inline">Item details</span>
+            </label>
+            <Button size="sm" variant="ghost" disabled={exporting} onClick={handleExport}
+                    className="gap-1.5 h-9 text-xs" title="Download the current list as Excel">
+              {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+              <span className="hidden sm:inline">Export</span>
+            </Button>
+          </div>
+        )}
       />
 
       {/* Still capped — full-bleed leaves the amount stranded a foot from the

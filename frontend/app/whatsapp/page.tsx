@@ -4,13 +4,15 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { formatDistanceToNow } from 'date-fns';
+import * as XLSX from 'xlsx';
 import {
   MessageSquare, Loader2, Send, AlertTriangle, PhoneOff, ChevronRight, X, RefreshCw, Pencil,
+  FileDown,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
 import { normaliseIndianPhone, PHONE_ERROR } from '@/lib/phone';
-import { TOUCHPOINT_LABELS } from '@/lib/whatsapp';
+import { TOUCHPOINT_LABELS, STATUS_LABELS } from '@/lib/whatsapp';
 import PageHeader from '@/components/PageHeader';
 import { EmptyState } from '@/components/ui/panel';
 import { Badge } from '@/components/ui/badge';
@@ -72,6 +74,33 @@ export default function WhatsAppIssuesPage() {
 
   const sortedIssues = [...issues].sort((a, b) =>
     (a.lead_name || a.company_name || '').localeCompare(b.lead_name || b.company_name || ''));
+
+  const exportExcel = () => {
+    const rows = [
+      ['LEAD NAME', 'COMPANY', 'PHONE', 'TOUCHPOINT', 'ORDER', 'ISSUE', 'STATUS', 'WHEN'],
+      ...sortedIssues.map(i => [
+        i.lead_name || 'Unknown',
+        i.company_name || '',
+        i.lead_current_phone || 'No phone number on file',
+        TOUCHPOINT_LABELS[i.touchpoint] || i.touchpoint,
+        i.order_number || '',
+        i.error_message || (i.lead_current_phone ? '' : 'No phone number on file'),
+        STATUS_LABELS[i.status_code] || i.status_code,
+        new Date(i.created_at).toLocaleString('en-IN'),
+      ]),
+    ];
+
+    const sheet = XLSX.utils.aoa_to_sheet(rows);
+    sheet['!cols'] = [
+      { wch: 22 }, { wch: 20 }, { wch: 16 }, { wch: 18 }, { wch: 16 }, { wch: 34 }, { wch: 10 }, { wch: 18 },
+    ];
+
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet, 'WhatsApp Issues');
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(book, `whatsapp-delivery-issues-${stamp}.xlsx`);
+  };
 
   const resendOne = async (issue: Issue, { silent = false } = {}) => {
     const key = rowKey(issue);
@@ -162,6 +191,11 @@ export default function WhatsAppIssuesPage() {
             <Button size="sm" variant="outline" disabled={loading} onClick={load} className="gap-1.5 h-9 text-xs" title="Reload — picks up a number just edited on the lead page">
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
             </Button>
+            {issues.length > 0 && (
+              <Button size="sm" variant="outline" onClick={exportExcel} className="gap-1.5 h-9 text-xs">
+                <FileDown className="w-3.5 h-3.5" /> Export Excel
+              </Button>
+            )}
             {resendable.length > 0 && (
               <Button size="sm" disabled={resendingAll} onClick={resendAll} className="gap-1.5 h-9 text-xs">
                 {resendingAll

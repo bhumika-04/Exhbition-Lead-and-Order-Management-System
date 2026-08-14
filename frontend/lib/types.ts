@@ -474,6 +474,17 @@ export interface OrderListItem {
   total_pieces: number;
   so_pdf_path?: string | null;
   created_at: string;
+  /** Item lines — present on the Orders page search response, for export. */
+  items?: OrderListItemLine[];
+}
+
+export interface OrderListItemLine {
+  barcode?: string | null;
+  colour?: string | null;
+  size?: string | null;
+  pieces: number;
+  rate?: number | null;
+  amount?: number | null;
 }
 
 export interface OrderListTotals {

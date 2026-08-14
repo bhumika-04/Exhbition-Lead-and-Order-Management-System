@@ -140,7 +140,10 @@ public record OrderSearchParams(
     DateTime? FromDate = null,
     DateTime? ToDate = null,
     int Limit = 100,
-    int Offset = 0
+    int Offset = 0,
+    // Item lines cost an extra query — skip it unless the caller (the Excel
+    // export) actually needs them. The plain list view never renders items.
+    bool IncludeItems = false
 );
 
 public record OrderListItemDto(
@@ -158,7 +161,20 @@ public record OrderListItemDto(
     int ItemCount,
     int TotalPieces,
     string? SoPdfPath,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    // Filled in after the main query — one line per scanned item, for the
+    // Orders page export. Not used by the list view itself.
+    List<OrderItemExportDto>? Items = null
+);
+
+/// <summary>One order line, shaped for the Orders page Excel export.</summary>
+public record OrderItemExportDto(
+    string? Barcode,
+    string? Colour,
+    string? Size,
+    int Pieces,
+    decimal? Rate,
+    decimal? Amount
 );
 
 public record OrderListTotalsDto(

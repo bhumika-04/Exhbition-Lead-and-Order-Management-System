@@ -29,7 +29,7 @@ import {
   INDIAN_STATES, INDIAN_UNION_TERRITORIES,
   normaliseIndianState, isKnownIndianState,
 } from '@/lib/indianStates';
-import { normaliseIndianPhone, PHONE_ERROR } from '@/lib/phone';
+import { normalisePhoneForCountry, normaliseAnyPhone, DIAL_COUNTRIES, DEFAULT_DIAL, PHONE_ERROR } from '@/lib/phone';
 
 interface FormState {
   company_name: string;
@@ -75,6 +75,9 @@ export default function ScanPage() {
   const [showPicker, setShowPicker] = useState(false);
 
   const [form, setForm] = useState<FormState>(blank());
+  // India by default — the country picker next to the phone field only
+  // changes how a NEW number typed from here on is parsed and stored.
+  const [phoneDial, setPhoneDial] = useState(DEFAULT_DIAL);
   const [lowConfidence, setLowConfidence] = useState<Set<string>>(new Set());
   const [duplicates, setDuplicates] = useState<Duplicate[]>([]);
   const [tempId, setTempId] = useState<string | null>(null);
@@ -164,7 +167,7 @@ export default function ScanPage() {
         // Only folds in a pending number that's actually valid — an invalid
         // one is left for save() to catch and report, rather than silently
         // dropped or silently stored malformed.
-        const normalised = normaliseIndianPhone(pending);
+        const normalised = normalisePhoneForCountry(pending, phoneDial);
         if (normalised && !out.phones.includes(normalised)) out.phones = [...out.phones, normalised];
       } else if (!out[key].includes(pending)) {
         out[key] = [...out[key], pending];
@@ -194,7 +197,7 @@ export default function ScanPage() {
       // as a real number rather than storing garbage the operator would have
       // to notice and fix by hand anyway.
       const validExtractedPhones = (ex.phones ?? [])
-        .map(normaliseIndianPhone)
+        .map(normaliseAnyPhone)
         .filter((p): p is string => p !== null);
 
       setForm(f => ({
@@ -279,7 +282,7 @@ export default function ScanPage() {
     // if the box still holds unvalidated text, that's the operator's typo to
     // fix, not something to fold in malformed or drop silently.
     const pendingPhone = chipDrafts.current.phones.trim();
-    if (pendingPhone && !normaliseIndianPhone(pendingPhone)) {
+    if (pendingPhone && !normalisePhoneForCountry(pendingPhone, phoneDial)) {
       toast.error(`"${pendingPhone}" — ${PHONE_ERROR}`); return;
     }
     if (entered.phones.length === 0) {
@@ -506,11 +509,30 @@ export default function ScanPage() {
                      onChange={v => set('company_name', v)} />
             </div>
 
-            <ChipInput label="Phone numbers" required values={form.phones}
-                       onChange={v => set('phones', v)}
-                       onDraft={v => { chipDrafts.current.phones = v; }}
-                       placeholder="Add a number" inputMode="tel"
-                       normalise={normaliseIndianPhone} />
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground font-medium">
+                  Phone numbers<RequiredMark />
+                </span>
+                {/* Defaults to India; only affects how a number typed from
+                    here on is parsed — existing chips keep their own format. */}
+                <select
+                  value={phoneDial}
+                  onChange={e => setPhoneDial(e.target.value)}
+                  className="h-6 text-[11px] border border-border rounded-md px-1.5 bg-card text-muted-foreground"
+                  aria-label="Country for new phone numbers"
+                >
+                  {DIAL_COUNTRIES.map(c => (
+                    <option key={c.dial} value={c.dial}>{c.flag} +{c.dial} {c.label}</option>
+                  ))}
+                </select>
+              </div>
+              <ChipInput label="" values={form.phones}
+                         onChange={v => set('phones', v)}
+                         onDraft={v => { chipDrafts.current.phones = v; }}
+                         placeholder="Add a number" inputMode="tel"
+                         normalise={v => normalisePhoneForCountry(v, phoneDial)} />
+            </div>
             <ChipInput label="Emails" values={form.emails}
                        onChange={v => set('emails', v)}
                        onDraft={v => { chipDrafts.current.emails = v; }}
@@ -772,9 +794,11 @@ function ChipInput({ label, values, onChange, onDraft, placeholder, inputMode, r
 
   return (
     <div className="text-xs">
-      <span className="text-muted-foreground font-medium">
-        {label}{required && <RequiredMark />}
-      </span>
+      {label && (
+        <span className="text-muted-foreground font-medium">
+          {label}{required && <RequiredMark />}
+        </span>
+      )}
       <div className="flex flex-wrap gap-1.5 mt-1">
         {values.map(v => (
           <span key={v} className="inline-flex items-center gap-1 bg-secondary text-foreground rounded-lg pl-2.5 pr-1 py-1 text-[11px]">

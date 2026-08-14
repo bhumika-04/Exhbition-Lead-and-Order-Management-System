@@ -63,7 +63,10 @@ public class OrdersController : ControllerBase
         [FromQuery] DateTime? from_date,
         [FromQuery] DateTime? to_date,
         [FromQuery] int limit = 100,
-        [FromQuery] int offset = 0)
+        [FromQuery] int offset = 0,
+        // Item lines cost an extra query and a lot of payload — the list view
+        // never renders them, only the Excel export does, so they're opt-in.
+        [FromQuery] bool include_items = false)
     {
         var result = await _orderService.SearchOrdersAsync(new OrderSearchParams(
             ExhibitionId: exhibition_id,
@@ -73,7 +76,8 @@ public class OrdersController : ControllerBase
             FromDate:     from_date,
             ToDate:       to_date,
             Limit:        Math.Clamp(limit, 1, 500),
-            Offset:       Math.Max(offset, 0)));
+            Offset:       Math.Max(offset, 0),
+            IncludeItems: include_items));
 
         return Ok(new { orders = result.Orders, count = result.TotalCount, totals = result.Totals });
     }

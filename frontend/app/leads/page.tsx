@@ -11,6 +11,7 @@ import {
   Search, Plus, Building2, User, Phone, Trash2,
   AlertTriangle, X, SlidersHorizontal, ChevronRight, Loader2,
   Users, Download, CheckCircle2, Upload, ChevronLeft, Camera,
+  LayoutGrid, Table2,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { Button } from '@/components/ui/button';
@@ -71,8 +72,20 @@ export default function LeadsPage() {
   const [exhibitions, setExhibitions] = useState<any[]>([]);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedLeads, setSelectedLeads] = useState<Set<number>>(new Set());
+  const [viewMode, setViewMode] = useState<'card' | 'table'>('card');
   const [page, setPage] = useState(1);
-  const PAGE_SIZE = 21;
+  // Table view's own per-column filters — Name/Company/Phone have no
+  // existing column elsewhere, so they get dedicated state. Status and
+  // Priority reuse statusFilter/priorityFilter so the table header and the
+  // Filters panel always agree on what's active.
+  const [colName, setColName] = useState('');
+  const [colCompany, setColCompany] = useState('');
+  const [colPhone, setColPhone] = useState('');
+  // Table header's Date filter picks one exact day a lead was created on,
+  // from whatever days actually exist in the data — not a relative preset.
+  const applyDateExact = (value: string) => { setDateFrom(value); setDateTo(value); };
+  const PAGE_SIZE_CARD = 21;
+  const PAGE_SIZE_TABLE = 100;
 
   useEffect(() => {
     setMounted(true);
@@ -94,7 +107,7 @@ export default function LeadsPage() {
 
   useEffect(() => {
     applyFilters();
-  }, [leads, searchQuery, statusFilter, sourceFilter, exhibitionFilter, priorityFilter, cityFilter, stateFilter, dateFrom, dateTo, sortBy]);
+  }, [leads, searchQuery, statusFilter, sourceFilter, exhibitionFilter, priorityFilter, cityFilter, stateFilter, dateFrom, dateTo, sortBy, colName, colCompany, colPhone]);
 
   const loadExhibitions = async () => {
     try { setExhibitions(await api.getExhibitions()); } catch { /* silent */ }
@@ -133,6 +146,10 @@ export default function LeadsPage() {
     if (stateFilter !== 'all') f = f.filter(l => l.state?.toLowerCase() === stateFilter.toLowerCase());
     if (dateFrom) { const d = new Date(dateFrom); d.setHours(0,0,0,0); f = f.filter(l => new Date(l.created_at) >= d); }
     if (dateTo)   { const d = new Date(dateTo);   d.setHours(23,59,59,999); f = f.filter(l => new Date(l.created_at) <= d); }
+    // Table view's per-column filters.
+    if (colName)    f = f.filter(l => (l.primary_visitor_name || '').toLowerCase().includes(colName.toLowerCase()));
+    if (colCompany) f = f.filter(l => (l.company_name || '').toLowerCase().includes(colCompany.toLowerCase()));
+    if (colPhone)   f = f.filter(l => (l.primary_visitor_phone || '').includes(colPhone));
     f.sort((a, b) => {
       switch (sortBy) {
         case 'date_asc':     return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
@@ -165,6 +182,7 @@ export default function LeadsPage() {
     setExhibitionFilter('all'); setPriorityFilter('all');
     setCityFilter('all'); setStateFilter('all');
     setDateFrom(''); setDateTo(''); setSortBy('date_desc');
+    setColName(''); setColCompany(''); setColPhone('');
     loadLeads();
   };
 
@@ -172,6 +190,7 @@ export default function LeadsPage() {
     statusFilter !== 'all', sourceFilter !== 'all', exhibitionFilter !== 'all',
     priorityFilter !== 'all', cityFilter !== 'all', stateFilter !== 'all',
     !!dateFrom, !!dateTo, sortBy !== 'date_desc',
+    !!colName, !!colCompany, !!colPhone,
   ].filter(Boolean).length;
 
   const handleDeleteLead = async (leadId: number) => {
@@ -257,8 +276,12 @@ export default function LeadsPage() {
     );
   }
 
+  const PAGE_SIZE = viewMode === 'table' ? PAGE_SIZE_TABLE : PAGE_SIZE_CARD;
   const totalPages = Math.ceil(filteredLeads.length / PAGE_SIZE);
   const pagedLeads = filteredLeads.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  // Every distinct day a lead was created on, newest first — the table
+  // header's Date dropdown picks from these rather than a relative preset.
+  const allDates = Array.from(new Set(leads.map(l => l.created_at.slice(0, 10)))).sort().reverse();
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden bg-background">
@@ -308,6 +331,28 @@ export default function LeadsPage() {
               </span>
             )}
           </Button>
+          {/* Card / Table toggle — table trades the photo-first card for a
+              dense row per lead with a real Date column, for scanning a
+              year of leads at once rather than one relative timestamp
+              ("3 days ago") per card. */}
+          <div className="flex gap-0.5 bg-secondary rounded-lg p-0.5 shrink-0">
+            <button
+              onClick={() => { setViewMode('card'); setPage(1); }}
+              title="Card view"
+              className={cn('h-8 w-8 rounded-md flex items-center justify-center transition-colors',
+                viewMode === 'card' ? 'bg-card text-primary shadow-xs' : 'text-muted-foreground hover:text-foreground')}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => { setViewMode('table'); setPage(1); }}
+              title="Table view"
+              className={cn('h-8 w-8 rounded-md flex items-center justify-center transition-colors',
+                viewMode === 'table' ? 'bg-card text-primary shadow-xs' : 'text-muted-foreground hover:text-foreground')}
+            >
+              <Table2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
           <Button
             variant="outline"
             size="sm"
@@ -445,6 +490,22 @@ export default function LeadsPage() {
                     <FilterRow label="City" value={cityFilter} onChange={handleCityChange}
                       options={[{ v: 'all', l: 'All Cities' }, ...citiesForState.map(c => ({ v: c, l: c }))]} />
 
+                    {/* Date — the range a lead was created in, inclusive on both ends */}
+                    <div className="flex items-center gap-3 py-2.5">
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest w-20 shrink-0">Date</span>
+                      <div className="flex items-center gap-1.5 flex-1">
+                        <input type="date" value={dateFrom} max={dateTo || undefined}
+                               onChange={e => setDateFrom(e.target.value)}
+                               className={cn('h-8 text-xs border border-border rounded-md px-2 flex-1 min-w-0 bg-transparent',
+                                 dateFrom && 'border-primary/30 bg-primary/[0.07] text-primary')} />
+                        <span className="text-muted-foreground/50 text-xs shrink-0">to</span>
+                        <input type="date" value={dateTo} min={dateFrom || undefined}
+                               onChange={e => setDateTo(e.target.value)}
+                               className={cn('h-8 text-xs border border-border rounded-md px-2 flex-1 min-w-0 bg-transparent',
+                                 dateTo && 'border-primary/30 bg-primary/[0.07] text-primary')} />
+                      </div>
+                    </div>
+
                     <FilterRow label="Sort By" value={sortBy} onChange={setSortBy} options={[
                       { v: 'date_desc', l: 'Newest First' }, { v: 'date_asc', l: 'Oldest First' },
                       { v: 'name_asc', l: 'Name A-Z' }, { v: 'priority', l: 'By Priority' },
@@ -484,6 +545,127 @@ export default function LeadsPage() {
           </motion.div>
         ) : (
           <>
+          {viewMode === 'table' ? (
+            <div className="border border-border rounded-xl overflow-x-auto bg-card">
+              <table className="w-full text-sm min-w-[920px]">
+                <thead>
+                  <tr className="border-b border-border text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                    {selectMode && <th className="w-9 px-3 py-2.5"></th>}
+                    {/* Exact date, not "3 days ago" — the point of this view
+                        is scanning leads across a whole year at a glance. */}
+                    <th className="px-3 py-2.5">Date</th>
+                    <th className="px-3 py-2.5">Name</th>
+                    <th className="px-3 py-2.5">Company</th>
+                    <th className="px-3 py-2.5">Phone</th>
+                    <th className="px-3 py-2.5">Status</th>
+                    <th className="px-3 py-2.5">Priority</th>
+                    <th className="px-3 py-2.5 text-right">Order Value</th>
+                  </tr>
+                  {/* Filter row — a proper data grid filters from the header,
+                      not just a side panel. Status/Priority reuse the same
+                      state as the Filters panel; Name/Company/Phone are
+                      column-only (no equivalent field elsewhere). */}
+                  <tr className="border-b border-border bg-secondary/30">
+                    {selectMode && <th className="px-3 py-1.5"></th>}
+                    <th className="px-3 py-1.5">
+                      <select value={dateFrom === dateTo ? dateFrom : ''} onChange={e => applyDateExact(e.target.value)}
+                              className="h-6 text-[10px] border border-border rounded px-1 w-full bg-card font-normal normal-case">
+                        <option value="">All dates</option>
+                        {allDates.map(d => (
+                          <option key={d} value={d}>
+                            {new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </option>
+                        ))}
+                      </select>
+                    </th>
+                    <th className="px-3 py-1.5">
+                      <input value={colName} onChange={e => setColName(e.target.value)}
+                             placeholder="Filter…"
+                             className="h-6 text-xs border border-border rounded px-1.5 w-full bg-card font-normal normal-case" />
+                    </th>
+                    <th className="px-3 py-1.5">
+                      <input value={colCompany} onChange={e => setColCompany(e.target.value)}
+                             placeholder="Filter…"
+                             className="h-6 text-xs border border-border rounded px-1.5 w-full bg-card font-normal normal-case" />
+                    </th>
+                    <th className="px-3 py-1.5">
+                      <input value={colPhone} onChange={e => setColPhone(e.target.value)}
+                             placeholder="Filter…"
+                             className="h-6 text-xs border border-border rounded px-1.5 w-full bg-card font-normal normal-case" />
+                    </th>
+                    <th className="px-3 py-1.5">
+                      <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+                              className="h-6 text-[10px] border border-border rounded px-1 w-full bg-card font-normal normal-case">
+                        <option value="all">All</option>
+                        <option value="new">New</option>
+                        <option value="confirmed">Confirmed</option>
+                        <option value="needs_correction">Needs Correction</option>
+                        <option value="in_progress">In Progress</option>
+                      </select>
+                    </th>
+                    <th className="px-3 py-1.5">
+                      <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)}
+                              className="h-6 text-[10px] border border-border rounded px-1 w-full bg-card font-normal normal-case">
+                        <option value="all">All</option>
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low</option>
+                      </select>
+                    </th>
+                    <th className="px-3 py-1.5"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagedLeads.map(lead => {
+                    const isSelected = selectedLeads.has(lead.lead_id);
+                    const statusVariant = STATUS_VARIANT[lead.status_code] || 'secondary';
+                    return (
+                      <tr
+                        key={lead.lead_id}
+                        onClick={() => {
+                          if (selectMode) { toggleLeadSelection(lead.lead_id); return; }
+                          sessionStorage.setItem('leads_page', page.toString());
+                          router.push(`/leads/${lead.lead_id}`);
+                        }}
+                        className={cn('border-b border-border last:border-0 cursor-pointer hover:bg-secondary/40 transition-colors',
+                          isSelected && 'bg-primary/[0.06]')}
+                      >
+                        {selectMode && (
+                          <td className="px-3 py-2.5">
+                            {isSelected
+                              ? <CheckCircle2 className="w-4 h-4 text-primary" />
+                              : <div className="w-4 h-4 rounded-full border-2 border-input" />}
+                          </td>
+                        )}
+                        <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap tabular" suppressHydrationWarning>
+                          {new Date(lead.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        </td>
+                        <td className="px-3 py-2.5 font-medium text-foreground whitespace-nowrap">
+                          {lead.primary_visitor_name || 'Unknown Visitor'}
+                        </td>
+                        <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">{lead.company_name || '—'}</td>
+                        <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap tabular">{lead.primary_visitor_phone || '—'}</td>
+                        <td className="px-3 py-2.5">
+                          <Badge variant={statusVariant} className="text-[11px] h-5 py-0 px-2">
+                            {lead.status_name || lead.status_code || 'pending'}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2.5 whitespace-nowrap">
+                          {lead.priority === 'high' ? <span className="text-destructive/70 font-semibold text-xs">● High</span>
+                            : lead.priority === 'medium' ? <span className="text-primary/60 text-xs">● Medium</span>
+                            : lead.priority === 'low' ? <span className="text-muted-foreground/60 text-xs">● Low</span>
+                            : <span className="text-muted-foreground/40 text-xs">—</span>}
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-semibold text-foreground tabular whitespace-nowrap">
+                          {lead.order_status ? money(lead.order_value ?? 0) : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
           <AnimatedList className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 items-start">
             {pagedLeads.map((lead) => {
               const initials = (lead.primary_visitor_name || lead.company_name || '?')
@@ -597,6 +779,7 @@ export default function LeadsPage() {
               );
             })}
           </AnimatedList>
+          )}
 
           {/* Pagination */}
           {totalPages > 1 && (

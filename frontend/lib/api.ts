@@ -511,6 +511,8 @@ class ApiClient {
     to_date?: string;
     limit?: number;
     offset?: number;
+    /** Item lines cost an extra query server-side — only the Excel export needs them. */
+    include_items?: boolean;
   }): Promise<{ orders: OrderListItem[]; count: number; totals: OrderListTotals }> {
     const { data } = await this.client.get('/api/orders', { params });
     return { orders: data.orders || [], count: data.count ?? 0, totals: data.totals };

@@ -468,7 +468,7 @@ public class OrderService : IOrderService
         args.Add("Offset", p.Offset);
         args.Add("Limit", p.Limit);
 
-        var orders = (await conn.QueryAsync<OrderListItemDto>($@"
+        var rows = (await conn.QueryAsync<OrderListItemRow>($@"
             SELECT o.OrderId, o.OrderNumber, o.LeadId,
                    l.PrimaryVisitorName  AS LeadName,
                    l.CompanyName         AS LeadCompanyName,
@@ -491,6 +491,37 @@ public class OrderService : IOrderService
             {where}
             ORDER BY o.CreatedAt DESC
             OFFSET @Offset ROWS FETCH NEXT @Limit ROWS ONLY", args)).ToList();
+
+        // Item lines cost an extra query — only run it when the caller (the
+        // Excel export) actually asked for them. The plain list view doesn't
+        // render items, and was paying for this join on every page load.
+        ILookup<int, OrderItemExportDto> itemsByOrder;
+        if (p.IncludeItems)
+        {
+            var orderIds = rows.Select(r => r.OrderId).ToList();
+            var itemRows = orderIds.Count > 0
+                ? await conn.QueryAsync<OrderItemExportRow>(
+                    @"SELECT OrderId, Barcode, Colour, Size, Pieces, Rate, Amount
+                      FROM OrderItems WHERE OrderId IN @OrderIds ORDER BY OrderId, LineNumber",
+                    new { OrderIds = orderIds })
+                : Enumerable.Empty<OrderItemExportRow>();
+
+            itemsByOrder = itemRows.ToLookup(
+                r => r.OrderId,
+                r => new OrderItemExportDto(r.Barcode, r.Colour, r.Size, r.Pieces, r.Rate, r.Amount));
+        }
+        else
+        {
+            itemsByOrder = Enumerable.Empty<OrderItemExportRow>().ToLookup(r => r.OrderId,
+                r => new OrderItemExportDto(r.Barcode, r.Colour, r.Size, r.Pieces, r.Rate, r.Amount));
+        }
+
+        var orders = rows.Select(r => new OrderListItemDto(
+            r.OrderId, r.OrderNumber, r.LeadId, r.LeadName, r.LeadCompanyName, r.LeadPhone,
+            r.ExhibitionName, r.StatusCode, r.Source, r.EffectiveValue, r.AdvanceAmount,
+            r.ItemCount, r.TotalPieces, r.SoPdfPath, r.CreatedAt,
+            itemsByOrder[r.OrderId].ToList()
+        )).ToList();
 
         // Totals cover every row the filter matches, not just the current page.
         // Draft and confirmed value are summed separately — a draft is work in
@@ -692,4 +723,22 @@ public class OrderService : IOrderService
             "UPDATE Orders SET OrderTotal = @Total, UpdatedAt = GETUTCDATE() WHERE OrderId = @OrderId",
             new { Total = total, OrderId = orderId }, tx);
     }
+
+    /// <summary>Dapper row shape for the item-lines-per-order query behind the Orders export.</summary>
+    private record OrderItemExportRow(
+        int OrderId, string? Barcode, string? Colour, string? Size,
+        int Pieces, decimal? Rate, decimal? Amount);
+
+    /// <summary>
+    /// Dapper row shape for the orders list query — same columns as
+    /// OrderListItemDto minus Items, which is filled in from a second query
+    /// afterwards rather than materialized directly (Dapper's constructor
+    /// mapping needs the parameter list to match the column list exactly).
+    /// </summary>
+    private record OrderListItemRow(
+        int OrderId, string OrderNumber, int LeadId,
+        string? LeadName, string? LeadCompanyName, string? LeadPhone,
+        string? ExhibitionName, string StatusCode, string Source,
+        decimal EffectiveValue, decimal AdvanceAmount,
+        int ItemCount, int TotalPieces, string? SoPdfPath, DateTime CreatedAt);
 }

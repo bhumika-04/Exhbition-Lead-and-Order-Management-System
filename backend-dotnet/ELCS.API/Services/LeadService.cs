@@ -348,7 +348,7 @@ public class LeadService : ILeadService
         foreach (var p in allPhones)
         {
             if (!PhoneValidator.IsValid(p!))
-                throw new ArgumentException($"\"{p}\" is not a valid 10-digit mobile number");
+                throw new ArgumentException($"\"{p}\" is not a valid mobile number — foreign numbers need a leading +");
         }
 
         // A mobile number identifies a person, so it may appear on only one
