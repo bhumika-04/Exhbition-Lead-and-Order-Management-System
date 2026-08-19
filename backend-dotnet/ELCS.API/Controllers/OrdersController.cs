@@ -87,6 +87,10 @@ public class OrdersController : ControllerBase
     public async Task<IActionResult> GetCouponHolders([FromQuery] int? exhibition_id)
         => Ok(new { holders = await _orderService.GetCouponHoldersAsync(exhibition_id) });
 
+    [HttpGet("salespeople")]
+    public async Task<IActionResult> GetSalesBySalesperson([FromQuery] int? exhibition_id)
+        => Ok(new { salespeople = await _orderService.GetSalesBySalespersonAsync(exhibition_id) });
+
     [HttpGet("lead/{leadId:int}")]
     public async Task<IActionResult> GetOrdersForLead(int leadId)
     {

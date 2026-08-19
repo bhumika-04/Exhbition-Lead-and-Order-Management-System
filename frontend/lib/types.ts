@@ -465,6 +465,8 @@ export interface OrderListItem {
   lead_name?: string | null;
   lead_company_name?: string | null;
   lead_phone?: string | null;
+  lead_city?: string | null;
+  lead_state?: string | null;
   exhibition_name?: string | null;
   status_code: 'draft' | 'confirmed' | 'cancelled';
   source: OrderSource;
@@ -474,6 +476,7 @@ export interface OrderListItem {
   total_pieces: number;
   so_pdf_path?: string | null;
   created_at: string;
+  created_by_name?: string | null;
   /** Item lines — present on the Orders page search response, for export. */
   items?: OrderListItemLine[];
 }
@@ -558,6 +561,16 @@ export interface CouponHolder {
   total_advance: number;
   coupons: number;
   order_count: number;
+}
+
+export interface SalespersonReport {
+  employee_id: number | null;
+  employee_name: string;
+  order_count: number;
+  draft_count: number;
+  confirmed_count: number;
+  total_value: number;
+  total_advance: number;
 }
 
 export interface ConfirmOrderResult {

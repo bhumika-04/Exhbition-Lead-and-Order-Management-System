@@ -23,6 +23,7 @@ import type {
   OrderListItem,
   OrderListTotals,
   CouponHolder,
+  SalespersonReport,
   Product,
   SaveProductRequest,
   LeadMedia,
@@ -526,6 +527,13 @@ class ApiClient {
     return data.holders || [];
   }
 
+  async getSalespeople(exhibitionId?: number): Promise<SalespersonReport[]> {
+    const { data } = await this.client.get('/api/orders/salespeople', {
+      params: exhibitionId ? { exhibition_id: exhibitionId } : undefined,
+    });
+    return data.salespeople || [];
+  }
+
   // Lead media — team photos + testimonial
   async getLeadMedia(leadId: number): Promise<LeadMedia> {
     const { data } = await this.client.get(`/api/leads/${leadId}/media`);
@@ -805,6 +813,11 @@ class ApiClient {
 
   async deleteUser(employeeId: number): Promise<{ success: boolean }> {
     const { data } = await this.client.delete(`/api/users/${employeeId}`);
+    return data;
+  }
+
+  async reactivateUser(employeeId: number): Promise<{ success: boolean }> {
+    const { data } = await this.client.post(`/api/users/${employeeId}/reactivate`);
     return data;
   }
 

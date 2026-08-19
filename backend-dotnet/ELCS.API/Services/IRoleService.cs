@@ -70,5 +70,6 @@ public interface IRoleService
     Task<int> CreateUserAsync(CreateUserRequest request);
     Task<bool> UpdateUserAsync(int employeeId, UpdateUserRequest request);
     Task<bool> DeleteUserAsync(int employeeId);
+    Task<bool> ReactivateUserAsync(int employeeId);
     Task<bool> ResetPasswordAsync(int employeeId, string newPassword);
 }

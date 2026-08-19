@@ -15,18 +15,20 @@ import { ORDER_STATUS_LABELS } from './orders';
 
 const SUMMARY_HEADER = [
   'Created', 'Customer', 'Company', 'Order No', 'Status',
-  'Items', 'Pieces', 'Order Value', 'Advance', 'Balance', 'Exhibition',
+  'Items', 'Pieces', 'Order Value', 'Advance', 'Balance', 'Exhibition', 'Created By',
+  'Mobile', 'City', 'State',
 ];
 
 const DETAIL_HEADER = [
   'Created', 'Customer', 'Company', 'Order No', 'Status',
   'Item Barcode', 'Colour', 'Size', 'Pieces', 'Rate', 'Amount',
-  'Order Value', 'Advance', 'Balance', 'Exhibition',
+  'Order Value', 'Advance', 'Balance', 'Exhibition', 'Created By',
+  'Mobile', 'City', 'State',
 ];
 
 // Columns carried at order level in the detail sheet — merged across
 // however many item rows the order has. Item-line columns are never merged.
-const ORDER_LEVEL_COLS = [0, 1, 2, 3, 4, 11, 12, 13, 14];
+const ORDER_LEVEL_COLS = [0, 1, 2, 3, 4, 11, 12, 13, 14, 15, 16, 17, 18];
 
 export function exportOrders(orders: OrderListItem[], includeItems: boolean) {
   const sheet = includeItems ? buildDetailSheet(orders) : buildSummarySheet(orders);
@@ -58,18 +60,23 @@ function buildSummarySheet(orders: OrderListItem[]) {
       o.advance_amount,
       balance,
       o.exhibition_name || '',
+      o.created_by_name || '',
+      o.lead_phone || '',
+      o.lead_city || '',
+      o.lead_state || '',
     ]);
     orderValueSum += o.effective_value;
     advanceSum += o.advance_amount;
   }
 
   rows.push([]);
-  rows.push(['', '', '', '', 'TOTAL', '', '', orderValueSum, advanceSum, orderValueSum - advanceSum, '']);
+  rows.push(['', '', '', '', 'TOTAL', '', '', orderValueSum, advanceSum, orderValueSum - advanceSum, '', '', '', '', '']);
 
   const sheet = XLSX.utils.aoa_to_sheet(rows);
   sheet['!cols'] = [
     { wch: 12 }, { wch: 20 }, { wch: 18 }, { wch: 16 }, { wch: 11 },
-    { wch: 8 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 16 },
+    { wch: 8 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 16 },
+    { wch: 14 }, { wch: 14 }, { wch: 14 },
   ];
   return sheet;
 }
@@ -102,6 +109,10 @@ function buildDetailSheet(orders: OrderListItem[]) {
         i === 0 ? o.advance_amount : '',
         i === 0 ? balance : '',
         i === 0 ? (o.exhibition_name || '') : '',
+        i === 0 ? (o.created_by_name || '') : '',
+        i === 0 ? (o.lead_phone || '') : '',
+        i === 0 ? (o.lead_city || '') : '',
+        i === 0 ? (o.lead_state || '') : '',
       ]);
     });
 
@@ -121,7 +132,7 @@ function buildDetailSheet(orders: OrderListItem[]) {
   rows.push([]);
   rows.push([
     '', '', '', '', 'TOTAL', '', '', '', '', '', '',
-    orderValueSum, advanceSum, orderValueSum - advanceSum, '',
+    orderValueSum, advanceSum, orderValueSum - advanceSum, '', '', '', '', '',
   ]);
 
   const sheet = XLSX.utils.aoa_to_sheet(rows);
@@ -129,7 +140,8 @@ function buildDetailSheet(orders: OrderListItem[]) {
   sheet['!cols'] = [
     { wch: 12 }, { wch: 20 }, { wch: 18 }, { wch: 16 }, { wch: 11 },
     { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 8 }, { wch: 10 }, { wch: 11 },
-    { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 16 },
+    { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 16 },
+    { wch: 14 }, { wch: 14 }, { wch: 14 },
   ];
   return sheet;
 }

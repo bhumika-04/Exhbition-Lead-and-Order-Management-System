@@ -90,13 +90,15 @@ public class RoleService : IRoleService
     public async Task<List<UserDto>> GetUsersAsync()
     {
         using var conn = _db.CreateConnection();
+        // Inactive users included, deliberately — deactivating someone must
+        // not make them disappear, or reactivating one means hunting for
+        // their EmployeeId with no list to find it on.
         var rows = await conn.QueryAsync<dynamic>(@"
             SELECT e.EmployeeId, e.FullName, e.Email, e.Phone, e.Designation,
                    e.RoleId, r.RoleName, e.IsActive, e.CreatedAt
             FROM Employees e
             LEFT JOIN Roles r ON r.RoleId = e.RoleId
-            WHERE e.IsActive = 1
-            ORDER BY e.FullName");
+            ORDER BY e.IsActive DESC, e.FullName");
         return rows.Select(MapUser).ToList();
     }
 
@@ -183,6 +185,15 @@ public class RoleService : IRoleService
         // Soft delete
         var rows = await conn.ExecuteAsync(
             "UPDATE Employees SET IsActive = 0 WHERE EmployeeId = @EmployeeId",
+            new { EmployeeId = employeeId });
+        return rows > 0;
+    }
+
+    public async Task<bool> ReactivateUserAsync(int employeeId)
+    {
+        using var conn = _db.CreateConnection();
+        var rows = await conn.ExecuteAsync(
+            "UPDATE Employees SET IsActive = 1 WHERE EmployeeId = @EmployeeId",
             new { EmployeeId = employeeId });
         return rows > 0;
     }

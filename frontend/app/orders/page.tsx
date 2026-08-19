@@ -8,11 +8,11 @@ import { formatDistanceToNow } from 'date-fns';
 import {
   ShoppingBag, Loader2, ChevronRight, FileText, Ticket, IndianRupee,
   Wallet, Inbox, Trophy, ScanLine, Smartphone, Search, X,
-  FileClock, CheckCircle2, CheckSquare, Square, Send, Download,
+  FileClock, CheckCircle2, CheckSquare, Square, Send, Download, Users,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { isAuthenticated, hasPermission } from '@/lib/auth';
-import type { OrderListItem, OrderListTotals, CouponHolder, Exhibition } from '@/lib/types';
+import type { OrderListItem, OrderListTotals, CouponHolder, SalespersonReport, Exhibition } from '@/lib/types';
 import { money, ORDER_STATUS_LABELS, ORDER_STATUS_STYLES } from '@/lib/orders';
 import { exportOrders } from '@/lib/orderExport';
 import PageHeader from '@/components/PageHeader';
@@ -28,7 +28,7 @@ const inputClass =
   'h-9 w-full rounded-lg border border-border bg-card text-sm text-foreground ' +
   'placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring/30 focus:border-input';
 
-type Tab = 'all' | 'customer' | 'drafts' | 'confirmed' | 'coupons';
+type Tab = 'all' | 'customer' | 'drafts' | 'confirmed' | 'coupons' | 'salespeople';
 
 export default function OrdersPage() {
   const router = useRouter();
@@ -37,6 +37,7 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<OrderListItem[]>([]);
   const [totals, setTotals] = useState<OrderListTotals | null>(null);
   const [holders, setHolders] = useState<CouponHolder[]>([]);
+  const [salespeople, setSalespeople] = useState<SalespersonReport[]>([]);
   const [exhibitions, setExhibitions] = useState<Exhibition[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -77,7 +78,7 @@ export default function OrdersPage() {
   }, [router]);
 
   useEffect(() => {
-    if (tab === 'coupons') return;
+    if (tab === 'coupons' || tab === 'salespeople') return;
     const t = setTimeout(load, search ? 300 : 0);
     return () => clearTimeout(t);
   }, [load, search, tab]);
@@ -87,6 +88,13 @@ export default function OrdersPage() {
     api.getCouponHolders(exhibitionId ? Number(exhibitionId) : undefined)
       .then(setHolders)
       .catch(() => toast.error('Could not load coupon holders'));
+  }, [tab, exhibitionId]);
+
+  useEffect(() => {
+    if (tab !== 'salespeople') return;
+    api.getSalespeople(exhibitionId ? Number(exhibitionId) : undefined)
+      .then(setSalespeople)
+      .catch(() => toast.error('Could not load the salesperson report'));
   }, [tab, exhibitionId]);
 
   const handleExport = async () => {
@@ -114,6 +122,11 @@ export default function OrdersPage() {
     }
   };
 
+  // Both are ranked, read-only summaries rather than an order list — same
+  // reduced filter set (exhibition only, no search/status/export) as each
+  // other, and neither shares the "orders" loading state below.
+  const isAggregateTab = tab === 'coupons' || tab === 'salespeople';
+
   const pendingCustomer = totals?.pending_self_service ?? 0;
 
   const value        = totals?.total_value ?? 0;
@@ -132,11 +145,12 @@ export default function OrdersPage() {
   ];
 
   const tabs: { key: Tab; label: string; icon: any; badge?: number }[] = [
-    { key: 'all',       label: 'All orders',     icon: Inbox },
-    { key: 'customer',  label: 'From customers', icon: Smartphone, badge: pendingCustomer },
-    { key: 'drafts',    label: 'Drafts',         icon: FileClock },
-    { key: 'confirmed', label: 'Confirmed',      icon: CheckCircle2 },
-    { key: 'coupons',   label: 'Lucky draw',     icon: Trophy },
+    { key: 'all',         label: 'All orders',     icon: Inbox },
+    { key: 'customer',    label: 'From customers', icon: Smartphone, badge: pendingCustomer },
+    { key: 'drafts',      label: 'Drafts',         icon: FileClock },
+    { key: 'confirmed',   label: 'Confirmed',      icon: CheckCircle2 },
+    { key: 'coupons',     label: 'Lucky draw',     icon: Trophy },
+    { key: 'salespeople', label: 'By Salesperson', icon: Users },
   ];
 
   return (
@@ -147,7 +161,7 @@ export default function OrdersPage() {
         subtitle={pendingCustomer > 0
           ? `${pendingCustomer} customer order${pendingCustomer === 1 ? '' : 's'} waiting for you`
           : 'Nothing waiting'}
-        actions={tab !== 'coupons' && (
+        actions={!isAggregateTab && (
           <div className="flex items-center gap-2">
             <label className="flex items-center gap-1.5 text-xs text-muted-foreground select-none cursor-pointer">
               <input type="checkbox" checked={exportItems}
@@ -228,7 +242,7 @@ export default function OrdersPage() {
 
         {/* Search takes its own line on a phone (it needs the width); the two
             selects share the row beneath it. */}
-        {tab !== 'coupons' ? (
+        {!isAggregateTab ? (
           <div className="flex flex-col sm:flex-row gap-2 flex-1 min-w-0">
             <div className="relative w-full sm:flex-1 min-w-0">
               <ScanLine className="w-4 h-4 text-muted-foreground/50 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -278,10 +292,12 @@ export default function OrdersPage() {
         )}
       </div>
 
-      {loading && tab !== 'coupons' ? (
+      {loading && !isAggregateTab ? (
         <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground/40" /></div>
       ) : tab === 'coupons' ? (
         <CouponTable holders={holders} onOpen={id => router.push(`/leads/${id}`)} />
+      ) : tab === 'salespeople' ? (
+        <SalespersonTable salespeople={salespeople} />
       ) : orders.length === 0 ? (
         <EmptyState
           icon={tab === 'customer' ? Smartphone
@@ -564,6 +580,60 @@ function CouponTable({ holders, onOpen }: { holders: CouponHolder[]; onOpen: (le
             <p className="text-[10px] text-muted-foreground tabular">adv {money(h.total_advance)}</p>
           </div>
         </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Ranked by order value, same shape as the coupon leaderboard above — not
+ * clickable, since a salesperson has no single detail page to open the way
+ * a lead does.
+ */
+function SalespersonTable({ salespeople }: { salespeople: SalespersonReport[] }) {
+  const totalValue = salespeople.reduce((s, p) => s + p.total_value, 0);
+  const max = salespeople.length > 0 ? salespeople[0].total_value : 0;
+
+  if (salespeople.length === 0) {
+    return (
+      <EmptyState icon={Users} title="No orders yet"
+                  hint="Orders show up here grouped by whoever created them." />
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] text-muted-foreground">
+        {money(totalValue)} across {salespeople.length} salesperson{salespeople.length === 1 ? '' : 's'}
+      </p>
+      {salespeople.map((p, i) => (
+        <div
+          key={p.employee_id ?? 'unassigned'}
+          className="w-full rounded-lg border border-border bg-card shadow-xs px-3.5 py-2.5 flex items-center gap-3"
+        >
+          <span className={cn(
+            'w-6 h-6 rounded-md shrink-0 flex items-center justify-center text-[10px] font-bold tabular',
+            i === 0 ? 'bg-primary/10 text-primary' : 'text-muted-foreground',
+          )}>
+            {i + 1}
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-foreground truncate">{p.employee_name}</p>
+            <p className="text-[11px] text-muted-foreground truncate">
+              {p.order_count} order{p.order_count === 1 ? '' : 's'}
+              {' · '}{p.draft_count} draft{p.draft_count === 1 ? '' : 's'}
+              {' · '}{p.confirmed_count} confirmed
+            </p>
+            <div className="h-1 bg-secondary rounded-full mt-1.5 overflow-hidden">
+              <div className="h-full bg-primary/70 rounded-full transition-[width] duration-500"
+                   style={{ width: `${max > 0 ? (p.total_value / max) * 100 : 0}%` }} />
+            </div>
+          </div>
+          <div className="text-right shrink-0">
+            <p className="text-sm font-semibold text-primary tabular">{money(p.total_value)}</p>
+            <p className="text-[10px] text-muted-foreground tabular">adv {money(p.total_advance)}</p>
+          </div>
+        </div>
       ))}
     </div>
   );

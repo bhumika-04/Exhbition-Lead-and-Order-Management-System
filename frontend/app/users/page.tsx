@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { api } from '@/lib/api';
 import { isAuthenticated, hasPermission } from '@/lib/auth';
 import type { UserDto, Role } from '@/lib/types';
-import { UserPlus, Edit2, Trash2, Loader2, X, Eye, EyeOff, KeyRound } from 'lucide-react';
+import { UserPlus, Edit2, Trash2, UserX, UserCheck, Loader2, X, Eye, EyeOff, KeyRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -52,6 +52,7 @@ export default function UsersPage() {
   const [resetConfirm, setResetConfirm] = useState('');
   const [showResetPw, setShowResetPw] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [reactivatingId, setReactivatingId] = useState<number | null>(null);
 
   const [form, setForm] = useState<UserForm>(emptyForm());
 
@@ -150,12 +151,23 @@ export default function UsersPage() {
     setDeleting(true);
     try {
       await api.deleteUser(deletingUser.employee_id);
-      toast.success('User deleted');
+      toast.success('User deactivated');
       setDeletingUser(null);
       loadData();
     } catch (e: any) {
-      toast.error(e?.response?.data?.error || 'Failed to delete user');
+      toast.error(e?.response?.data?.error || 'Failed to deactivate user');
     } finally { setDeleting(false); }
+  };
+
+  const handleReactivate = async (user: UserDto) => {
+    setReactivatingId(user.employee_id);
+    try {
+      await api.reactivateUser(user.employee_id);
+      toast.success(`${user.full_name} reactivated`);
+      loadData();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error || 'Failed to reactivate user');
+    } finally { setReactivatingId(null); }
   };
 
   const openResetPassword = (user: UserDto) => {
@@ -183,6 +195,8 @@ export default function UsersPage() {
   if (!mounted) return null;
 
   const modalOpen = showCreateModal || !!editingUser;
+  const activeCount = users.filter(u => u.is_active).length;
+  const inactiveCount = users.length - activeCount;
 
   return (
     <div className="flex-1 overflow-y-auto bg-background min-h-screen">
@@ -190,7 +204,10 @@ export default function UsersPage() {
       <div className="bg-card border-b border-border sticky top-0 z-10 px-4 md:px-6 py-4 md:py-0 md:min-h-[65px] flex items-center justify-between shrink-0">
         <div>
           <h1 className="text-xl font-bold text-foreground">User Management</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">{users.length} active user{users.length !== 1 ? 's' : ''}</p>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {activeCount} active user{activeCount !== 1 ? 's' : ''}
+            {inactiveCount > 0 && ` · ${inactiveCount} deactivated`}
+          </p>
         </div>
         <Button onClick={openCreate} className="bg-primary hover:bg-primary/90 text-white gap-2">
           <UserPlus className="w-4 h-4" /> Add User
@@ -216,11 +233,11 @@ export default function UsersPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: idx * 0.04 }}
               >
-                <Card className="hover:shadow-md transition-shadow">
+                <Card className={`hover:shadow-md transition-shadow ${!user.is_active ? 'opacity-60' : ''}`}>
                   <CardContent className="p-0">
                     <div className="flex items-center gap-4 px-5 py-4">
                       {/* Avatar */}
-                      <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center shrink-0 text-white font-bold text-lg`}>
+                      <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center shrink-0 text-white font-bold text-lg ${!user.is_active ? 'grayscale' : ''}`}>
                         {initial}
                       </div>
 
@@ -228,6 +245,9 @@ export default function UsersPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-semibold text-foreground">{user.full_name}</span>
+                          {!user.is_active && (
+                            <Badge variant="destructive" className="text-xs">Deactivated</Badge>
+                          )}
                           {user.role_name ? (
                             <Badge variant="secondary" className="text-xs bg-primary/10 text-primary">{user.role_name}</Badge>
                           ) : (
@@ -242,29 +262,46 @@ export default function UsersPage() {
                         )}
                       </div>
 
-                      {/* Actions */}
+                      {/* Actions — a deactivated user only gets reactivated,
+                          not edited or reset from here; that stays a
+                          deliberate second step once they are back. */}
                       <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          onClick={() => openResetPassword(user)}
-                          className="p-2 text-muted-foreground hover:text-warning hover:bg-warning/12 rounded-lg transition"
-                          title="Reset Password"
-                        >
-                          <KeyRound className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => openEdit(user)}
-                          className="p-2 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition"
-                          title="Edit"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => setDeletingUser(user)}
-                          className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/12 rounded-lg transition"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {user.is_active ? (
+                          <>
+                            <button
+                              onClick={() => openResetPassword(user)}
+                              className="p-2 text-muted-foreground hover:text-warning hover:bg-warning/12 rounded-lg transition"
+                              title="Reset Password"
+                            >
+                              <KeyRound className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => openEdit(user)}
+                              className="p-2 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition"
+                              title="Edit"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setDeletingUser(user)}
+                              className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/12 rounded-lg transition"
+                              title="Deactivate"
+                            >
+                              <UserX className="w-4 h-4" />
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => handleReactivate(user)}
+                            disabled={reactivatingId === user.employee_id}
+                            className="p-2 text-muted-foreground hover:text-success hover:bg-success/12 rounded-lg transition disabled:opacity-50"
+                            title="Reactivate"
+                          >
+                            {reactivatingId === user.employee_id
+                              ? <Loader2 className="w-4 h-4 animate-spin" />
+                              : <UserCheck className="w-4 h-4" />}
+                          </button>
+                        )}
                       </div>
                     </div>
                   </CardContent>
@@ -419,16 +456,16 @@ export default function UsersPage() {
               className="bg-card rounded-2xl shadow-2xl w-full max-w-sm p-6"
             >
               <div className="w-12 h-12 bg-destructive/12 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Trash2 className="w-6 h-6 text-destructive" />
+                <UserX className="w-6 h-6 text-destructive" />
               </div>
-              <h3 className="text-lg font-bold text-foreground text-center mb-2">Delete User?</h3>
+              <h3 className="text-lg font-bold text-foreground text-center mb-2">Deactivate User?</h3>
               <p className="text-sm text-muted-foreground text-center mb-6">
-                <span className="font-semibold text-foreground">{deletingUser.full_name}</span> will be deactivated and can no longer log in.
+                <span className="font-semibold text-foreground">{deletingUser.full_name}</span> will be deactivated and can no longer log in. Their history and past records are kept.
               </p>
               <div className="flex gap-3">
                 <Button variant="outline" className="flex-1" onClick={() => setDeletingUser(null)}>Cancel</Button>
                 <Button className="flex-1 bg-destructive hover:bg-destructive text-white" onClick={handleDelete} disabled={deleting}>
-                  {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Delete'}
+                  {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Deactivate'}
                 </Button>
               </div>
             </motion.div>

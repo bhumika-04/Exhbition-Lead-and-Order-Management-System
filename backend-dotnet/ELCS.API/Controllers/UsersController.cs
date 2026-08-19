@@ -78,6 +78,15 @@ public class UsersController : ControllerBase
         return Ok(new { success = true });
     }
 
+    // POST /api/users/{id}/reactivate
+    [HttpPost("{id:int}/reactivate")]
+    public async Task<IActionResult> ReactivateUser(int id)
+    {
+        var ok = await _roleService.ReactivateUserAsync(id);
+        if (!ok) return NotFound(new { error = "User not found" });
+        return Ok(new { success = true });
+    }
+
     // POST /api/users/{id}/reset-password
     [HttpPost("{id:int}/reset-password")]
     public async Task<IActionResult> ResetPassword(int id, [FromBody] ResetPasswordRequest request)

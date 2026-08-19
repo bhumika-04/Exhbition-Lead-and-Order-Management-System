@@ -39,6 +39,11 @@ public interface IOrderService
 
     /// <summary>Leads ranked by lucky-draw coupons.</summary>
     Task<List<CouponHolderDto>> GetCouponHoldersAsync(int? exhibitionId);
+
+    /// <summary>Orders grouped by who created them — value, advance and order
+    /// count per staff member, ranked by value. Cancelled orders excluded,
+    /// same as every other total on this page.</summary>
+    Task<List<SalespersonReportDto>> GetSalesBySalespersonAsync(int? exhibitionId);
 }
 
 
@@ -153,6 +158,8 @@ public record OrderListItemDto(
     string? LeadName,
     string? LeadCompanyName,
     string? LeadPhone,
+    string? LeadCity,
+    string? LeadState,
     string? ExhibitionName,
     string StatusCode,
     string Source,              // so a customer-submitted order is identifiable
@@ -162,6 +169,7 @@ public record OrderListItemDto(
     int TotalPieces,
     string? SoPdfPath,
     DateTime CreatedAt,
+    string? CreatedByName,
     // Filled in after the main query — one line per scanned item, for the
     // Orders page export. Not used by the list view itself.
     List<OrderItemExportDto>? Items = null
@@ -202,6 +210,16 @@ public record CouponHolderDto(
     decimal TotalAdvance,
     int Coupons,
     int OrderCount
+);
+
+public record SalespersonReportDto(
+    int? EmployeeId,
+    string EmployeeName,
+    int OrderCount,
+    int DraftCount,
+    int ConfirmedCount,
+    decimal TotalValue,
+    decimal TotalAdvance
 );
 
 /// <summary>

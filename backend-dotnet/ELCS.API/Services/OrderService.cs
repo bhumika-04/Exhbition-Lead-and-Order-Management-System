@@ -473,6 +473,9 @@ public class OrderService : IOrderService
                    l.PrimaryVisitorName  AS LeadName,
                    l.CompanyName         AS LeadCompanyName,
                    l.PrimaryVisitorPhone AS LeadPhone,
+                   -- Addresses is a JSON array on Leads; take the first one.
+                   JSON_VALUE(l.Addresses, '$[0].city')  AS LeadCity,
+                   JSON_VALUE(l.Addresses, '$[0].state') AS LeadState,
                    e.Name                AS ExhibitionName,
                    o.StatusCode,
                    o.Source,
@@ -480,10 +483,12 @@ public class OrderService : IOrderService
                    o.AdvanceAmount,
                    ISNULL(i.ItemCount, 0)   AS ItemCount,
                    ISNULL(i.TotalPieces, 0) AS TotalPieces,
-                   o.SoPdfPath, o.CreatedAt
+                   o.SoPdfPath, o.CreatedAt,
+                   emp.FullName          AS CreatedByName
             FROM Orders o
             JOIN Leads l            ON l.LeadId = o.LeadId
             LEFT JOIN Exhibitions e ON e.ExhibitionId = o.ExhibitionId
+            LEFT JOIN Employees emp ON emp.EmployeeId = o.CreatedByEmployeeId
             OUTER APPLY (
                 SELECT COUNT(*) AS ItemCount, SUM(Pieces) AS TotalPieces
                 FROM OrderItems WHERE OrderId = o.OrderId
@@ -518,8 +523,9 @@ public class OrderService : IOrderService
 
         var orders = rows.Select(r => new OrderListItemDto(
             r.OrderId, r.OrderNumber, r.LeadId, r.LeadName, r.LeadCompanyName, r.LeadPhone,
+            r.LeadCity, r.LeadState,
             r.ExhibitionName, r.StatusCode, r.Source, r.EffectiveValue, r.AdvanceAmount,
-            r.ItemCount, r.TotalPieces, r.SoPdfPath, r.CreatedAt,
+            r.ItemCount, r.TotalPieces, r.SoPdfPath, r.CreatedAt, r.CreatedByName,
             itemsByOrder[r.OrderId].ToList()
         )).ToList();
 
@@ -619,6 +625,42 @@ public class OrderService : IOrderService
             .Where(c => c.Coupons > 0)
             .OrderByDescending(c => c.Coupons)
             .ThenByDescending(c => c.TotalAdvance)
+            .ToList();
+    }
+
+    public async Task<List<SalespersonReportDto>> GetSalesBySalespersonAsync(int? exhibitionId)
+    {
+        using var conn = _db.CreateConnection();
+
+        var filter = exhibitionId.HasValue ? " AND o.ExhibitionId = @ExhibitionId" : "";
+
+        var rows = await conn.QueryAsync<(int? EmployeeId, string? EmployeeName, int OrderCount,
+            int DraftCount, int ConfirmedCount, decimal TotalValue, decimal TotalAdvance)>($@"
+            SELECT o.CreatedByEmployeeId AS EmployeeId,
+                   emp.FullName          AS EmployeeName,
+                   COUNT(*)                                                        AS OrderCount,
+                   SUM(CASE WHEN o.StatusCode = 'draft'     THEN 1 ELSE 0 END)      AS DraftCount,
+                   SUM(CASE WHEN o.StatusCode = 'confirmed' THEN 1 ELSE 0 END)      AS ConfirmedCount,
+                   SUM({EffectiveValueSql})                                        AS TotalValue,
+                   SUM(o.AdvanceAmount)                                            AS TotalAdvance
+            FROM Orders o
+            LEFT JOIN Employees emp ON emp.EmployeeId = o.CreatedByEmployeeId
+            WHERE o.{ActiveOnly}{filter}
+            GROUP BY o.CreatedByEmployeeId, emp.FullName",
+            new { ExhibitionId = exhibitionId });
+
+        return rows
+            .Select(r => new SalespersonReportDto(
+                EmployeeId:     r.EmployeeId,
+                // Predates the CreatedByEmployeeId column, or created outside
+                // a staff session — a handful of orders, not worth hiding.
+                EmployeeName:   r.EmployeeName ?? "Unassigned",
+                OrderCount:     r.OrderCount,
+                DraftCount:     r.DraftCount,
+                ConfirmedCount: r.ConfirmedCount,
+                TotalValue:     r.TotalValue,
+                TotalAdvance:   r.TotalAdvance))
+            .OrderByDescending(s => s.TotalValue)
             .ToList();
     }
 
@@ -738,7 +780,9 @@ public class OrderService : IOrderService
     private record OrderListItemRow(
         int OrderId, string OrderNumber, int LeadId,
         string? LeadName, string? LeadCompanyName, string? LeadPhone,
+        string? LeadCity, string? LeadState,
         string? ExhibitionName, string StatusCode, string Source,
         decimal EffectiveValue, decimal AdvanceAmount,
-        int ItemCount, int TotalPieces, string? SoPdfPath, DateTime CreatedAt);
+        int ItemCount, int TotalPieces, string? SoPdfPath, DateTime CreatedAt,
+        string? CreatedByName);
 }
